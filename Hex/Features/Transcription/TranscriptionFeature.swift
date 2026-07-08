@@ -15,6 +15,13 @@ import WhisperKit
 
 private let transcriptionFeatureLogger = HexLog.transcription
 
+public enum ToolCallPhase: Equatable, Sendable {
+	case none
+	case executing(toolName: String)
+	case completed(toolName: String)
+	case failed(toolName: String, error: String)
+}
+
 @Reducer
 struct TranscriptionFeature {
   @ObservableState
@@ -23,6 +30,10 @@ struct TranscriptionFeature {
     var isTranscribing: Bool = false
     var isPrewarming: Bool = false
     var isLocked: Bool = false
+    var isAutonomousRecording: Bool = false
+    var isToolCalling: Bool = false
+    var toolCallMessage: String = ""
+    var toolCallPhase: ToolCallPhase = .none
     var error: String?
     var recordingStartTime: Date?
     var meter: Meter = .init(averagePower: 0, peakPower: 0)
@@ -43,6 +54,8 @@ struct TranscriptionFeature {
     case hotKeyPressed
     case hotKeyReleased
     case setLocked(Bool)
+    case setAutonomousRecording(Bool)
+    case toggleAutonomousMode
 
     // Recording flow
     case startRecording(isLocked: Bool)
@@ -53,8 +66,14 @@ struct TranscriptionFeature {
     case discard  // Silent discard (too short/accidental)
 
     // Transcription result flow
-    case transcriptionResult(String, URL)
-    case transcriptionError(Error, URL?)
+    case transcriptionResult(result: String, url: URL, isAutonomous: Bool)
+    case transcriptionError(error: Error, url: URL?, isAutonomous: Bool)
+
+    // Tool calling UI
+    case toolCallDetected(toolName: String, message: String)
+    case toolCallCompleted(toolName: String)
+    case toolCallFailed(toolName: String, error: String)
+    case toolCallDismissed
 
     // Model availability
     case modelMissing
@@ -74,6 +93,8 @@ struct TranscriptionFeature {
   @Dependency(\.date.now) var now
   @Dependency(\.transcriptPersistence) var transcriptPersistence
   @Dependency(\.aiPostProcessing) var aiPostProcessing
+  @Dependency(\.aiOrchestrator) var aiOrchestrator
+  @Dependency(\.speechSynthesis) var speechSynthesis
 
   var body: some ReducerOf<Self> {
     Reduce { state, action in
@@ -113,6 +134,24 @@ struct TranscriptionFeature {
         state.isLocked = isLocked
         return .none
 
+      case let .setAutonomousRecording(isAuto):
+        state.isAutonomousRecording = isAuto
+        return .none
+
+      case .toggleAutonomousMode:
+        if state.isAutonomousRecording {
+          // If already in autonomous recording, stop it and process
+          transcriptionFeatureLogger.notice("🔮 Autonomous mode shortcut pressed while active, stopping...")
+          return handleStopRecording(&state)
+        } else {
+          // Cancel normal dictation if recording
+          let maybeCancel = state.isRecording ? handleCancel(&state) : .none
+          transcriptionFeatureLogger.notice("🔮 Autonomous mode shortcut pressed, starting recording...")
+          state.isAutonomousRecording = true
+          let startRecording = handleStartRecording(&state, isLocked: true)
+          return .merge(maybeCancel, startRecording)
+        }
+
       // MARK: - Recording Flow
 
       case let .startRecording(isLocked):
@@ -123,11 +162,42 @@ struct TranscriptionFeature {
 
       // MARK: - Transcription Results
 
-      case let .transcriptionResult(result, audioURL):
-        return handleTranscriptionResult(&state, result: result, audioURL: audioURL)
+      case let .transcriptionResult(result, audioURL, isAutonomous):
+        return handleTranscriptionResult(&state, result: result, audioURL: audioURL, isAutonomous: isAutonomous)
 
-      case let .transcriptionError(error, audioURL):
-        return handleTranscriptionError(&state, error: error, audioURL: audioURL)
+      case let .transcriptionError(error, audioURL, isAutonomous):
+        return handleTranscriptionError(&state, error: error, audioURL: audioURL, isAutonomous: isAutonomous)
+
+      case let .toolCallDetected(toolName, message):
+        transcriptionFeatureLogger.notice("Tool call notch: detected \(toolName)")
+        state.isToolCalling = true
+        state.toolCallPhase = .executing(toolName: toolName)
+        state.toolCallMessage = message
+        return .none
+
+      case let .toolCallCompleted(toolName):
+        transcriptionFeatureLogger.notice("Tool call notch: completed \(toolName)")
+        state.toolCallPhase = .completed(toolName: toolName)
+        return .run { send in
+          try? await Task.sleep(for: .seconds(2))
+          await send(.toolCallDismissed)
+        }
+
+      case let .toolCallFailed(toolName, error):
+        transcriptionFeatureLogger.notice("Tool call notch: failed \(toolName) - \(error)")
+        state.toolCallPhase = .failed(toolName: toolName, error: error)
+        state.toolCallMessage = error
+        return .run { send in
+          try? await Task.sleep(for: .seconds(3))
+          await send(.toolCallDismissed)
+        }
+
+      case .toolCallDismissed:
+        transcriptionFeatureLogger.notice("Tool call notch: dismissed")
+        state.isToolCalling = false
+        state.toolCallPhase = .none
+        state.toolCallMessage = ""
+        return .none
 
       case .modelMissing:
         return .none
@@ -169,6 +239,7 @@ private extension TranscriptionFeature {
   func startHotKeyMonitoringEffect() -> Effect<Action> {
     .run { send in
       var hotKeyProcessor: HotKeyProcessor = .init(hotkey: HotKey(key: nil, modifiers: [.option]))
+      var lastAutonomousToggle: Date = .distantPast
       @Shared(.isSettingHotKey) var isSettingHotKey: Bool
       @Shared(.hexSettings) var hexSettings: HexSettings
 
@@ -190,7 +261,18 @@ private extension TranscriptionFeature {
         switch inputEvent {
         case .keyboard(let keyEvent):
           // If Escape is pressed with no modifiers while idle, let's treat that as `cancel`.
-          if keyEvent.key == .escape, keyEvent.modifiers.isEmpty,
+          // Cmd+Option(right) toggles autonomous mode (debounced)
+          let hasCmd = keyEvent.modifiers.contains(Modifier(kind: .command))
+          let hasRightOpt = keyEvent.modifiers.contains(Modifier(kind: .option, side: .right))
+          if hasCmd && hasRightOpt {
+            transcriptionFeatureLogger.notice("Cmd+Option(right) detected!")
+            let now = Date()
+            if now.timeIntervalSince(lastAutonomousToggle) > 0.5 {
+              lastAutonomousToggle = now
+              Task { await send(.toggleAutonomousMode) }
+            }
+            shouldIntercept = false
+          } else if keyEvent.key == .escape, keyEvent.modifiers.isEmpty,
              hotKeyProcessor.state == .idle
           {
             Task { await send(.cancel) }
@@ -317,7 +399,9 @@ private extension TranscriptionFeature {
     transcriptionFeatureLogger.notice("Recording started at \(startTime.ISO8601Format())")
 
     // Prevent system sleep during recording
-    return .run { [sleepManagement, preventSleep = state.hexSettings.preventSystemSleep] send in
+    return .run { [speechSynthesis, sleepManagement, preventSleep = state.hexSettings.preventSystemSleep] send in
+      // Stop any ongoing TTS from previous tool invocation
+      await speechSynthesis.stopSpeaking()
       // Play sound immediately for instant feedback
       soundEffect.play(.startRecording)
 
@@ -329,9 +413,10 @@ private extension TranscriptionFeature {
   }
 
   func handleStopRecording(_ state: inout State) -> Effect<Action> {
+    let isAutonomous = state.isAutonomousRecording
     state.isRecording = false
     state.isLocked = false
-    
+
     let stopTime = now
     let startTime = state.recordingStartTime
     let duration = startTime.map { stopTime.timeIntervalSince($0) } ?? 0
@@ -392,10 +477,10 @@ private extension TranscriptionFeature {
         let result = try await transcription.transcribe(capturedURL, model, decodeOptions) { _ in }
         
         transcriptionFeatureLogger.notice("Transcribed audio from \(capturedURL.lastPathComponent) to text length \(result.count)")
-        await send(.transcriptionResult(result, capturedURL))
+        await send(.transcriptionResult(result: result, url: capturedURL, isAutonomous: isAutonomous))
       } catch {
         transcriptionFeatureLogger.error("Transcription failed: \(error.localizedDescription)")
-        await send(.transcriptionError(error, audioURL))
+        await send(.transcriptionError(error: error, url: audioURL, isAutonomous: isAutonomous))
       }
     }
     .cancellable(id: CancelID.transcription)
@@ -408,7 +493,8 @@ private extension TranscriptionFeature {
   func handleTranscriptionResult(
     _ state: inout State,
     result: String,
-    audioURL: URL
+    audioURL: URL,
+    isAutonomous: Bool
   ) -> Effect<Action> {
     state.isTranscribing = false
     state.isPrewarming = false
@@ -436,7 +522,7 @@ private extension TranscriptionFeature {
     let snippets = state.hexSettings.snippets
     let removalsEnabled = state.hexSettings.wordRemovalsEnabled
     let removals = state.hexSettings.wordRemovals
-    let aiMode = state.hexSettings.aiPostProcessingMode
+    let aiMode = AIPostProcessingMode.appAware
     let modifiedResult: String
 
     if state.isRemappingScratchpadFocused {
@@ -472,12 +558,50 @@ private extension TranscriptionFeature {
     let appContext = state.appContext
     let transcriptionHistory = state.$transcriptionHistory
     let isRemappingScratchpadFocused = state.isRemappingScratchpadFocused
-    let useAI = aiMode != .off && !isRemappingScratchpadFocused
+    let useAI = !isRemappingScratchpadFocused
 
     return .run { send in
       var resultToUse = modifiedResult
 
-      if useAI {
+      // Autonomous mode: try orchestrator first (tool detection + optional post-processing)
+      if isAutonomous {
+        transcriptionFeatureLogger.info("Autonomous mode active, calling orchestrator...")
+        do {
+          if let orchestratorOutput = try await aiOrchestrator.process(modifiedResult, appContext, onToolDetected: { toolName in
+                await send(.toolCallDetected(toolName: toolName, message: "Calling " + toolName + "..."))
+              }) {
+            switch orchestratorOutput {
+            case .text(let cleanedText):
+              // No tool call — cleaned text, paste as normal
+              resultToUse = cleanedText
+              transcriptionFeatureLogger.info("Orchestrator returned cleaned text")
+
+            case .toolCallsExecuted(let results):
+              // Tool calls were detected and executed with TTS confirmation
+              let toolNames = results.map(\.toolName).joined(separator: ", ")
+              transcriptionFeatureLogger.info("Orchestrator executed tools: \(toolNames)")
+              // Update notch based on success/failure of each tool
+              for result in results {
+                if result.success {
+                  await send(.toolCallCompleted(toolName: result.toolName))
+                } else {
+                  await send(.toolCallFailed(toolName: result.toolName, error: result.message))
+                }
+              }
+              // Skip pasting — the tool already handled the request
+              return
+            }
+          } else {
+            // Orchestrator returned nil (not configured), fall through to normal AI post-processing
+            transcriptionFeatureLogger.info("Orchestrator returned nil, falling back to AI post-processing")
+          }
+        } catch {
+          transcriptionFeatureLogger.error("Orchestrator failed: \(error.localizedDescription), falling back to AI post-processing")
+        }
+      }
+
+      // Standard AI post-processing (used when orchestrator falls through or autonomous is off)
+      if useAI && !isAutonomous {
         do {
           resultToUse = try await aiPostProcessing.postProcess(modifiedResult, aiMode, appContext)
           transcriptionFeatureLogger.info("AI post-processing completed with mode: \(aiMode.displayName), app: \(appContext?.appName ?? "unknown")")
@@ -500,8 +624,11 @@ private extension TranscriptionFeature {
           audioURL: audioURL,
           transcriptionHistory: transcriptionHistory
         )
+        if isAutonomous {
+          await send(.setAutonomousRecording(false))
+        }
       } catch {
-        await send(.transcriptionError(error, audioURL))
+        await send(.transcriptionError(error: error, url: audioURL, isAutonomous: isAutonomous))
       }
     }
     .cancellable(id: CancelID.transcription)
@@ -510,7 +637,8 @@ private extension TranscriptionFeature {
   func handleTranscriptionError(
     _ state: inout State,
     error: Error,
-    audioURL: URL?
+    audioURL: URL?,
+    isAutonomous: Bool
   ) -> Effect<Action> {
     state.isTranscribing = false
     state.isPrewarming = false
@@ -575,6 +703,7 @@ private extension TranscriptionFeature {
     state.isRecording = false
     state.isPrewarming = false
     state.isLocked = false
+    state.isAutonomousRecording = false
 
     return .merge(
       .cancel(id: CancelID.transcription),
@@ -593,6 +722,7 @@ private extension TranscriptionFeature {
     state.isRecording = false
     state.isPrewarming = false
     state.isLocked = false
+    state.isAutonomousRecording = false
 
     // Silently discard - no sound effect
     return .run { [sleepManagement] _ in
@@ -611,12 +741,25 @@ struct TranscriptionView: View {
   @ObserveInjection var inject
 
   var status: TranscriptionIndicatorView.Status {
-    if store.isTranscribing {
-      return .transcribing
+    if store.isToolCalling {
+      switch store.toolCallPhase {
+      case .none:
+        return store.isTranscribing ? (store.isAutonomousRecording ? .autonomousTranscribing : .transcribing) : .hidden
+      case .executing(let name):
+        return .toolCalling(name: name, phase: .executing)
+      case .completed(let name):
+        return .toolCalling(name: name, phase: .completed)
+      case .failed(let name, _):
+        return .toolCalling(name: name, phase: .failed)
+      }
+    } else if store.isTranscribing {
+      return store.isAutonomousRecording ? .autonomousTranscribing : .transcribing
     } else if store.isRecording {
-      return .recording
+      return store.isAutonomousRecording ? .autonomousRecording : .recording
     } else if store.isPrewarming {
       return .prewarming
+    } else if store.isAutonomousRecording {
+      return .autonomous
     } else {
       return .hidden
     }
@@ -628,7 +771,8 @@ struct TranscriptionView: View {
       isLocked: store.isLocked,
       meter: store.meter,
       sourceAppBundleID: store.sourceAppBundleID,
-      sourceAppName: store.sourceAppName
+      sourceAppName: store.sourceAppName,
+      toolCallMessage: store.toolCallMessage
     )
     .task {
       await store.send(.task).finish()

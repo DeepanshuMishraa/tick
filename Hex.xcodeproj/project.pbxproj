@@ -16,9 +16,13 @@
 		47E05E0A2D44525B00D26DA6 /* Dependencies in Frameworks */ = {isa = PBXBuildFile; productRef = 47E05E092D44525B00D26DA6 /* Dependencies */; };
 		47E05E0C2D44525B00D26DA6 /* DependenciesMacros in Frameworks */ = {isa = PBXBuildFile; productRef = 47E05E0B2D44525B00D26DA6 /* DependenciesMacros */; };
 		47E16A622EC6C9D300885CF7 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 47E16A612EC6C9D300885CF7 /* FluidAudio */; };
+		8607E80B21D6498989142CA6 /* GoogleProvider in Frameworks */ = {isa = PBXBuildFile; productRef = 534C27415545420AA260E6F6 /* GoogleProvider */; };
+		8A542CD7FA514B7D91A50ED6 /* SwiftEdgeTTS in Frameworks */ = {isa = PBXBuildFile; productRef = 274B6144418246C289D248D6 /* SwiftEdgeTTS */; };
+		AFECE567547747E5BF02F8D4 /* SwiftAISDK in Frameworks */ = {isa = PBXBuildFile; productRef = 463D8711125747CA96A0136B /* SwiftAISDK */; };
 		B5045C972D78DED500D0A119 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = B5045C962D78DED500D0A119 /* MarkdownUI */; };
 		B53356002D7B8D4900E5F542 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B53355FF2D7B8D4900E5F542 /* Localizable.xcstrings */; };
 		C1A5H00100000000000000A1 /* ClashGrotesk-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C1A5H00100000000000000B1 /* ClashGrotesk-Variable.ttf */; };
+		E71478CE9CB74644B0153F78 /* OpenAIProvider in Frameworks */ = {isa = PBXBuildFile; productRef = 7655BC5CBCEF4344B0202D78 /* OpenAIProvider */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -83,6 +87,10 @@
 				47C08AB62DE9F61B00564AE6 /* Inject in Frameworks */,
 				47E05E0C2D44525B00D26DA6 /* DependenciesMacros in Frameworks */,
 				47E05E022D444EE900D26DA6 /* ComposableArchitecture in Frameworks */,
+				AFECE567547747E5BF02F8D4 /* SwiftAISDK in Frameworks */,
+				E71478CE9CB74644B0153F78 /* OpenAIProvider in Frameworks */,
+				8607E80B21D6498989142CA6 /* GoogleProvider in Frameworks */,
+				8A542CD7FA514B7D91A50ED6 /* SwiftEdgeTTS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -168,6 +176,10 @@
 				47512ABE2E14D8C9000E25BA /* WhisperKit */,
 				476316262E5FB31400913CDE /* HexCore */,
 				47E16A612EC6C9D300885CF7 /* FluidAudio */,
+				463D8711125747CA96A0136B /* SwiftAISDK */,
+				7655BC5CBCEF4344B0202D78 /* OpenAIProvider */,
+				534C27415545420AA260E6F6 /* GoogleProvider */,
+				274B6144418246C289D248D6 /* SwiftEdgeTTS */,
 			);
 			productName = tick;
 			productReference = 47E05DEE2D444EC600D26DA6 /* tick Debug.app */;
@@ -211,6 +223,8 @@
 				47512ABD2E14D8C9000E25BA /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				476316252E5FB31400913CDE /* XCLocalSwiftPackageReference "HexCore" */,
 				47E16A602EC6C9D300885CF7 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				B08AFF38435A484B8727CFD8 /* XCRemoteSwiftPackageReference "swift-ai-sdk" */,
+				05F93679A20B4E00BD5B66EC /* XCRemoteSwiftPackageReference "SwiftEdgeTTS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 47E05DEF2D444EC600D26DA6 /* Products */;
@@ -447,7 +461,7 @@
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = YES;
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
@@ -505,7 +519,7 @@
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = YES;
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
@@ -576,6 +590,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		05F93679A20B4E00BD5B66EC /* XCRemoteSwiftPackageReference "SwiftEdgeTTS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/herrkaefer/SwiftEdgeTTS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.0;
+			};
+		};
 		47512ABD2E14D8C9000E25BA /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
@@ -632,6 +654,14 @@
 				kind = branch;
 			};
 		};
+		B08AFF38435A484B8727CFD8 /* XCRemoteSwiftPackageReference "swift-ai-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/teunlao/swift-ai-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.18.2;
+			};
+		};
 		B5045C952D78DED500D0A119 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
@@ -643,6 +673,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		274B6144418246C289D248D6 /* SwiftEdgeTTS */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 05F93679A20B4E00BD5B66EC /* XCRemoteSwiftPackageReference "SwiftEdgeTTS" */;
+			productName = SwiftEdgeTTS;
+		};
+		463D8711125747CA96A0136B /* SwiftAISDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B08AFF38435A484B8727CFD8 /* XCRemoteSwiftPackageReference "swift-ai-sdk" */;
+			productName = SwiftAISDK;
+		};
 		47512ABE2E14D8C9000E25BA /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 47512ABD2E14D8C9000E25BA /* XCRemoteSwiftPackageReference "WhisperKit" */;
@@ -686,6 +726,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 47E16A602EC6C9D300885CF7 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		534C27415545420AA260E6F6 /* GoogleProvider */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B08AFF38435A484B8727CFD8 /* XCRemoteSwiftPackageReference "swift-ai-sdk" */;
+			productName = GoogleProvider;
+		};
+		7655BC5CBCEF4344B0202D78 /* OpenAIProvider */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B08AFF38435A484B8727CFD8 /* XCRemoteSwiftPackageReference "swift-ai-sdk" */;
+			productName = OpenAIProvider;
 		};
 		B5045C962D78DED500D0A119 /* MarkdownUI */ = {
 			isa = XCSwiftPackageProductDependency;

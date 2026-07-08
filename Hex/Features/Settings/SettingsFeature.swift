@@ -58,8 +58,10 @@ struct SettingsFeature {
     var shouldFlashModelSection = false
     
     // API Key Validation
-    var isValidatingAPIKey = false
-    var apiKeyValidationStatus: APIKeyValidationStatus?
+    var isValidatingGroqKey = false
+    var groqKeyValidationStatus: APIKeyValidationStatus?
+    var isValidatingGoogleKey = false
+    var googleKeyValidationStatus: APIKeyValidationStatus?
   }
   
   enum APIKeyValidationStatus: Equatable {
@@ -110,9 +112,20 @@ struct SettingsFeature {
     // AI Post-Processing
     case setAIPostProcessingMode(AIPostProcessingMode)
     case setAIPostProcessingModel(String)
+    case setAIProvider(AIProvider)
     case setGroqAPIKey(String)
+    case setGoogleAPIKey(String)
+    case setGoogleModel(String)
     case validateGroqAPIKey
     case groqAPIKeyValidationResult(Result<Bool, Error>)
+
+    // Autonomous / TTS
+    case toggleTTS
+    case setTTSVoice(String)
+    case previewTTSVoice
+    case validateGoogleAPIKey
+    case googleAPIKeyValidationResult(Result<Bool, Error>)
+    case toggleTool(String)
 
     // Direct settings mutations
     case toggleUseClipboardPaste(Bool)
@@ -491,41 +504,114 @@ struct SettingsFeature {
         state.$hexSettings.withLock { $0.aiPostProcessingModel = model }
         return .none
 
+      case let .setAIProvider(provider):
+        state.$hexSettings.withLock { $0.aiProvider = provider }
+        return .none
+
+      case let .setGoogleAPIKey(key):
+        state.$hexSettings.withLock { $0.googleAPIKey = key.isEmpty ? nil : key }
+        state.googleKeyValidationStatus = nil
+        return .none
+
+      case let .setGoogleModel(model):
+        state.$hexSettings.withLock { $0.googleModel = model }
+        return .none
+
       case let .setGroqAPIKey(key):
         state.$hexSettings.withLock { $0.groqAPIKey = key.isEmpty ? nil : key }
-        state.apiKeyValidationStatus = nil // Reset validation status when key changes
+        state.groqKeyValidationStatus = nil // Reset validation status when key changes
         return .none
       
       case .validateGroqAPIKey:
         guard let apiKey = state.hexSettings.groqAPIKey, !apiKey.isEmpty else {
-          state.apiKeyValidationStatus = .failure("API key is empty")
+          state.groqKeyValidationStatus = .failure("API key is empty")
           return .none
         }
         
-        state.isValidatingAPIKey = true
-        state.apiKeyValidationStatus = nil
+        state.isValidatingGroqKey = true
+        state.groqKeyValidationStatus = nil
         
+        let model = state.hexSettings.aiPostProcessingModel
         return .run { send in
           await send(.groqAPIKeyValidationResult(
-            Result { try await aiPostProcessing.validateAPIKey(apiKey) }
+            Result { try await aiPostProcessing.validateAPIKey(apiKey, .groq, model) }
           ))
         }
       
       case let .groqAPIKeyValidationResult(.success(isValid)):
-        state.isValidatingAPIKey = false
+        state.isValidatingGroqKey = false
         if isValid {
-          state.apiKeyValidationStatus = .success
+          state.groqKeyValidationStatus = .success
           settingsLogger.info("Groq API key validated successfully")
         } else {
-          state.apiKeyValidationStatus = .failure("Invalid API key")
+          state.groqKeyValidationStatus = .failure("Invalid API key")
           settingsLogger.warning("Groq API key validation failed")
         }
         return .none
       
       case let .groqAPIKeyValidationResult(.failure(error)):
-        state.isValidatingAPIKey = false
-        state.apiKeyValidationStatus = .failure(error.localizedDescription)
+        state.isValidatingGroqKey = false
+        state.groqKeyValidationStatus = .failure(error.localizedDescription)
         settingsLogger.error("Groq API key validation error: \(error.localizedDescription)")
+        return .none
+
+      // Autonomous / TTS actions
+      case .toggleTTS:
+        state.$hexSettings.withLock { $0.ttsEnabled.toggle() }
+        return .none
+
+      case let .setTTSVoice(voice):
+        state.$hexSettings.withLock { $0.ttsVoice = voice }
+        return .none
+
+      case .previewTTSVoice:
+        let voice = state.hexSettings.ttsVoice
+        return .run { _ in
+          @Dependency(\.speechSynthesis) var speechSynthesis
+          try? await speechSynthesis.speak("Hello! This is the \(voice) voice.")
+        }
+
+      case .validateGoogleAPIKey:
+        guard let apiKey = state.hexSettings.googleAPIKey, !apiKey.isEmpty else {
+          state.googleKeyValidationStatus = .failure("API key is empty")
+          return .none
+        }
+        
+        state.isValidatingGoogleKey = true
+        state.googleKeyValidationStatus = nil
+        
+        let model = state.hexSettings.googleModel
+        return .run { send in
+          await send(.googleAPIKeyValidationResult(
+            Result { try await aiPostProcessing.validateAPIKey(apiKey, .google, model) }
+          ))
+        }
+
+      case let .googleAPIKeyValidationResult(.success(isValid)):
+        state.isValidatingGoogleKey = false
+        if isValid {
+          state.googleKeyValidationStatus = .success
+          settingsLogger.info("Google API key validated successfully")
+        } else {
+          state.googleKeyValidationStatus = .failure("Invalid API key")
+          settingsLogger.warning("Google API key validation failed")
+        }
+        return .none
+
+      case let .googleAPIKeyValidationResult(.failure(error)):
+        state.isValidatingGoogleKey = false
+        state.googleKeyValidationStatus = .failure(error.localizedDescription)
+        settingsLogger.error("Google API key validation error: \(error.localizedDescription)")
+        return .none
+
+      case let .toggleTool(toolID):
+        state.$hexSettings.withLock { settings in
+          if settings.enabledToolIDs.contains(toolID) {
+            settings.enabledToolIDs.removeAll { $0 == toolID }
+          } else {
+            settings.enabledToolIDs.append(toolID)
+          }
+        }
         return .none
 
       // Direct settings mutations

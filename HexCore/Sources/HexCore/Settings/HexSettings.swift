@@ -6,6 +6,18 @@ public enum RecordingAudioBehavior: String, Codable, CaseIterable, Equatable, Se
 	case doNothing
 }
 
+public enum AIProvider: String, Codable, CaseIterable, Equatable, Sendable {
+	case groq
+	case google
+
+	public var displayName: String {
+		switch self {
+		case .groq: return "Groq"
+		case .google: return "Google Gemini"
+		}
+	}
+}
+
 public enum AIPostProcessingMode: String, Codable, CaseIterable, Equatable, Sendable {
 	case off
 	case on
@@ -39,6 +51,7 @@ CRITICAL WRITING STYLE REQUIREMENT (FORMAL STYLE):
 - Enforce strict capitalization (standard capitalization for sentence starts, proper nouns, and "I").
 - Use standard, grammatically correct punctuation (periods, commas, question marks).
 - Maintain a formal and professional tone appropriate for business or academic communication.
+- Structural Layout & Spacing: You MUST analyze the type of content (e.g., email, normal messaging, grocery list, structured note) and apply appropriate formatting. For emails, structure with a professional greeting, paragraphs separated by blank lines/spaces, and a clean sign-off. For lists or grocery lists, format as a structured bulleted list (using '-' or '*') with proper line breaks. For notes, use headings or bold text where helpful.
 """
 		case 1: // Casual
 			return """
@@ -47,6 +60,7 @@ CRITICAL WRITING STYLE REQUIREMENT (CASUAL STYLE):
 - Keep sentence-initial capitalization (start of sentences and proper nouns capitalized).
 - Use relaxed punctuation and a natural, conversational tone (e.g., fewer commas/periods where natural in chat, but still readable).
 - Maintain a conversational, friendly, and natural voice.
+- Structural Layout & Spacing: You MUST analyze the type of content (e.g., email, normal messaging, grocery list, structured note) and apply appropriate formatting. For emails, structure with a professional greeting, paragraphs separated by blank lines/spaces, and a clean sign-off. For lists or grocery lists, format as a structured bulleted list (using '-' or '*') with proper line breaks. For notes, use headings or bold text where helpful.
 """
 		case 2: // Very Casual
 			fallthrough
@@ -57,6 +71,7 @@ CRITICAL WRITING STYLE REQUIREMENT (VERY CASUAL STYLE):
 - Enforce strict lowercase formatting: DO NOT use any capital letters at all. All letters must be in lowercase.
 - Use relaxed punctuation and a natural/conversational tone.
 - Keep the tone very informal, as if typing a quick message to a close friend.
+- Structural Layout & Spacing: You MUST analyze the type of content (e.g., email, normal messaging, grocery list, structured note) and apply appropriate formatting. For emails, structure with a professional greeting, paragraphs separated by blank lines/spaces, and a clean sign-off. For lists or grocery lists, format as a structured bulleted list (using '-' or '*') with proper line breaks. For notes, use headings or bold text where helpful. Note that all text must remain strictly lowercase.
 """
 		}
 	}
@@ -66,13 +81,13 @@ CRITICAL WRITING STYLE REQUIREMENT (VERY CASUAL STYLE):
 You are an intelligent dictation post-processor. You receive raw speech-to-text output and return clean, polished text ready to be typed into any application.
 
 Your job:
-- Detect the tone and context of the transcription automatically (email, message, command, formal writing, casual note, etc.)
-- Adapt your processing based on the detected context:
-  * For emails: Use professional tone, add proper greeting/closing if appropriate, structure paragraphs clearly
-  * For casual messages/chat: Keep it conversational, add emoji where natural (don't overdo it), preserve personality
+- Detect the tone, context, and type of the transcription automatically (email, message, command, formal writing, casual note, grocery list, etc.)
+- Adapt your processing and formatting strictly based on the detected context and type:
+  * For emails: Structure with standard email formatting, including a greeting, body paragraphs separated by empty lines/double spaces, and a sign-off.
+  * For normal messages/chat: Keep it conversational, using short paragraphs/lines with proper spacing/breaks, and using appropriate casual phrasing/emojis where fitting.
+  * For grocery lists or other lists: Format as a structured list with bullet points (using '-' or '*') and clear line breaks.
+  * For notes: Keep it simple, organized, and spaced nicely, using headings or bullets where appropriate.
   * For commands: Be concise and precise, extract clear intent. Specifically, if the user dictates a command message (like "git commit this is a good landing page"), transform it to the correct flag syntax: e.g., `git commit -m "this is a good landing page"`.
-  * For formal writing: Use proper grammar, professional language, structured formatting
-  * For notes/lists: Keep it simple and organized
 - Remove filler words (um, uh, you know, like, er) unless they carry meaning or add personality (in casual contexts)
 - Fix spelling, grammar, and punctuation errors appropriately for the context
 - Handle self-corrections intelligently: when the speaker corrects themselves (e.g., "at 3 pm oh I'm sorry at 4 pm" → "at 4 pm" or "Tuesday sorry Wednesday" → "Wednesday"), use the correction and remove the original. Common correction patterns: "sorry", "I mean", "no wait", "actually", "oh", "no"
@@ -91,9 +106,14 @@ Output rules:
 
 	private static func appAwarePrompt(appContext: AppContext?, styleIndex: Int) -> String {
 		let basePrompt = """
-You are an intelligent dictation post-processor that adapts its formatting based on the application context. You receive raw speech-to-text output and return clean, polished text formatted for the target application.
+You are an intelligent dictation post-processor that adapts its formatting based on the application context and content type. You receive raw speech-to-text output and return clean, polished text formatted for the target application.
 
 General rules:
+- Analyze the input content type (email, chat message, grocery list, note, etc.) and apply the appropriate formatting, spacing, and structural style:
+  * For emails: Structure with standard email formatting, including a greeting, body paragraphs separated by empty lines/double spaces, and a sign-off.
+  * For normal messages/chat: Keep it conversational, using short paragraphs/lines with proper spacing/breaks, and using appropriate casual phrasing/emojis where fitting.
+  * For grocery lists or other lists: Format as a structured list with bullet points (using '-' or '*') and clear line breaks.
+  * For notes: Keep it simple, organized, and spaced nicely, using headings or bullets where appropriate.
 - Remove filler words (um, uh, you know, like, er) unless they carry meaning
 - Fix spelling, grammar, and punctuation errors
 - Handle self-corrections: use the corrected version, remove the original mistake
@@ -196,6 +216,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var superFastModeEnabled: Bool
 	public var useDoubleTapOnly: Bool
 	public var doubleTapLockEnabled: Bool
+	public var tripleTapAutonomousEnabled: Bool
 	public var outputLanguage: String?
 	public var selectedMicrophoneID: String?
 	public var saveTranscriptionHistory: Bool
@@ -206,16 +227,40 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var wordRemovalsEnabled: Bool
 	public var wordRemovals: [WordRemoval]
 	public var wordRemappings: [WordRemapping]
+	public var aiProvider: AIProvider
 	public var groqAPIKey: String?
+	public var googleAPIKey: String?
+	public var googleModel: String
 	public var aiPostProcessingMode: AIPostProcessingMode
 	public var aiPostProcessingModel: String
 	public var selectedStyleIndex: Int
 	public var hasSelectedStyle: Bool
+	public var autonomousModeEnabled: Bool
+	public var ttsEnabled: Bool
+	public var ttsVoice: String
+	public var enabledToolIDs: [String]
+
+	public static let defaultToolIDs: [String] = [
+		"add_todo",
+		"get_todos",
+		"set_reminder",
+		"get_reminders",
+		"search_web",
+		"open_app",
+		"create_note",
+		"set_alarm",
+	]
 	public var snippets: [SnippetSetting]
 
-	private mutating func normalizeDoubleTapSettings() {
+	private mutating func normalizeSettings() {
 		if !doubleTapLockEnabled {
 			useDoubleTapOnly = false
+		}
+		// Automatically append newly introduced default tools if they are missing from user settings
+		for defaultID in HexSettings.defaultToolIDs {
+			if !enabledToolIDs.contains(defaultID) {
+				enabledToolIDs.append(defaultID)
+			}
 		}
 	}
 
@@ -234,6 +279,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		superFastModeEnabled: Bool = false,
 		useDoubleTapOnly: Bool = false,
 		doubleTapLockEnabled: Bool = true,
+		tripleTapAutonomousEnabled: Bool = false,
 		outputLanguage: String? = nil,
 		selectedMicrophoneID: String? = nil,
 		saveTranscriptionHistory: Bool = true,
@@ -244,11 +290,18 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		wordRemovalsEnabled: Bool = false,
 		wordRemovals: [WordRemoval] = HexSettings.defaultWordRemovals,
 		wordRemappings: [WordRemapping] = [],
+		aiProvider: AIProvider = .groq,
 		groqAPIKey: String? = nil,
+		googleAPIKey: String? = nil,
+		googleModel: String = "gemini-2.0-flash",
 		aiPostProcessingMode: AIPostProcessingMode = .off,
 		aiPostProcessingModel: String = "llama-3.3-70b-versatile",
 		selectedStyleIndex: Int = 2,
 		hasSelectedStyle: Bool = false,
+		autonomousModeEnabled: Bool = false,
+		ttsEnabled: Bool = true,
+		ttsVoice: String = "en-US-JennyNeural",
+		enabledToolIDs: [String] = HexSettings.defaultToolIDs,
 		snippets: [SnippetSetting] = [
 			.init(shortcut: "LinkedIn", content: "https://www.linkedin.com/in/john-doe-9b0139134/"),
 			.init(shortcut: "intro email", content: "Hey, would love to find some time to chat later..."),
@@ -269,6 +322,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.superFastModeEnabled = superFastModeEnabled
 		self.useDoubleTapOnly = useDoubleTapOnly
 		self.doubleTapLockEnabled = doubleTapLockEnabled
+		self.tripleTapAutonomousEnabled = tripleTapAutonomousEnabled
 		self.outputLanguage = outputLanguage
 		self.selectedMicrophoneID = selectedMicrophoneID
 		self.saveTranscriptionHistory = saveTranscriptionHistory
@@ -279,13 +333,20 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.wordRemovalsEnabled = wordRemovalsEnabled
 		self.wordRemovals = wordRemovals
 		self.wordRemappings = wordRemappings
+		self.aiProvider = aiProvider
 		self.groqAPIKey = groqAPIKey
+		self.googleAPIKey = googleAPIKey
+		self.googleModel = googleModel
 		self.aiPostProcessingMode = aiPostProcessingMode
 		self.aiPostProcessingModel = aiPostProcessingModel
 		self.selectedStyleIndex = selectedStyleIndex
 		self.hasSelectedStyle = hasSelectedStyle
+		self.autonomousModeEnabled = autonomousModeEnabled
+		self.ttsEnabled = ttsEnabled
+		self.ttsVoice = ttsVoice
+		self.enabledToolIDs = enabledToolIDs
 		self.snippets = snippets
-		normalizeDoubleTapSettings()
+		normalizeSettings()
 	}
 
 	public init(from decoder: Decoder) throws {
@@ -294,7 +355,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		for field in HexSettingsSchema.fields {
 			try field.decode(into: &self, from: container)
 		}
-		normalizeDoubleTapSettings()
+		normalizeSettings()
 	}
 
 	public func encode(to encoder: Encoder) throws {
@@ -323,6 +384,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case superFastModeEnabled
 	case useDoubleTapOnly
 	case doubleTapLockEnabled
+	case tripleTapAutonomousEnabled
 	case outputLanguage
 	case selectedMicrophoneID
 	case saveTranscriptionHistory
@@ -333,11 +395,18 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case wordRemovalsEnabled
 	case wordRemovals
 	case wordRemappings
+	case aiProvider
 	case groqAPIKey
+	case googleAPIKey
+	case googleModel
 	case aiPostProcessingMode
 	case aiPostProcessingModel
 	case selectedStyleIndex
 	case hasSelectedStyle
+	case autonomousModeEnabled
+	case ttsEnabled
+	case ttsVoice
+	case enabledToolIDs
 	case snippets
 }
 
@@ -426,6 +495,7 @@ private enum HexSettingsSchema {
 		SettingsField(.superFastModeEnabled, keyPath: \.superFastModeEnabled, default: defaults.superFastModeEnabled).eraseToAny(),
 		SettingsField(.useDoubleTapOnly, keyPath: \.useDoubleTapOnly, default: defaults.useDoubleTapOnly).eraseToAny(),
 		SettingsField(.doubleTapLockEnabled, keyPath: \.doubleTapLockEnabled, default: defaults.doubleTapLockEnabled).eraseToAny(),
+		SettingsField(.tripleTapAutonomousEnabled, keyPath: \.tripleTapAutonomousEnabled, default: defaults.tripleTapAutonomousEnabled).eraseToAny(),
 		SettingsField(
 			.outputLanguage,
 			keyPath: \.outputLanguage,
@@ -472,6 +542,7 @@ private enum HexSettingsSchema {
 			keyPath: \.wordRemappings,
 			default: defaults.wordRemappings
 		).eraseToAny(),
+		SettingsField(.aiProvider, keyPath: \.aiProvider, default: defaults.aiProvider).eraseToAny(),
 		SettingsField(
 			.groqAPIKey,
 			keyPath: \.groqAPIKey,
@@ -480,10 +551,23 @@ private enum HexSettingsSchema {
 				try container.encodeIfPresent(value, forKey: key)
 			}
 		).eraseToAny(),
+		SettingsField(
+			.googleAPIKey,
+			keyPath: \.googleAPIKey,
+			default: defaults.googleAPIKey,
+			encode: { container, key, value in
+				try container.encodeIfPresent(value, forKey: key)
+			}
+		).eraseToAny(),
+		SettingsField(.googleModel, keyPath: \.googleModel, default: defaults.googleModel).eraseToAny(),
 		SettingsField(.aiPostProcessingMode, keyPath: \.aiPostProcessingMode, default: defaults.aiPostProcessingMode).eraseToAny(),
 		SettingsField(.aiPostProcessingModel, keyPath: \.aiPostProcessingModel, default: defaults.aiPostProcessingModel).eraseToAny(),
 		SettingsField(.selectedStyleIndex, keyPath: \.selectedStyleIndex, default: defaults.selectedStyleIndex).eraseToAny(),
 		SettingsField(.hasSelectedStyle, keyPath: \.hasSelectedStyle, default: defaults.hasSelectedStyle).eraseToAny(),
+		SettingsField(.autonomousModeEnabled, keyPath: \.autonomousModeEnabled, default: defaults.autonomousModeEnabled).eraseToAny(),
+		SettingsField(.ttsEnabled, keyPath: \.ttsEnabled, default: defaults.ttsEnabled).eraseToAny(),
+		SettingsField(.ttsVoice, keyPath: \.ttsVoice, default: defaults.ttsVoice).eraseToAny(),
+		SettingsField(.enabledToolIDs, keyPath: \.enabledToolIDs, default: defaults.enabledToolIDs).eraseToAny(),
 		SettingsField(.snippets, keyPath: \.snippets, default: defaults.snippets).eraseToAny()
 	]
 }

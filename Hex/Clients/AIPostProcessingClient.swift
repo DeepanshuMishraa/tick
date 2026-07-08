@@ -14,7 +14,7 @@ private let aiLogger = HexLog.transcription
 @DependencyClient
 struct AIPostProcessingClient {
 	var postProcess: @Sendable (String, AIPostProcessingMode, AppContext?) async throws -> String
-	var validateAPIKey: @Sendable (String) async throws -> Bool
+	var validateAPIKey: @Sendable (String, AIProvider, String) async throws -> Bool
 }
 
 extension AIPostProcessingClient: DependencyKey {
@@ -24,8 +24,8 @@ extension AIPostProcessingClient: DependencyKey {
 			postProcess: { text, mode, appContext in
 				try await live.postProcess(text: text, mode: mode, appContext: appContext)
 			},
-			validateAPIKey: { apiKey in
-				try await live.validateAPIKey(apiKey)
+			validateAPIKey: { apiKey, provider, model in
+				try await live.validateAPIKey(apiKey, provider: provider, model: model)
 			}
 		)
 	}
@@ -41,19 +41,33 @@ extension DependencyValues {
 struct AIPostProcessingClientLive {
 	@Shared(.hexSettings) var hexSettings: HexSettings
 
-	private let groqBaseURL = "https://api.groq.com/openai/v1/chat/completions"
-
-
-
-
 	func postProcess(text: String, mode: AIPostProcessingMode, appContext: AppContext?) async throws -> String {
 		guard mode != .off else {
 			return text
 		}
 
-		guard let apiKey = hexSettings.groqAPIKey, !apiKey.isEmpty else {
-			aiLogger.warning("Groq API key not configured, skipping AI post-processing")
-			return text
+		let provider = hexSettings.aiProvider
+		let apiKey: String
+		let selectedModel: String
+		let baseURL: String
+
+		switch provider {
+		case .groq:
+			guard let key = hexSettings.groqAPIKey, !key.isEmpty else {
+				aiLogger.warning("Groq API key not configured, skipping AI post-processing")
+				return text
+			}
+			apiKey = key
+			selectedModel = hexSettings.aiPostProcessingModel
+			baseURL = "https://api.groq.com/openai/v1/chat/completions"
+		case .google:
+			guard let key = hexSettings.googleAPIKey, !key.isEmpty else {
+				aiLogger.warning("Google API key not configured, skipping AI post-processing")
+				return text
+			}
+			apiKey = key
+			selectedModel = hexSettings.googleModel
+			baseURL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 		}
 
 		let systemPrompt = mode.systemPrompt(appContext: appContext, selectedStyleIndex: hexSettings.selectedStyleIndex)
@@ -62,7 +76,6 @@ struct AIPostProcessingClientLive {
 			return text
 		}
 
-		let selectedModel = hexSettings.aiPostProcessingModel
 		let request = GroqRequest(
 			model: selectedModel,
 			messages: [
@@ -73,7 +86,7 @@ struct AIPostProcessingClientLive {
 			maxTokens: 2048
 		)
 
-		guard let url = URL(string: groqBaseURL) else {
+		guard let url = URL(string: baseURL) else {
 			throw AIPostProcessingError.invalidURL
 		}
 
@@ -88,17 +101,17 @@ struct AIPostProcessingClientLive {
 		
 		// Log the request for debugging
 		if let jsonString = String(data: request2.httpBody!, encoding: .utf8) {
-			aiLogger.debug("Groq API request body: \(jsonString, privacy: .public)")
+			aiLogger.debug("\(provider.displayName) API request body: \(jsonString, privacy: .public)")
 		}
 
-		aiLogger.info("Sending text to Groq for post-processing with model \(selectedModel), mode: \(mode.displayName), app: \(appContext?.appName ?? "unknown")")
+		aiLogger.info("Sending text to \(provider.displayName) for post-processing with model \(selectedModel), mode: \(mode.displayName), app: \(appContext?.appName ?? "unknown")")
 
 		let startTime = Date()
 
 		let (data, response) = try await URLSession.shared.data(for: request2)
 
 		let elapsed = Date().timeIntervalSince(startTime)
-		aiLogger.info("Groq API response received in \(String(format: "%.2f", elapsed))s")
+		aiLogger.info("\(provider.displayName) API response received in \(String(format: "%.2f", elapsed))s")
 
 		guard let httpResponse = response as? HTTPURLResponse else {
 			throw AIPostProcessingError.invalidResponse
@@ -106,7 +119,7 @@ struct AIPostProcessingClientLive {
 
 		guard httpResponse.statusCode == 200 else {
 			let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-			aiLogger.error("Groq API error: \(httpResponse.statusCode) - \(errorMessage)")
+			aiLogger.error("\(provider.displayName) API error: \(httpResponse.statusCode) - \(errorMessage)")
 			throw AIPostProcessingError.apiError(statusCode: httpResponse.statusCode, message: errorMessage)
 		}
 
@@ -114,7 +127,7 @@ struct AIPostProcessingClientLive {
 		let groqResponse = try decoder.decode(GroqResponse.self, from: data)
 
 		guard var content = groqResponse.choices.first?.message.content else {
-			aiLogger.warning("Groq response had no content")
+			aiLogger.warning("\(provider.displayName) response had no content")
 			return text
 		}
 
@@ -129,15 +142,21 @@ struct AIPostProcessingClientLive {
 		return content
 	}
 
-	func validateAPIKey(_ apiKey: String) async throws -> Bool {
+	func validateAPIKey(_ apiKey: String, provider: AIProvider, model: String) async throws -> Bool {
 		guard !apiKey.isEmpty else {
 			throw AIPostProcessingError.invalidAPIKey
 		}
 
-		let selectedModel = hexSettings.aiPostProcessingModel
-		// Make a minimal API call to validate the key
+		let baseURL: String
+		switch provider {
+		case .groq:
+			baseURL = "https://api.groq.com/openai/v1/chat/completions"
+		case .google:
+			baseURL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+		}
+
 		let request = GroqRequest(
-			model: selectedModel,
+			model: model,
 			messages: [
 				["role": "system", "content": "You are a helpful assistant."],
 				["role": "user", "content": "Test"]
@@ -146,7 +165,7 @@ struct AIPostProcessingClientLive {
 			maxTokens: 10
 		)
 
-		guard let url = URL(string: groqBaseURL) else {
+		guard let url = URL(string: baseURL) else {
 			throw AIPostProcessingError.invalidURL
 		}
 
@@ -161,10 +180,10 @@ struct AIPostProcessingClientLive {
 		
 		// Log the request for debugging
 		if let jsonString = String(data: urlRequest.httpBody!, encoding: .utf8) {
-			aiLogger.debug("Groq API validation request body: \(jsonString, privacy: .public)")
+			aiLogger.debug("\(provider.displayName) API validation request body: \(jsonString, privacy: .public)")
 		}
 
-		aiLogger.info("Validating Groq API key")
+		aiLogger.info("Validating \(provider.displayName) API key with model \(model)")
 
 		let (data, response) = try await URLSession.shared.data(for: urlRequest)
 
@@ -173,12 +192,12 @@ struct AIPostProcessingClientLive {
 		}
 
 		if httpResponse.statusCode == 200 {
-			aiLogger.info("API key validation successful")
+			aiLogger.info("\(provider.displayName) API key validation successful")
 			return true
 		} else {
 			let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-			aiLogger.error("API key validation failed: \(httpResponse.statusCode) - \(errorMessage)")
-			throw AIPostProcessingError.invalidAPIKey
+			aiLogger.error("\(provider.displayName) API key validation failed: \(httpResponse.statusCode) - \(errorMessage)")
+			throw AIPostProcessingError.apiError(statusCode: httpResponse.statusCode, message: errorMessage)
 		}
 	}
 }
@@ -192,13 +211,13 @@ enum AIPostProcessingError: Error, LocalizedError {
 	var errorDescription: String? {
 		switch self {
 		case .invalidURL:
-			return "Invalid Groq API URL"
+			return "Invalid API URL"
 		case .invalidResponse:
-			return "Invalid response from Groq API"
+			return "Invalid response from API"
 		case .invalidAPIKey:
 			return "Invalid or unauthorized API key"
 		case .apiError(let statusCode, let message):
-			return "Groq API error (\(statusCode)): \(message)"
+			return "API error (\(statusCode)): \(message)"
 		}
 	}
 }

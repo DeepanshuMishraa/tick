@@ -16,6 +16,8 @@
 	<string>81</string>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>tick needs accessibility access to monitor keyboard events for hotkey detection.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>tick needs access to Reminders to create and list your tasks and reminders.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

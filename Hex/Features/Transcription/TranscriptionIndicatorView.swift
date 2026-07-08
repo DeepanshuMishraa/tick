@@ -58,12 +58,22 @@ private func getNotchGeometry() -> NotchGeometry {
 struct TranscriptionIndicatorView: View {
   @ObserveInjection var inject
 
-  enum Status {
+  enum ToolCallUIStatus: Equatable {
+    case executing
+    case completed
+    case failed
+  }
+
+  enum Status: Equatable {
     case hidden
     case optionKeyPressed
     case recording
+    case autonomousRecording
     case transcribing
+    case autonomousTranscribing
     case prewarming
+    case toolCalling(name: String, phase: ToolCallUIStatus)
+    case autonomous
   }
 
   var status: Status
@@ -71,6 +81,7 @@ struct TranscriptionIndicatorView: View {
   var meter: Meter
   var sourceAppBundleID: String? = nil
   var sourceAppName: String? = nil
+  var toolCallMessage: String = ""
 
   private var appIcon: NSImage? {
     guard let bundleID = sourceAppBundleID else { return nil }
@@ -91,7 +102,15 @@ struct TranscriptionIndicatorView: View {
   @State private var geometry = NotchGeometry(hasNotch: false, notchWidth: 120, notchHeight: 32, menuBarHeight: 24)
 
   var body: some View {
-    let targetHeight = isLocked ? (geometry.notchHeight + 30) : geometry.notchHeight
+    let targetHeight: CGFloat = {
+      if case .toolCalling = status {
+        return geometry.notchHeight + 60
+      }
+      if case .autonomous = status {
+        return geometry.notchHeight
+      }
+      return isLocked ? (geometry.notchHeight + 30) : geometry.notchHeight
+    }()
     ZStack(alignment: .top) {
       // Black housing that blends with the notch's own black bezel.
       // The height animates from 0 to target height for a premium slide-down effect.
@@ -105,50 +124,101 @@ struct TranscriptionIndicatorView: View {
       .frame(width: geometry.notchWidth + extensionWidth * 2, height: isActive ? targetHeight : 0)
       
       if isActive {
-        HStack(spacing: 0) {
-          Group {
-            switch status {
-            case .hidden:
-              EmptyView()
-            case .optionKeyPressed, .prewarming:
-              IdleDot(color: TickColor.brandMid.opacity(0.8))
-            case .recording:
-              NotchWaveform(meter: meter, color: .white)
-            case .transcribing:
-              NotchWaveform(meter: meter, color: .white, isTranscribing: true)
+        // Check if tool calling (expanded notch with message)
+        if case .toolCalling(let toolName, let phase) = status {
+          VStack(spacing: 4) {
+            // Top row: tool icon + tool name + status indicator
+            HStack(spacing: 0) {
+              // Left side: tool icon
+              Group {
+                ToolCallIcon(phase: phase)
+              }
+              .frame(width: extensionWidth, alignment: .center)
+              
+              Spacer() // Covers the notch width
+              
+              // Right side: status indicator
+              Group {
+                switch phase {
+                case .executing:
+                  DotMatrixLoader()
+                    .frame(width: 24, height: 12)
+                case .completed:
+                  Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.green)
+                case .failed:
+                  Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.red)
+                }
+              }
+              .frame(width: extensionWidth, alignment: .center)
             }
+            .frame(width: geometry.notchWidth + extensionWidth * 2, height: geometry.notchHeight)
+            
+            // Bottom row: tool call message
+            Text(toolCallMessage.isEmpty ? toolName : toolCallMessage)
+              .font(TickFont.bodyFunc(11))
+              .foregroundColor(.white.opacity(0.9))
+              .lineLimit(2)
+              .multilineTextAlignment(.center)
+              .frame(maxWidth: geometry.notchWidth + extensionWidth, alignment: .center)
           }
-          .frame(width: extensionWidth, alignment: .center)
-          
-          Spacer() // Covers the notch width
-          
-          // Right side: Active application icon
-          Group {
-            if let icon = appIcon {
-              Image(nsImage: icon)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 18, height: 18)
-                .cornerRadius(4)
-                .overlay(
-                  RoundedRectangle(cornerRadius: 4)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.25), radius: 1.5, x: 0, y: 0.8)
-            } else {
-              Image(systemName: "mic.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 18, height: 18)
-                .background(TickColor.brandMid)
-                .cornerRadius(4)
-                .shadow(color: TickColor.brandMid.opacity(0.3), radius: 1.5, x: 0, y: 0.8)
+        } else {
+          HStack(spacing: 0) {
+            Group {
+              switch status {
+              case .hidden:
+                EmptyView()
+              case .optionKeyPressed, .prewarming:
+                IdleDot(color: TickColor.brandMid.opacity(0.8))
+              case .recording:
+                NotchWaveform(meter: meter, color: .white)
+              case .autonomousRecording:
+                NotchWaveform(meter: meter, color: TickColor.brandMid, isAutonomous: true)
+              case .transcribing:
+                NotchWaveform(meter: meter, color: .white, isTranscribing: true)
+              case .autonomousTranscribing:
+                NotchWaveform(meter: meter, color: TickColor.brandMid, isTranscribing: true, isAutonomous: true)
+              case .toolCalling:
+                EmptyView()
+              case .autonomous:
+                AutonomousIcon()
+              }
             }
+            .frame(width: extensionWidth, alignment: .center)
+            
+            Spacer() // Covers the notch width
+            
+            // Right side: Active application icon
+            Group {
+              if let icon = appIcon {
+                Image(nsImage: icon)
+                  .resizable()
+                  .aspectRatio(contentMode: .fit)
+                  .frame(width: 18, height: 18)
+                  .cornerRadius(4)
+                  .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                      .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                  )
+                  .shadow(color: .black.opacity(0.25), radius: 1.5, x: 0, y: 0.8)
+              } else {
+                Image(systemName: "mic.fill")
+                  .font(.system(size: 10, weight: .semibold))
+                  .foregroundColor(.white)
+                  .frame(width: 18, height: 18)
+                  .background(TickColor.brandMid)
+                  .cornerRadius(4)
+                  .shadow(color: TickColor.brandMid.opacity(0.3), radius: 1.5, x: 0, y: 0.8)
+              }
+            }
+            .frame(width: extensionWidth, alignment: .center)
           }
-          .frame(width: extensionWidth, alignment: .center)
+          .frame(width: geometry.notchWidth + extensionWidth * 2, height: geometry.notchHeight)
+          .padding(.top, 0)
         }
-        .frame(width: geometry.notchWidth + extensionWidth * 2, height: geometry.notchHeight)
-        .padding(.top, 0)
         
         // Bottom row: centered app icon + app name (only shown in lock mode)
         if isLocked {
@@ -262,6 +332,7 @@ struct NotchWaveform: View {
   let meter: Meter
   let color: Color
   var isTranscribing: Bool = false
+  var isAutonomous: Bool = false
 
   private let barCount = 4
   private let barWidth: CGFloat = 2.0
@@ -289,6 +360,15 @@ struct NotchWaveform: View {
   ]
 
   private func barColor(for index: Int) -> Color {
+    if isAutonomous {
+      let colors: [Color] = [
+        TickColor.brandMid,
+        TickColor.brandMid.opacity(0.85),
+        TickColor.brandMid.opacity(0.65),
+        TickColor.brandMid.opacity(0.9)
+      ]
+      return colors[index % colors.count]
+    }
     let colors = isTranscribing ? transcribingColors : recordingColors
     return colors[index % colors.count]
   }
@@ -401,4 +481,84 @@ struct NotchWaveform: View {
   }
   .padding(40)
   .background(Color.gray)
+}
+
+// MARK: - Tool Call Icon
+
+struct ToolCallIcon: View {
+  let phase: TranscriptionIndicatorView.ToolCallUIStatus
+
+  var body: some View {
+    Image(systemName: iconName)
+      .font(.system(size: 14, weight: .semibold))
+      .foregroundColor(iconColor)
+      .shadow(color: iconColor.opacity(0.4), radius: 2, x: 0, y: 0)
+  }
+
+  private var iconName: String {
+    switch phase {
+    case .executing: return "wand.and.stars"
+    case .completed: return "checkmark.circle.fill"
+    case .failed: return "xmark.circle.fill"
+    }
+  }
+
+  private var iconColor: Color {
+    switch phase {
+    case .executing: return TickColor.brandMid
+    case .completed: return .green
+    case .failed: return .red
+    }
+  }
+}
+
+// MARK: - Dot Matrix Loader
+
+struct DotMatrixLoader: View {
+  @State private var phase: Double = 0
+  private let timer = Timer.publish(every: 0.12, on: .main, in: .common).autoconnect()
+  private let dotCount = 5
+
+  var body: some View {
+    HStack(spacing: 3) {
+      ForEach(0..<dotCount, id: \.self) { index in
+        Circle()
+          .fill(Color.white)
+          .frame(width: 4, height: 4)
+          .opacity(opacity(for: index))
+          .scaleEffect(scale(for: index))
+      }
+    }
+    .onReceive(timer) { _ in
+      withAnimation(.easeInOut(duration: 0.15)) {
+        phase += 0.25
+      }
+    }
+  }
+
+  private func opacity(for index: Int) -> CGFloat {
+    let normalized = sin(phase + Double(index) * 1.2)
+    return CGFloat(max(0.2, (normalized + 1) / 2))
+  }
+
+  private func scale(for index: Int) -> CGFloat {
+    let normalized = sin(phase + Double(index) * 1.2)
+    return CGFloat(max(0.5, (normalized + 1) / 2))
+  }
+}
+
+// MARK: - Autonomous Icon
+
+struct AutonomousIcon: View {
+  @State private var isAnimating = false
+
+  var body: some View {
+    Image(systemName: "wand.and.stars")
+      .font(.system(size: 12, weight: .semibold))
+      .foregroundColor(TickColor.brandMid)
+      .opacity(isAnimating ? 1.0 : 0.5)
+      .scaleEffect(isAnimating ? 1.0 : 0.85)
+      .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isAnimating)
+      .onAppear { isAnimating = true }
+  }
 }

@@ -8,9 +8,9 @@ updates/
 *.xcworkspace/xcuserdata/
 *.xcuserstate
 buildServer.json
-bin
-scripts
-tools
+/bin
+/scripts
+/tools
 ExportOptions.plist
 HexCore/.build
 HexCore/.swiftpm/xcode/xcuserdata/kit.xcuserdatad/xcschemes

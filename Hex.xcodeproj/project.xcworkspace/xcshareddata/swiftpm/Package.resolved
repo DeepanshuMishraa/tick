@@ -1,5 +1,5 @@
 {
-  "originHash" : "0febf30ae7d48c1752d89f6ced973f6d57d6bde82526bbcbf09226536db2ff63",
+  "originHash" : "20070cb829de37ec693d11ade24363e9ad9c7f15830f09a55c9436aa258e5f98",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -53,6 +53,15 @@
       "state" : {
         "revision" : "5581748cef2bae787496fe6d61139aebe0a451f6",
         "version" : "2.8.1"
+      }
+    },
+    {
+      "identity" : "swift-ai-sdk",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/teunlao/swift-ai-sdk",
+      "state" : {
+        "revision" : "ed5b9ef636f8eafc0acd8ca5e891e81b1c301826",
+        "version" : "0.18.2"
       }
     },
     {
@@ -215,6 +224,15 @@
       "state" : {
         "revision" : "573e5c9036c2f136b3a8a071da8e8907322403d0",
         "version" : "1.1.6"
+      }
+    },
+    {
+      "identity" : "swiftedgetts",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/herrkaefer/SwiftEdgeTTS",
+      "state" : {
+        "revision" : "6fafd2dd66e45358812c98e3bb2fa28b2757e614",
+        "version" : "1.3.0"
       }
     },
     {

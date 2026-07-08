@@ -4,7 +4,16 @@
     "" : {
       "shouldTranslate" : false
     },
+    " (right)" : {
+
+    },
+    " + " : {
+
+    },
     " to record" : {
+
+    },
+    " to toggle autonomous mode" : {
 
     },
     "(%@)" : {
@@ -22,6 +31,12 @@
           }
         }
       }
+    },
+    "⌘" : {
+
+    },
+    "⌥" : {
+
     },
     "12:04 PM" : {
 
@@ -59,6 +74,9 @@
     "Accuracy" : {
 
     },
+    "ACTIVE AI PROVIDER" : {
+
+    },
     "Add Dictionary Term" : {
 
     },
@@ -75,9 +93,6 @@
 
     },
     "Alex" : {
-
-    },
-    "App-Aware detects the active application and adapts formatting" : {
 
     },
     "Are you sure you want to delete all transcripts? This action cannot be undone." : {
@@ -112,6 +127,9 @@
 
     },
     "Case-insensitive" : {
+
+    },
+    "Centralised AI Configuration " : {
 
     },
     "Changelog" : {
@@ -157,9 +175,6 @@
         }
       }
     },
-    "Clean and format transcriptions " : {
-
-    },
     "Clear shortcut" : {
 
     },
@@ -173,6 +188,9 @@
           }
         }
       }
+    },
+    "Configure credentials and model choices for dictation post-processing and autonomous mode. Dictation post-processing is always on and app-aware by default." : {
+
     },
     "Configure how your transcriptions are formatted. Choose the style that best matches where you speak, and Tick will automatically format spelling, capitalization, and punctuation." : {
 
@@ -304,6 +322,9 @@
     "Email Draft" : {
 
     },
+    "Enable tools the AI can invoke during autonomous recording." : {
+
+    },
     "Ensure Hex can access your microphone and system accessibility features." : {
       "comment" : "Footer for permissions section in settings",
       "extractionState" : "stale",
@@ -336,6 +357,12 @@
     "Expansion Content (Pasted)" : {
 
     },
+    "for all modes" : {
+
+    },
+    "GEMINI MODEL" : {
+
+    },
     "General" : {
       "comment" : "General section in Settings Header.",
       "extractionState" : "stale",
@@ -349,6 +376,15 @@
       }
     },
     "github.com/sponsors/dipxsy" : {
+
+    },
+    "GOOGLE API KEY" : {
+
+    },
+    "Google Gemini" : {
+
+    },
+    "Google Gemini Credentials" : {
 
     },
     "Grant these to start transcribing." : {
@@ -365,7 +401,16 @@
         }
       }
     },
+    "Groq" : {
+
+    },
     "GROQ API KEY" : {
+
+    },
+    "Groq Credentials" : {
+
+    },
+    "GROQ MODEL" : {
 
     },
     "Help & Support" : {
@@ -445,9 +490,6 @@
     "Limit how many transcripts to keep" : {
 
     },
-    "Llama 3.3 70B" : {
-
-    },
     "Make Tick sound like " : {
 
     },
@@ -506,9 +548,6 @@
       }
     },
     "Not set" : {
-
-    },
-    "Off / App-Aware" : {
 
     },
     "Oldest entries are deleted automatically when limit is reached" : {
@@ -600,6 +639,12 @@
     "POPULAR FAQS" : {
 
     },
+    "Press " : {
+
+    },
+    "Press the hotkey three times quickly to enter autonomous recording mode with AI tool detection." : {
+
+    },
     "Press-and-hold or " : {
 
     },
@@ -615,16 +660,16 @@
         }
       }
     },
+    "Preview this voice" : {
+
+    },
     "Pro" : {
 
     },
+    "Provider" : {
+
+    },
     "Quit" : {
-
-    },
-    "Qwen 3 32B" : {
-
-    },
-    "Qwen 3.6 27B" : {
 
     },
     "Remove filler words using case-insensitive regex patterns" : {
@@ -666,7 +711,7 @@
     "Search words..." : {
 
     },
-    "Select the LLM model to process your transcriptions" : {
+    "Select which provider to use for transcriptions & tools" : {
 
     },
     "Selected device not connected. System default will be used." : {
@@ -780,6 +825,9 @@
     "sounds like you" : {
 
     },
+    "Speak confirmation aloud" : {
+
+    },
     "Speak the shortcut phrase, and Tick expands it into the full text." : {
 
     },
@@ -804,9 +852,6 @@
       }
     },
     "Strip filler words from your transcriptions" : {
-
-    },
-    "Strips filler words, fixes self-corrections, and adapts tone to the app you're typing in." : {
 
     },
     "Styles" : {
@@ -863,6 +908,9 @@
     "TODAY" : {
 
     },
+    "TOOLS" : {
+
+    },
     "Transcription Model" : {
       "comment" : "Label for Transcription Model Section",
       "extractionState" : "stale",
@@ -874,6 +922,9 @@
           }
         }
       }
+    },
+    "TTS CONFIRMATION" : {
+
     },
     "Use at least one modifier (⌘, ⌥, ⇧, ⌃) plus a key." : {
 
@@ -902,9 +953,6 @@
         }
       }
     },
-    "Uses %@ via Groq." : {
-
-    },
     "Version" : {
       "comment" : "Label for version in About section.",
       "extractionState" : "stale",
@@ -929,6 +977,9 @@
         }
       }
     },
+    "Voice:" : {
+
+    },
     "VOLUME" : {
 
     },
@@ -936,9 +987,6 @@
 
     },
     "While recording" : {
-
-    },
-    "with AI" : {
 
     },
     "WORD REMAPPINGS" : {
