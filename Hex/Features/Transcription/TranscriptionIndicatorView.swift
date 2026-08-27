@@ -227,16 +227,16 @@ struct TranscriptionIndicatorView: View {
     status != .hidden || notchVisibleFeedback != nil
   }
 
-  /// Feedback states that render inside the notch bubble. The paste-unavailable
-  /// state is excluded — it renders in the floating bottom-center pill instead.
-  private var notchVisibleFeedback: TranscriptionFeature.State.Feedback? {
-    guard let feedback else { return nil }
-    return feedback.isPasteUnavailable ? nil : feedback
+  private var isFloatingFeedback: Bool {
+    guard let feedback else { return false }
+    return feedback.isPasteUnavailable || feedback == .copied
   }
 
-  private var isCopyAvailable: Bool {
-    guard case .pasteUnavailable = feedback else { return false }
-    return true
+  /// Feedback states that render inside the notch bubble. Floating pill states
+  /// (paste unavailable & copied) are excluded — they render in the bottom-center HUD.
+  private var notchVisibleFeedback: TranscriptionFeature.State.Feedback? {
+    guard let feedback else { return nil }
+    return isFloatingFeedback ? nil : feedback
   }
 
   private func updateGeometry() {
@@ -244,17 +244,18 @@ struct TranscriptionIndicatorView: View {
   }
 
   private func updateFeedbackInteraction() {
-    HexLog.app.debug("updateFeedbackInteraction called; copyAvailable=\(self.isCopyAvailable, privacy: .public)")
+    HexLog.app.debug("updateFeedbackInteraction called; floatingFeedback=\(self.isFloatingFeedback, privacy: .public)")
     guard let window = InvisibleWindow.current else {
       HexLog.app.error("Copy pill: invisibleWindow has not been created yet")
       return
     }
-    // When paste is unavailable, hand the whole notification over to the
-    // floating bottom-center pill panel (icon + text + countdown + Copy).
+    // When paste is unavailable or copied, hand the notification over to the
+    // floating bottom-center pill panel.
+    let duration: TimeInterval = feedback == .copied ? 1.8 : 4.0
     window.updateCopyPill(
-      feedback: isCopyAvailable ? feedback : nil,
+      feedback: isFloatingFeedback ? feedback : nil,
       startedAt: feedbackStartedAt,
-      duration: 4,
+      duration: duration,
       onCopy: onCopy
     )
   }
@@ -367,9 +368,9 @@ extension TranscriptionFeature.State.Feedback {
 @MainActor
 enum FloatingCopyLayout {
   /// Fixed pill footprint; content fills it edge-to-edge.
-  static let pillSize = CGSize(width: 320, height: 54)
+  static let pillSize = CGSize(width: 340, height: 46)
   /// Distance from the bottom edge of the screen to the bottom of the pill.
-  static let bottomMargin: CGFloat = 26
+  static let bottomMargin: CGFloat = 36
 
   /// The pill's rect on a given screen (AppKit coordinates, origin bottom-left).
   static func pillFrame(onScreen screenFrame: NSRect) -> NSRect {
@@ -388,79 +389,184 @@ struct FloatingCopyPillView: View {
   let duration: TimeInterval
   let onCopy: () -> Void
 
+  @State private var isHovered = false
+  @State private var isCopyHovered = false
+  @State private var hasLocallyCopied = false
+
+  private var isCopiedState: Bool {
+    hasLocallyCopied || feedback == .copied
+  }
+
+  private var pillTitle: String {
+    if isCopiedState {
+      return "Copied to clipboard"
+    }
+    switch feedback {
+    case let .pasteUnavailable(_, reason):
+      switch reason {
+      case .noFocusedInput:
+        return "No input focused"
+      case .insertionRejected:
+        return "Paste rejected by app"
+      }
+    default:
+      return "No input focused"
+    }
+  }
+
+  private var pillDetail: String {
+    if isCopiedState {
+      return "Ready to paste anywhere"
+    }
+    return "Click to copy transcript"
+  }
+
   var body: some View {
-    TimelineView(.animation(minimumInterval: 0.05)) { context in
+    TimelineView(.animation(minimumInterval: 0.04)) { context in
       let elapsed = context.date.timeIntervalSince(startedAt)
-      let progress = max(0, min(1, 1 - elapsed / duration))
+      let progress = max(0, min(1, 1 - elapsed / max(duration, 0.1)))
 
       // The whole pill is one tappable surface: any click copies the transcript.
-      Button(action: onCopy) {
+      Button(action: {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
+          hasLocallyCopied = true
+        }
+        onCopy()
+      }) {
         VStack(spacing: 0) {
-          HStack(spacing: 9) {
-            Image(systemName: feedback.iconName)
-              .font(.system(size: 10, weight: .bold))
-              .foregroundStyle(TickColor.success)
-              .frame(width: 20, height: 20)
-              .background(TickColor.success.opacity(0.15), in: Circle())
+          HStack(spacing: 10) {
+            // Leading status icon glyph
+            ZStack {
+              if isCopiedState {
+                Circle()
+                  .fill(Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.20))
+                  .frame(width: 24, height: 24)
+                Image(systemName: "checkmark")
+                  .font(.system(size: 11, weight: .bold))
+                  .foregroundStyle(Color(red: 0.20, green: 0.78, blue: 0.45))
+              } else {
+                Circle()
+                  .fill(Color.white.opacity(0.10))
+                  .frame(width: 24, height: 24)
+                  .overlay(
+                    Circle()
+                      .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                  )
+                Image(systemName: "character.cursor.ibeam")
+                  .font(.system(size: 11.5, weight: .medium))
+                  .foregroundStyle(Color.white.opacity(0.90))
+              }
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isCopiedState)
 
+            // Clean text hierarchy
             VStack(alignment: .leading, spacing: 1) {
-              Text(feedback.title)
-                .font(TickFont.bodyFunc(11.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.95))
+              Text(pillTitle)
+                .font(TickFont.labelFunc(12, weight: isCopiedState ? .semibold : .medium))
+                .foregroundStyle(Color.white.opacity(0.95))
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-              Text(feedback.detail)
-                .font(TickFont.captionFunc(10))
-                .foregroundStyle(.white.opacity(0.55))
+              Text(pillDetail)
+                .font(TickFont.captionFunc(10, weight: .regular))
+                .foregroundStyle(isCopiedState ? Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.90) : Color.white.opacity(0.55))
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
             }
+            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isCopiedState)
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 8)
 
-            HStack(spacing: 5) {
-              Image(systemName: "doc.on.doc")
-                .font(.system(size: 9, weight: .semibold))
-              Text("Copy")
-                .font(TickFont.labelFunc(10.5, weight: .semibold))
+            // Trailing action affordance
+            if isCopiedState {
+              HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                  .font(.system(size: 10, weight: .bold))
+                Text("Copied")
+                  .font(TickFont.labelFunc(11, weight: .semibold))
+              }
+              .foregroundStyle(Color(red: 0.20, green: 0.78, blue: 0.45))
+              .padding(.horizontal, 9)
+              .padding(.vertical, 4.5)
+              .background(
+                Capsule()
+                  .fill(Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.15))
+              )
+              .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            } else {
+              HStack(spacing: 4.5) {
+                Image(systemName: "doc.on.doc")
+                  .font(.system(size: 9.5, weight: .semibold))
+                Text("Copy")
+                  .font(TickFont.labelFunc(11, weight: .semibold))
+              }
+              .foregroundStyle(Color.white.opacity(isCopyHovered ? 1.0 : 0.90))
+              .padding(.horizontal, 9)
+              .padding(.vertical, 4.5)
+              .background(
+                Capsule()
+                  .fill(Color.white.opacity(isCopyHovered ? 0.20 : 0.12))
+                  .overlay(
+                    Capsule()
+                      .strokeBorder(Color.white.opacity(isCopyHovered ? 0.25 : 0.12), lineWidth: 0.5)
+                  )
+              )
+              .onHover { hovered in
+                withAnimation(.easeOut(duration: 0.12)) {
+                  isCopyHovered = hovered
+                }
+              }
+              .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
-            .foregroundStyle(.white.opacity(0.92))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-              Capsule()
-                .fill(.white.opacity(0.09))
-                .overlay(Capsule().strokeBorder(.white.opacity(0.07), lineWidth: 0.5))
-            )
           }
+          .padding(.horizontal, 12)
+          .padding(.top, 7)
+          .padding(.bottom, 5)
 
-          // Countdown slider: shrinks as the notification approaches dismissal.
+          // Hairline countdown progress bar
           GeometryReader { proxy in
+            let trackWidth = proxy.size.width
             ZStack(alignment: .leading) {
               Capsule()
-                .fill(.white.opacity(0.08))
+                .fill(Color.white.opacity(0.06))
+
               Capsule()
-                .fill(TickColor.success.opacity(0.85))
-                .frame(width: proxy.size.width * progress)
+                .fill(
+                  LinearGradient(
+                    colors: isCopiedState
+                      ? [Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.90), Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.45)]
+                      : [TickColor.brandMid.opacity(0.90), TickColor.brand.opacity(0.60)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                  )
+                )
+                .frame(width: max(0, trackWidth * progress))
                 .animation(.linear(duration: 0.04), value: progress)
             }
           }
-          .frame(height: 2.5)
+          .frame(height: 1.5)
+          .padding(.horizontal, 14)
+          .padding(.bottom, 3)
         }
-        .padding(.horizontal, 13)
-        .padding(.top, 8)
-        .padding(.bottom, 7)
         .frame(width: FloatingCopyLayout.pillSize.width, height: FloatingCopyLayout.pillSize.height)
         .background(
-          RoundedRectangle(cornerRadius: 14)
-            .fill(Color.black.opacity(0.78))
+          Capsule()
+            .fill(Color(red: 0.11, green: 0.11, blue: 0.13).opacity(0.94))
             .overlay(
-              RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+              Capsule()
+                .strokeBorder(
+                  LinearGradient(
+                    stops: [
+                      .init(color: Color.white.opacity(0.24), location: 0.0),
+                      .init(color: Color.white.opacity(0.10), location: 0.4),
+                      .init(color: Color.white.opacity(0.04), location: 1.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                  ),
+                  lineWidth: 1
+                )
             )
-            .shadow(color: .black.opacity(0.26), radius: 12, y: 3)
+            .shadow(color: Color.black.opacity(0.32), radius: 14, x: 0, y: 4)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .contentShape(Capsule())
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Copy transcription to clipboard")
@@ -636,7 +742,7 @@ struct NotchWaveform: View {
   }
 }
 
-#Preview {
+#Preview("Notch Indicator") {
   VStack(spacing: 24) {
     TranscriptionIndicatorView(
       status: .optionKeyPressed,
@@ -662,4 +768,29 @@ struct NotchWaveform: View {
   }
   .padding(40)
   .background(Color.gray)
+}
+
+#Preview("Floating Copy Pill") {
+  VStack(spacing: 30) {
+    FloatingCopyPillView(
+      feedback: .pasteUnavailable(text: "Hello world transcript", reason: .noFocusedInput),
+      startedAt: Date(),
+      duration: 4.0,
+      onCopy: {}
+    )
+    FloatingCopyPillView(
+      feedback: .pasteUnavailable(text: "Hello world transcript", reason: .insertionRejected),
+      startedAt: Date(),
+      duration: 4.0,
+      onCopy: {}
+    )
+    FloatingCopyPillView(
+      feedback: .copied,
+      startedAt: Date(),
+      duration: 1.8,
+      onCopy: {}
+    )
+  }
+  .padding(40)
+  .background(Color(white: 0.15))
 }

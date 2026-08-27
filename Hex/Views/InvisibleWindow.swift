@@ -213,14 +213,23 @@ private final class FeedbackButtonWindow: NSPanel {
     onCopy: @escaping () -> Void
   ) {
     setFrame(frame, display: true)
-    contentView = NSHostingView(
-      rootView: FloatingCopyPillView(
+    if let hostingView = contentView as? NSHostingView<FloatingCopyPillView> {
+      hostingView.rootView = FloatingCopyPillView(
         feedback: feedback,
         startedAt: startedAt,
         duration: duration,
         onCopy: onCopy
       )
-    )
+    } else {
+      contentView = NSHostingView(
+        rootView: FloatingCopyPillView(
+          feedback: feedback,
+          startedAt: startedAt,
+          duration: duration,
+          onCopy: onCopy
+        )
+      )
+    }
     orderFrontRegardless()
   }
 }
