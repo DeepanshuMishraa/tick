@@ -641,16 +641,43 @@ private extension TranscriptionFeature {
 private extension TranscriptionFeature {
   func monitorForCorrectionEffect(baseline: String) -> Effect<Action> {
     .run { [pasteboard] send in
-      // Keep the observation window long enough for a normal correction, while
-      // polling lightly so the overlay remains completely independent of it.
+      // Watch the edited field for a while after pasting. A correction is only
+      // learned once the text has SETTLED — unchanged for a full settle window
+      // — and is then compared against the ORIGINAL transcription, never
+      // against intermediate states. Otherwise in-flight edits (backspacing
+      // through "pushh" -> "push" -> "pu") would be captured as bogus
+      // dictionary entries mid-keystroke.
+      let settleWindow: TimeInterval = 1.2
+      let observationWindow: TimeInterval = 20
+
+      let startedAt = Date()
+      var lastSeenText: String?
+      var lastChangedAt = startedAt
+
       do {
-        for _ in 0..<80 {
-          try await Task.sleep(for: .milliseconds(250))
+        while Date().timeIntervalSince(startedAt) < observationWindow {
+          try await Task.sleep(for: .milliseconds(150))
           guard let currentText = await pasteboard.focusedText() else { continue }
-          guard let correction = WordCorrectionDetector.detect(before: baseline, after: currentText) else {
+
+          if currentText != lastSeenText {
+            // Edit in flight: reset the settle timer and keep waiting.
+            lastSeenText = currentText
+            lastChangedAt = Date()
             continue
           }
-          await send(.correctionDetected(correction))
+
+          // Identical to the previous poll; only act once the text has held
+          // still for the entire settle window.
+          guard Date().timeIntervalSince(lastChangedAt) >= settleWindow else { continue }
+
+          if currentText == baseline {
+            // User reverted everything: no correction intended.
+            return
+          }
+
+          if let correction = WordCorrectionDetector.detect(before: baseline, after: currentText) {
+            await send(.correctionDetected(correction))
+          }
           return
         }
       } catch {
