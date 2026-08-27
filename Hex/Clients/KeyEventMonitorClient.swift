@@ -46,7 +46,34 @@ public extension KeyEvent {
     if !isFnPressed {
       modifiers = modifiers.removing(kind: .fn)
     }
-    self.init(key: key, modifiers: modifiers)
+    let text: String?
+    if type == .keyDown {
+      var actualLength = 0
+      cgEvent.keyboardGetUnicodeString(
+        maxStringLength: 0,
+        actualStringLength: &actualLength,
+        unicodeString: nil
+      )
+      var characters = Array(repeating: UniChar(0), count: actualLength)
+      characters.withUnsafeMutableBufferPointer { buffer in
+        cgEvent.keyboardGetUnicodeString(
+          maxStringLength: actualLength,
+          actualStringLength: &actualLength,
+          unicodeString: buffer.baseAddress
+        )
+      }
+      text = actualLength > 0
+        ? String(utf16CodeUnits: characters, count: actualLength)
+        : nil
+    } else {
+      text = nil
+    }
+    self.init(
+      key: key,
+      modifiers: modifiers,
+      text: text,
+      isKeyDown: type == .keyDown
+    )
   }
 }
 

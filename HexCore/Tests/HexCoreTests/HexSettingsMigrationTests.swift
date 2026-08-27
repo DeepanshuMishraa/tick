@@ -6,7 +6,7 @@ final class HexSettingsMigrationTests: XCTestCase {
 		let data = try loadFixture(named: "v1")
 		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
 
-		XCTAssertEqual(decoded.recordingAudioBehavior, .pauseMedia, "Legacy pauseMediaOnRecord bool should map to pauseMedia behavior")
+		XCTAssertEqual(decoded.recordingAudioBehavior, .doNothing, "Legacy pauseMediaOnRecord bool should map to Do Nothing because Pause Media was removed")
 		XCTAssertEqual(decoded.soundEffectsEnabled, false)
 		XCTAssertEqual(decoded.soundEffectsVolume, HexSettings.baseSoundEffectsVolume)
 		XCTAssertEqual(decoded.openOnLogin, true)
@@ -66,6 +66,13 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertFalse(settings.useDoubleTapOnly)
 		XCTAssertFalse(decoded.useDoubleTapOnly)
 		XCTAssertEqual(decoded, settings)
+	}
+
+	func testRemovedPauseMediaValueMigratesToDoNothing() throws {
+		let data = Data(#"{"recordingAudioBehavior":"pauseMedia"}"#.utf8)
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+
+		XCTAssertEqual(decoded.recordingAudioBehavior, .doNothing)
 	}
 
 	private func loadFixture(named name: String) throws -> Data {

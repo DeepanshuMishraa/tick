@@ -414,11 +414,9 @@ struct PasteboardClientLive {
             return text
         }
 
-        if AXUIElementCopyAttributeValue(focusedElement, kAXSelectedTextAttribute as CFString, &value) == .success,
-           let selectedText = value as? String {
-            return selectedText
-        }
-
+        // Selected text is only a fragment, not the complete field value. It
+        // cannot be used as a dictionary baseline because an unrelated
+        // selection can look like a one-word correction.
         return nil
     }
 

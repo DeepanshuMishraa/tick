@@ -30,6 +30,7 @@ struct TranscriptionFeature {
     var sourceAppName: String?
     var appContext: AppContext?
     var feedback: Feedback?
+    var correctionKeystrokeTracker: WordCorrectionKeystrokeTracker?
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
     @Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
@@ -67,7 +68,10 @@ struct TranscriptionFeature {
     // Transcription result flow
     case transcriptionResult(String, URL)
     case transcriptionError(Error, URL?)
-    case beginCorrectionMonitoring(baseline: String?)
+    case beginCorrectionMonitoring(beforeText: String?, baseline: String?, insertedText: String)
+    case correctionKeyEvent(KeyEvent)
+    case evaluateKeystrokeCorrection
+    case correctionMonitoringExpired
     case correctionDetected(WordCorrection)
     case pasteUnavailable(String, reason: State.PasteFailureReason)
     case copyFeedback
@@ -82,6 +86,7 @@ struct TranscriptionFeature {
     case metering
     case transcription
     case correctionMonitoring
+    case correctionTypingSettle
     case feedback
   }
 
@@ -137,9 +142,11 @@ struct TranscriptionFeature {
 
       case let .startRecording(isLocked):
         state.feedback = nil
+        state.correctionKeystrokeTracker = nil
         return .merge(
           .cancel(id: CancelID.feedback),
           .cancel(id: CancelID.correctionMonitoring),
+          .cancel(id: CancelID.correctionTypingSettle),
           handleStartRecording(&state, isLocked: isLocked)
         )
 
@@ -154,10 +161,45 @@ struct TranscriptionFeature {
       case let .transcriptionError(error, audioURL):
         return handleTranscriptionError(&state, error: error, audioURL: audioURL)
 
-      case let .beginCorrectionMonitoring(baseline):
-        return monitorForCorrectionEffect(baseline: baseline)
+      case let .beginCorrectionMonitoring(beforeText, baseline, insertedText):
+        // Keyboard reconstruction is only a fallback for editors that do not
+        // expose a complete AX value. When a complete baseline exists, AX is
+        // the authority and global keystrokes must not be allowed to create a
+        // dictionary entry from unrelated typing elsewhere in the document.
+        state.correctionKeystrokeTracker = baseline == nil
+          ? WordCorrectionKeystrokeTracker(insertedText: insertedText)
+          : nil
+        return monitorForCorrectionEffect(
+          beforeText: beforeText,
+          baseline: baseline,
+          insertedText: insertedText
+        )
+
+      case let .correctionKeyEvent(event):
+        guard event.isKeyDown, var tracker = state.correctionKeystrokeTracker else {
+          return .none
+        }
+        guard tracker.apply(key: event.key, text: event.text, modifiers: event.modifiers) else {
+          state.correctionKeystrokeTracker = tracker
+          return .none
+        }
+        state.correctionKeystrokeTracker = tracker
+        return .run { send in
+          try await Task.sleep(for: .milliseconds(700))
+          await send(.evaluateKeystrokeCorrection)
+        }
+        .cancellable(id: CancelID.correctionTypingSettle, cancelInFlight: true)
+
+      case .evaluateKeystrokeCorrection:
+        guard let correction = state.correctionKeystrokeTracker?.correction else { return .none }
+        return .send(.correctionDetected(correction))
+
+      case .correctionMonitoringExpired:
+        state.correctionKeystrokeTracker = nil
+        return .cancel(id: CancelID.correctionTypingSettle)
 
       case let .correctionDetected(correction):
+        state.correctionKeystrokeTracker = nil
         return handleCorrectionDetected(&state, correction: correction)
 
       case let .pasteUnavailable(text, reason):
@@ -239,6 +281,7 @@ private extension TranscriptionFeature {
         let shouldIntercept: Bool
         switch inputEvent {
         case .keyboard(let keyEvent):
+          Task { await send(.correctionKeyEvent(keyEvent)) }
           // If Escape is pressed with no modifiers while idle, let's treat that as `cancel`.
           if keyEvent.key == .escape, keyEvent.modifiers.isEmpty,
              hotKeyProcessor.state == .idle
@@ -487,7 +530,6 @@ private extension TranscriptionFeature {
     let removalsEnabled = state.hexSettings.wordRemovalsEnabled
     let removals = state.hexSettings.wordRemovals
     let aiMode = state.hexSettings.aiPostProcessingMode
-    var canLearnDictionary = false
     let modifiedResult: String
 
     if state.isRemappingScratchpadFocused {
@@ -511,7 +553,6 @@ private extension TranscriptionFeature {
       if snippetResult != remappedResult {
         transcriptionFeatureLogger.info("Applied snippet expansion(s)")
       }
-      canLearnDictionary = remappedResult == output && snippetResult == remappedResult
       modifiedResult = snippetResult
     }
 
@@ -525,7 +566,10 @@ private extension TranscriptionFeature {
     let transcriptionHistory = state.$transcriptionHistory
     let isRemappingScratchpadFocused = state.isRemappingScratchpadFocused
     let useAI = aiMode != .off && !isRemappingScratchpadFocused
-    let shouldLearnDictionary = canLearnDictionary && !isRemappingScratchpadFocused && !useAI
+    // Learn from the exact final text Hex inserts. Existing remappings,
+    // snippets, and AI formatting must not disable correction monitoring for
+    // every other word in the transcription.
+    let shouldLearnDictionary = !isRemappingScratchpadFocused
 
     return .run { send in
       var resultToUse = modifiedResult
@@ -555,11 +599,15 @@ private extension TranscriptionFeature {
         )
 
         switch pasteResult {
-        case let .pasted(_, afterText) where shouldLearnDictionary:
+        case let .pasted(beforeText, afterText) where shouldLearnDictionary:
           // Some apps report a successful paste before Accessibility exposes
-          // the updated value. Start monitoring regardless and let the
-          // monitor recover the baseline with a short retry.
-          await send(.beginCorrectionMonitoring(baseline: afterText))
+          // the updated value. Start monitoring immediately so a correction
+          // made during that race is still learned.
+          await send(.beginCorrectionMonitoring(
+            beforeText: beforeText,
+            baseline: afterText,
+            insertedText: resultToUse
+          ))
         case .noFocusedInput:
           await send(.pasteUnavailable(resultToUse, reason: .noFocusedInput))
         case .failed:
@@ -640,7 +688,11 @@ private extension TranscriptionFeature {
 // MARK: - Dictionary Learning & Feedback
 
 private extension TranscriptionFeature {
-  func monitorForCorrectionEffect(baseline initialBaseline: String?) -> Effect<Action> {
+  func monitorForCorrectionEffect(
+    beforeText: String?,
+    baseline initialBaseline: String?,
+    insertedText: String
+  ) -> Effect<Action> {
     .run { [pasteboard] send in
       // Watch the edited field for a while after pasting. A correction is only
       // learned once the text has SETTLED — unchanged for a full settle window
@@ -648,28 +700,18 @@ private extension TranscriptionFeature {
       // against intermediate states. Otherwise in-flight edits (backspacing
       // through "pushh" -> "push" -> "pu") would be captured as bogus
       // dictionary entries mid-keystroke.
-      // The pasted value is already known, so a short stable-text window is
-      // enough to distinguish an intentional replacement from an in-flight
-      // edit without making the dictionary notification feel delayed.
-      let settleWindow: TimeInterval = 0.6
+      // The pasted value is already known. Give a multi-key replacement time
+      // to finish before comparing the complete field value.
+      let settleWindow: TimeInterval = 0.7
       let observationWindow: TimeInterval = 20
 
       let startedAt = Date()
-      var baseline = initialBaseline
-
-      // The paste can succeed before AX publishes the new value. Recover it
-      // here instead of silently disabling dictionary learning for that app.
-      if baseline == nil {
-        for _ in 0..<20 {
-          try? await Task.sleep(for: .milliseconds(50))
-          if let currentText = await pasteboard.focusedText() {
-            baseline = currentText
-            break
-          }
-        }
+      // A transport read-back can itself race with the user's edit. Validate
+      // the supplied snapshot before trusting it for the diff.
+      var baseline = initialBaseline.flatMap {
+        WordCorrectionDetector.containsInsertedText($0, insertedText: insertedText) ? $0 : nil
       }
 
-      guard let baseline else { return }
       var lastSeenText: String? = baseline
       var lastChangedAt = Date()
 
@@ -677,6 +719,24 @@ private extension TranscriptionFeature {
         while Date().timeIntervalSince(startedAt) < observationWindow {
           try await Task.sleep(for: .milliseconds(80))
           guard let currentText = await pasteboard.focusedText() else { continue }
+
+          // AX can briefly return the value from before Cmd-V. It is neither a
+          // baseline nor a user correction, so wait for the next snapshot.
+          if baseline == nil, currentText == beforeText {
+            continue
+          }
+
+          // If the pristine paste becomes visible, adopt it as the strongest
+          // possible baseline. Crucially, do not wait for it: a user can begin
+          // correcting the word before Accessibility ever exposes this state.
+          if baseline == nil,
+             WordCorrectionDetector.containsInsertedText(currentText, insertedText: insertedText)
+          {
+            baseline = currentText
+            lastSeenText = currentText
+            lastChangedAt = Date()
+            continue
+          }
 
           if currentText != lastSeenText {
             // Edit in flight: reset the settle timer and keep waiting.
@@ -689,12 +749,19 @@ private extension TranscriptionFeature {
           // still for the entire settle window.
           guard Date().timeIntervalSince(lastChangedAt) >= settleWindow else { continue }
 
-          if currentText == baseline {
-            // User reverted everything: no correction intended.
-            return
+          if let baseline, currentText == baseline {
+            // This is also the ordinary idle state immediately after paste.
+            // Keep watching: the user may correct a word several seconds later.
+            continue
           }
 
-          if let correction = WordCorrectionDetector.detect(before: baseline, after: currentText) {
+          let correction = WordCorrectionDetector.detectObservedCorrection(
+            beforeInsertion: beforeText,
+            baseline: baseline,
+            snapshot: currentText,
+            insertedText: insertedText
+          )
+          if let correction {
             await send(.correctionDetected(correction))
             return
           }
@@ -703,6 +770,7 @@ private extension TranscriptionFeature {
           // watching instead of abandoning the monitor so a later valid
           // one-word correction can still be learned.
         }
+        await send(.correctionMonitoringExpired)
       } catch {
         // Cancellation is expected when another transcription starts.
       }

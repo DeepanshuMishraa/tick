@@ -294,18 +294,26 @@ extension TranscriptionFeature.State.Feedback {
 
 @MainActor
 enum FloatingCopyLayout {
-  /// Fixed pill footprint; content fills it edge-to-edge.
+  /// The visible pill dimensions.
   static let pillSize = CGSize(width: 340, height: 46)
   /// Distance from the bottom edge of the screen to the bottom of the pill.
   static let bottomMargin: CGFloat = 36
+  /// Padding around the pill inside the hosting window to allow soft shadows to decay naturally without clipping.
+  static let shadowPadding: CGFloat = 20
 
-  /// The pill's rect on a given screen (AppKit coordinates, origin bottom-left).
+  /// Total hosting window size.
+  static let windowSize = CGSize(
+    width: pillSize.width + shadowPadding * 2,
+    height: pillSize.height + shadowPadding * 2
+  )
+
+  /// The panel's rect on a given screen (AppKit coordinates, origin bottom-left).
   static func pillFrame(onScreen screenFrame: NSRect) -> NSRect {
     NSRect(
-      x: screenFrame.midX - pillSize.width / 2,
-      y: screenFrame.minY + bottomMargin,
-      width: pillSize.width,
-      height: pillSize.height
+      x: screenFrame.midX - windowSize.width / 2,
+      y: screenFrame.minY + bottomMargin - shadowPadding,
+      width: windowSize.width,
+      height: windowSize.height
     )
   }
 }
@@ -334,8 +342,8 @@ struct FloatingCopyPillView: View {
       return "Copied to clipboard"
     }
     switch feedback {
-    case .dictionaryAdded:
-      return "Added to Dictionary"
+    case let .dictionaryAdded(match, _):
+      return "\(match) is turned to"
     case let .pasteUnavailable(_, reason):
       switch reason {
       case .noFocusedInput:
@@ -353,8 +361,8 @@ struct FloatingCopyPillView: View {
       return "Ready to paste anywhere"
     }
     switch feedback {
-    case let .dictionaryAdded(match, replacement):
-      return "\u{201c}\(match)\u{201d} → \u{201c}\(replacement)\u{201d}"
+    case let .dictionaryAdded(_, replacement):
+      return "\u{201c}\(replacement)\u{201d}"
     case .pasteUnavailable:
       return "Click to copy transcript"
     default:
@@ -367,15 +375,16 @@ struct FloatingCopyPillView: View {
       let elapsed = context.date.timeIntervalSince(startedAt)
       let progress = max(0, min(1, 1 - elapsed / max(duration, 0.1)))
 
-      // The whole pill is one tappable surface: any click copies when copyable.
-      Button(action: {
-        if case .pasteUnavailable = feedback {
-          withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-            hasLocallyCopied = true
+      ZStack {
+        // The whole pill is one tappable surface: any click copies when copyable.
+        Button(action: {
+          if case .pasteUnavailable = feedback {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
+              hasLocallyCopied = true
+            }
+            onCopy()
           }
-          onCopy()
-        }
-      }) {
+        }) {
         VStack(spacing: 0) {
           HStack(spacing: 10) {
             // Leading status icon glyph
@@ -543,14 +552,16 @@ struct FloatingCopyPillView: View {
                   lineWidth: 1
                 )
             )
-            .shadow(color: Color.black.opacity(0.32), radius: 14, x: 0, y: 4)
+            .shadow(color: Color.black.opacity(0.28), radius: 10, x: 0, y: 3)
         )
         .contentShape(Capsule())
       }
       .buttonStyle(.plain)
       .accessibilityLabel(isDictionaryState ? "Added word to dictionary" : "Copy transcription to clipboard")
     }
+    .frame(width: FloatingCopyLayout.windowSize.width, height: FloatingCopyLayout.windowSize.height)
   }
+}
 }
 
 // MARK: - Idle Dot

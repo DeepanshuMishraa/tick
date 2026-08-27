@@ -1,5 +1,6 @@
 import Testing
 @testable import HexCore
+import Sauce
 
 struct WordRemappingTests {
 	@Test
@@ -10,6 +11,104 @@ struct WordRemappingTests {
 		)
 
 		#expect(correction == WordCorrection(match: "kurzor", replacement: "cursor"))
+	}
+
+	@Test
+	func detectsHelloCorrectionWithPunctuation() {
+		let correction = WordCorrectionDetector.detect(
+			before: "hello, how are you?",
+			after: "helo, how are you?"
+		)
+
+		#expect(correction == WordCorrection(match: "hello", replacement: "helo"))
+	}
+
+	@Test
+	func delayedBaselineMustContainInsertedText() {
+		#expect(WordCorrectionDetector.containsInsertedText(
+			"hello, how are you?",
+			insertedText: "hello, how are you?"
+		))
+		#expect(!WordCorrectionDetector.containsInsertedText(
+			"helo, how are you?",
+			insertedText: "hello, how are you?"
+		))
+	}
+
+	@Test
+	func refusesToLearnWithoutACompleteBaseline() {
+		let correction = WordCorrectionDetector.detectObservedCorrection(
+			beforeInsertion: "Please say ",
+			baseline: nil,
+			snapshot: "zeros is changed to ones",
+			insertedText: "hello, how are you?"
+		)
+
+		#expect(correction == nil)
+	}
+
+	@Test
+	func detectsCorrectionAgainstCompleteBaseline() {
+		let correction = WordCorrectionDetector.detectObservedCorrection(
+			beforeInsertion: "Please say ",
+			baseline: "Please say hello, how are you?",
+			snapshot: "Please say helo, how are you?",
+			insertedText: "hello, how are you?"
+		)
+
+		#expect(correction == WordCorrection(match: "hello", replacement: "helo"))
+	}
+
+	@Test
+	func ignoresCorrectionOutsideInsertedPhrase() {
+		let correction = WordCorrectionDetector.detectObservedCorrection(
+			beforeInsertion: "Please say ",
+			baseline: "Please say hello, how are you? Existing text",
+			snapshot: "Please say hello, how are you? Changed text",
+			insertedText: "hello, how are you?"
+		)
+
+		#expect(correction == nil)
+	}
+
+	@Test
+	func ignoresStalePrePasteSnapshot() {
+		let correction = WordCorrectionDetector.detectObservedCorrection(
+			beforeInsertion: "Please say ",
+			baseline: nil,
+			snapshot: "Please say ",
+			insertedText: "hello, how are you?"
+		)
+
+		#expect(correction == nil)
+	}
+
+	@Test
+	func reconstructsKeyboardCorrectionWithoutAccessibilityText() {
+		var tracker = WordCorrectionKeystrokeTracker(insertedText: "hello, how are you?")
+		_ = tracker.apply(key: .leftArrow, text: nil, modifiers: [.command])
+		_ = tracker.apply(key: .rightArrow, text: nil, modifiers: [])
+		_ = tracker.apply(key: .rightArrow, text: nil, modifiers: [])
+		_ = tracker.apply(key: .forwardDelete, text: nil, modifiers: [])
+
+		#expect(tracker.currentText == "helo, how are you?")
+		#expect(tracker.correction == WordCorrection(match: "hello", replacement: "helo"))
+	}
+
+	@Test
+	func reconstructsSelectedWordReplacement() {
+		var tracker = WordCorrectionKeystrokeTracker(insertedText: "hello world")
+		_ = tracker.apply(key: .leftArrow, text: nil, modifiers: [.command])
+		for _ in 0..<5 {
+			_ = tracker.apply(key: .rightArrow, text: nil, modifiers: [.shift])
+		}
+		_ = tracker.apply(key: .h, text: "h", modifiers: [])
+		_ = tracker.apply(key: .e, text: "e", modifiers: [])
+		_ = tracker.apply(key: .l, text: "l", modifiers: [])
+		_ = tracker.apply(key: .o, text: "o", modifiers: [])
+
+		#expect(tracker.currentText == "helo world")
+		#expect(tracker.correction == WordCorrection(match: "hello", replacement: "helo"))
 	}
 
 	@Test

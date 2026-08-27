@@ -114,7 +114,6 @@ struct GeneralSectionView: View {
 					set: { store.send(.setRecordingAudioBehavior($0)) }
 				),
 				options: [
-					(.pauseMedia, "Pause Media", "pause.fill"),
 					(.mute, "Mute Volume", "speaker.slash.fill"),
 					(.doNothing, "Do Nothing", "hand.raised.slash.fill")
 				]

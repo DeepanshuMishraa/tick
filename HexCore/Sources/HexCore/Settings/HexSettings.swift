@@ -1,7 +1,6 @@
 import Foundation
 
 public enum RecordingAudioBehavior: String, Codable, CaseIterable, Equatable, Sendable {
-	case pauseMedia
 	case mute
 	case doNothing
 }
@@ -412,11 +411,19 @@ private enum HexSettingsSchema {
 			keyPath: \.recordingAudioBehavior,
 			default: defaults.recordingAudioBehavior,
 			decode: { container, key, defaultValue in
-				if let value = try container.decodeIfPresent(RecordingAudioBehavior.self, forKey: key) {
-					return value
+				if let rawValue = try container.decodeIfPresent(String.self, forKey: key) {
+					switch rawValue {
+					case RecordingAudioBehavior.mute.rawValue:
+						return .mute
+					case RecordingAudioBehavior.doNothing.rawValue:
+						return .doNothing
+					default:
+						// Includes the removed "pauseMedia" value.
+						return .doNothing
+					}
 				}
-				if let legacyPause = try container.decodeIfPresent(Bool.self, forKey: .pauseMediaOnRecord) {
-					return legacyPause ? .pauseMedia : .doNothing
+				if (try container.decodeIfPresent(Bool.self, forKey: .pauseMediaOnRecord)) != nil {
+					return .doNothing
 				}
 				return defaultValue
 			}
