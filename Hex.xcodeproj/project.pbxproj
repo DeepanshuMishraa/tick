@@ -19,6 +19,8 @@
 		B5045C972D78DED500D0A119 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = B5045C962D78DED500D0A119 /* MarkdownUI */; };
 		B53356002D7B8D4900E5F542 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B53355FF2D7B8D4900E5F542 /* Localizable.xcstrings */; };
 		C1A5H00100000000000000A1 /* ClashGrotesk-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C1A5H00100000000000000B1 /* ClashGrotesk-Variable.ttf */; };
+		C1A5H00100000000000000A2 /* SplineSansMono-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C1A5H00100000000000000B2 /* SplineSansMono-Variable.ttf */; };
+		C1A5H00100000000000000A3 /* SplineSansMono-Italic-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C1A5H00100000000000000B3 /* SplineSansMono-Italic-Variable.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -38,6 +40,8 @@
 		47E05DEE2D444EC600D26DA6 /* tick Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "tick Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B53355FF2D7B8D4900E5F542 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		C1A5H00100000000000000B1 /* ClashGrotesk-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "ClashGrotesk-Variable.ttf"; path = "fonts/ClashGrotesk-Variable.ttf"; sourceTree = "<group>"; };
+		C1A5H00100000000000000B2 /* SplineSansMono-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "SplineSansMono-Variable.ttf"; path = "fonts/SplineSansMono-Variable.ttf"; sourceTree = "<group>"; };
+		C1A5H00100000000000000B3 /* SplineSansMono-Italic-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "SplineSansMono-Italic-Variable.ttf"; path = "fonts/SplineSansMono-Italic-Variable.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -103,6 +107,8 @@
 			children = (
 				B53355FF2D7B8D4900E5F542 /* Localizable.xcstrings */,
 				C1A5H00100000000000000B1 /* ClashGrotesk-Variable.ttf */,
+				C1A5H00100000000000000B2 /* SplineSansMono-Variable.ttf */,
+				C1A5H00100000000000000B3 /* SplineSansMono-Italic-Variable.ttf */,
 				47E05DF02D444EC600D26DA6 /* Hex */,
 				4735444F2D445936001FBCB5 /* Frameworks */,
 				47E05DEF2D444EC600D26DA6 /* Products */,
@@ -237,6 +243,8 @@
 			files = (
 				B53356002D7B8D4900E5F542 /* Localizable.xcstrings in Resources */,
 				C1A5H00100000000000000A1 /* ClashGrotesk-Variable.ttf in Resources */,
+				C1A5H00100000000000000A2 /* SplineSansMono-Variable.ttf in Resources */,
+				C1A5H00100000000000000A3 /* SplineSansMono-Italic-Variable.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -459,7 +467,7 @@
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Hex needs to control keyboard events to simulate paste operations.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Hex needs microphone access in order to transcribe your voice.";
-				INFOPLIST_KEY_UIAppFonts = "ClashGrotesk-Variable.ttf";
+				INFOPLIST_KEY_UIAppFonts = "SplineSansMono-Variable.ttf";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -516,7 +524,7 @@
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Hex needs to control keyboard events to simulate paste operations.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Hex needs microphone access in order to transcribe your voice.";
-				INFOPLIST_KEY_UIAppFonts = "ClashGrotesk-Variable.ttf";
+				INFOPLIST_KEY_UIAppFonts = "SplineSansMono-Variable.ttf";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

@@ -90,7 +90,9 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 		let transcriptionView = TranscriptionView(store: transcriptionStore)
 			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 		invisibleWindow = InvisibleWindow.fromView(transcriptionView)
-		invisibleWindow?.makeKeyAndOrderFront(nil)
+		// The transcription overlay must never become key: doing so clears the
+		// focused text field that should receive the finished transcription.
+		invisibleWindow?.orderFrontRegardless()
 	}
 
 	func presentSettingsView() {

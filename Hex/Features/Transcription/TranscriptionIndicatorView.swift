@@ -1,3 +1,4 @@
+import HexCore
 import Inject
 import SwiftUI
 
@@ -71,6 +72,8 @@ struct TranscriptionIndicatorView: View {
   var meter: Meter
   var sourceAppBundleID: String? = nil
   var sourceAppName: String? = nil
+  var feedback: TranscriptionFeature.State.Feedback? = nil
+  var onCopy: () -> Void = {}
 
   private var appIcon: NSImage? {
     guard let bundleID = sourceAppBundleID else { return nil }
@@ -89,9 +92,16 @@ struct TranscriptionIndicatorView: View {
   private let minBarHeight: CGFloat = 3
 
   @State private var geometry = NotchGeometry(hasNotch: false, notchWidth: 120, notchHeight: 32, menuBarHeight: 24)
+  @State private var feedbackStartedAt = Date()
 
   var body: some View {
-    let targetHeight = isLocked ? (geometry.notchHeight + 30) : geometry.notchHeight
+    // When pasting isn't possible, the entire notification moves into the
+    // floating bottom-center Copy pill (its own interactive panel), so the
+    // notch housing stays in its compact state.
+    let notchFeedback = notchVisibleFeedback
+    let targetHeight = notchFeedback != nil
+      ? geometry.notchHeight + 68
+      : (isLocked ? (geometry.notchHeight + 30) : geometry.notchHeight)
     ZStack(alignment: .top) {
       // Black housing that blends with the notch's own black bezel.
       // The height animates from 0 to target height for a premium slide-down effect.
@@ -105,6 +115,14 @@ struct TranscriptionIndicatorView: View {
       .frame(width: geometry.notchWidth + extensionWidth * 2, height: isActive ? targetHeight : 0)
       
       if isActive {
+        if let feedback = notchFeedback {
+          NotchFeedbackView(
+            feedback: feedback,
+            startedAt: feedbackStartedAt,
+            duration: 4
+          )
+          .frame(width: geometry.notchWidth + extensionWidth * 2, height: targetHeight)
+        } else {
         HStack(spacing: 0) {
           Group {
             switch status {
@@ -183,6 +201,7 @@ struct TranscriptionIndicatorView: View {
           .padding(.top, geometry.notchHeight)
           .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
+        }
       }
     }
     .frame(width: geometry.notchWidth + extensionWidth * 2, height: targetHeight)
@@ -191,19 +210,261 @@ struct TranscriptionIndicatorView: View {
     .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isLocked)
     .onAppear {
       updateGeometry()
+      updateFeedbackInteraction()
     }
     .onChange(of: status) {
       updateGeometry()
+    }
+    .onChange(of: feedback) {
+      feedbackStartedAt = Date()
+      updateGeometry()
+      updateFeedbackInteraction()
     }
     .enableInjection()
   }
 
   private var isActive: Bool {
-    status != .hidden
+    status != .hidden || notchVisibleFeedback != nil
+  }
+
+  /// Feedback states that render inside the notch bubble. The paste-unavailable
+  /// state is excluded — it renders in the floating bottom-center pill instead.
+  private var notchVisibleFeedback: TranscriptionFeature.State.Feedback? {
+    guard let feedback else { return nil }
+    return feedback.isPasteUnavailable ? nil : feedback
+  }
+
+  private var isCopyAvailable: Bool {
+    guard case .pasteUnavailable = feedback else { return false }
+    return true
   }
 
   private func updateGeometry() {
     geometry = getNotchGeometry()
+  }
+
+  private func updateFeedbackInteraction() {
+    HexLog.app.debug("updateFeedbackInteraction called; copyAvailable=\(self.isCopyAvailable, privacy: .public)")
+    guard let window = InvisibleWindow.current else {
+      HexLog.app.error("Copy pill: invisibleWindow has not been created yet")
+      return
+    }
+    // When paste is unavailable, hand the whole notification over to the
+    // floating bottom-center pill panel (icon + text + countdown + Copy).
+    window.updateCopyPill(
+      feedback: isCopyAvailable ? feedback : nil,
+      startedAt: feedbackStartedAt,
+      duration: 4,
+      onCopy: onCopy
+    )
+  }
+}
+
+private struct NotchFeedbackView: View {
+  let feedback: TranscriptionFeature.State.Feedback
+  let startedAt: Date
+  let duration: TimeInterval
+
+  var body: some View {
+    TimelineView(.animation(minimumInterval: 0.05)) { context in
+      let elapsed = context.date.timeIntervalSince(startedAt)
+      let progress = max(0, min(1, 1 - elapsed / duration))
+
+      VStack(alignment: .leading, spacing: 7) {
+        HStack(spacing: 8) {
+          Image(systemName: feedback.iconName)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(TickColor.success)
+            .frame(width: 20, height: 20)
+            .background(TickColor.success.opacity(0.14), in: Circle())
+
+          VStack(alignment: .leading, spacing: 1) {
+            Text(feedback.title)
+              .font(TickFont.bodyFunc(11, weight: .medium))
+              .foregroundStyle(.white)
+              .lineLimit(1)
+            Text(feedback.detail)
+              .font(TickFont.bodyFunc(9))
+              .foregroundStyle(.white.opacity(0.65))
+              .lineLimit(1)
+          }
+
+          Spacer(minLength: 4)
+        }
+
+        GeometryReader { proxy in
+          Capsule()
+            .fill(TickColor.success.opacity(0.2))
+            .overlay(alignment: .leading) {
+              Capsule()
+                .fill(TickColor.success)
+                .frame(width: proxy.size.width * progress)
+            }
+        }
+        .frame(height: 3)
+        .accessibilityLabel("Notification dismisses soon")
+        .accessibilityValue("\(Int(progress * 100)) percent remaining")
+      }
+      .padding(.horizontal, 14)
+      .padding(.top, 20)
+      .padding(.bottom, 8)
+    }
+  }
+}
+
+extension TranscriptionFeature.State.Feedback {
+  /// True when the transcription couldn't be inserted into a focused input.
+  var isPasteUnavailable: Bool {
+    if case .pasteUnavailable = self { return true }
+    return false
+  }
+
+  var iconName: String {
+    switch self {
+    case .dictionaryAdded: return "checkmark"
+    case .pasteUnavailable: return "exclamationmark"
+    case .copied: return "doc.on.clipboard.fill"
+    }
+  }
+
+  var title: String {
+    switch self {
+    case .dictionaryAdded: return "Added to Dictionary"
+    case .pasteUnavailable: return "Couldn't paste"
+    case .copied: return "Copied to Clipboard"
+    }
+  }
+
+  var detail: String {
+    switch self {
+    case let .dictionaryAdded(match, replacement):
+      return "\u{201c}\(match)\u{201d} → \u{201c}\(replacement)\u{201d}"
+    case let .pasteUnavailable(_, reason):
+      switch reason {
+      case .noFocusedInput:
+        return "No input field focused"
+      case .insertionRejected:
+        return "Paste rejected by this app"
+      }
+    case .copied:
+      return "Your transcription is ready to paste"
+    }
+  }
+}
+
+// MARK: - Floating Copy Pill
+//
+// When paste isn't possible (no focused input / rejected insertion), the
+// ENTIRE notification — status icon, text, dismiss-countdown slider and the
+// Copy affordance — floats at the bottom-center of the screen in one minimal
+// pill. Unlike the notch, the pill lives in its own small interactive panel
+// (see InvisibleWindow.FeedbackButtonWindow), so clicks land on the SwiftUI
+// button natively instead of being routed through an invisible hit-overlay.
+//
+// FloatingCopyLayout is the shared geometry between the two files so the
+// panel always frames the pill exactly.
+
+@MainActor
+enum FloatingCopyLayout {
+  /// Fixed pill footprint; content fills it edge-to-edge.
+  static let pillSize = CGSize(width: 320, height: 54)
+  /// Distance from the bottom edge of the screen to the bottom of the pill.
+  static let bottomMargin: CGFloat = 26
+
+  /// The pill's rect on a given screen (AppKit coordinates, origin bottom-left).
+  static func pillFrame(onScreen screenFrame: NSRect) -> NSRect {
+    NSRect(
+      x: screenFrame.midX - pillSize.width / 2,
+      y: screenFrame.minY + bottomMargin,
+      width: pillSize.width,
+      height: pillSize.height
+    )
+  }
+}
+
+struct FloatingCopyPillView: View {
+  let feedback: TranscriptionFeature.State.Feedback
+  let startedAt: Date
+  let duration: TimeInterval
+  let onCopy: () -> Void
+
+  var body: some View {
+    TimelineView(.animation(minimumInterval: 0.05)) { context in
+      let elapsed = context.date.timeIntervalSince(startedAt)
+      let progress = max(0, min(1, 1 - elapsed / duration))
+
+      // The whole pill is one tappable surface: any click copies the transcript.
+      Button(action: onCopy) {
+        VStack(spacing: 0) {
+          HStack(spacing: 9) {
+            Image(systemName: feedback.iconName)
+              .font(.system(size: 10, weight: .bold))
+              .foregroundStyle(TickColor.success)
+              .frame(width: 20, height: 20)
+              .background(TickColor.success.opacity(0.15), in: Circle())
+
+            VStack(alignment: .leading, spacing: 1) {
+              Text(feedback.title)
+                .font(TickFont.bodyFunc(11.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.95))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+              Text(feedback.detail)
+                .font(TickFont.captionFunc(10))
+                .foregroundStyle(.white.opacity(0.55))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            }
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 5) {
+              Image(systemName: "doc.on.doc")
+                .font(.system(size: 9, weight: .semibold))
+              Text("Copy")
+                .font(TickFont.labelFunc(10.5, weight: .semibold))
+            }
+            .foregroundStyle(.white.opacity(0.92))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+              Capsule()
+                .fill(.white.opacity(0.09))
+                .overlay(Capsule().strokeBorder(.white.opacity(0.07), lineWidth: 0.5))
+            )
+          }
+
+          // Countdown slider: shrinks as the notification approaches dismissal.
+          GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+              Capsule()
+                .fill(.white.opacity(0.08))
+              Capsule()
+                .fill(TickColor.success.opacity(0.85))
+                .frame(width: proxy.size.width * progress)
+                .animation(.linear(duration: 0.04), value: progress)
+            }
+          }
+          .frame(height: 2.5)
+        }
+        .padding(.horizontal, 13)
+        .padding(.top, 8)
+        .padding(.bottom, 7)
+        .frame(width: FloatingCopyLayout.pillSize.width, height: FloatingCopyLayout.pillSize.height)
+        .background(
+          RoundedRectangle(cornerRadius: 14)
+            .fill(Color.black.opacity(0.78))
+            .overlay(
+              RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.26), radius: 12, y: 3)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Copy transcription to clipboard")
+    }
   }
 }
 

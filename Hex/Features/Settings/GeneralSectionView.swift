@@ -34,26 +34,6 @@ struct GeneralSectionView: View {
 				)
 				divider()
 				row(
-					eyebrow: "Insertion",
-					title: "Use Clipboard to Insert",
-					subtitle: "Faster but may not fully restore prior clipboard",
-					isOn: Binding(
-						get: { store.hexSettings.useClipboardPaste },
-						set: { store.send(.toggleUseClipboardPaste($0)) }
-					)
-				)
-				divider()
-				row(
-					eyebrow: "Clipboard",
-					title: "Copy to Clipboard",
-					subtitle: "Also copy transcription to clipboard",
-					isOn: Binding(
-						get: { store.hexSettings.copyToClipboard },
-						set: { store.send(.toggleCopyToClipboard($0)) }
-					)
-				)
-				divider()
-				row(
 					eyebrow: "Power",
 					title: "Prevent System Sleep",
 					subtitle: "Keep Mac awake while recording",

@@ -3,6 +3,40 @@ import Testing
 
 struct WordRemappingTests {
 	@Test
+	func detectsOneWordCorrection() {
+		let correction = WordCorrectionDetector.detect(
+			before: "Please open kurzor in the browser",
+			after: "Please open cursor in the browser"
+		)
+
+		#expect(correction == WordCorrection(match: "kurzor", replacement: "cursor"))
+	}
+
+	@Test
+	func ignoresMultipleWordCorrections() {
+		let correction = WordCorrectionDetector.detect(
+			before: "open kurzor now",
+			after: "open cursor please"
+		)
+
+		#expect(correction == nil)
+	}
+
+	@Test
+	func ignoresInsertionsAndDeletions() {
+		#expect(WordCorrectionDetector.detect(before: "open kurzor", after: "open cursor now") == nil)
+		#expect(WordCorrectionDetector.detect(before: "open kurzor now", after: "open cursor") == nil)
+	}
+
+	@Test
+	func expandsSnippetBeforeInsertion() {
+		let snippets = [SnippetSetting(shortcut: "Gmail", content: "person@example.com")]
+		let result = SnippetApplier.apply("Send this to Gmail", snippets: snippets)
+
+		#expect(result == "Send this to person@example.com")
+	}
+
+	@Test
 	func basicRemapping() {
 		let remappings = [
 			WordRemapping(match: "comma", replacement: ",")

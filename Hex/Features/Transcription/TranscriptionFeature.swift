@@ -29,10 +29,22 @@ struct TranscriptionFeature {
     var sourceAppBundleID: String?
     var sourceAppName: String?
     var appContext: AppContext?
+    var feedback: Feedback?
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
     @Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
+
+    enum Feedback: Equatable {
+      case dictionaryAdded(match: String, replacement: String)
+      case pasteUnavailable(text: String, reason: PasteFailureReason)
+      case copied
+    }
+
+    enum PasteFailureReason: Equatable {
+      case noFocusedInput
+      case insertionRejected
+    }
   }
 
   enum Action {
@@ -55,6 +67,12 @@ struct TranscriptionFeature {
     // Transcription result flow
     case transcriptionResult(String, URL)
     case transcriptionError(Error, URL?)
+    case beginCorrectionMonitoring(baseline: String)
+    case correctionDetected(WordCorrection)
+    case pasteUnavailable(String, reason: State.PasteFailureReason)
+    case copyFeedback
+    case feedbackCopied
+    case feedbackDismissed
 
     // Model availability
     case modelMissing
@@ -63,6 +81,8 @@ struct TranscriptionFeature {
   enum CancelID {
     case metering
     case transcription
+    case correctionMonitoring
+    case feedback
   }
 
   @Dependency(\.transcription) var transcription
@@ -116,7 +136,12 @@ struct TranscriptionFeature {
       // MARK: - Recording Flow
 
       case let .startRecording(isLocked):
-        return handleStartRecording(&state, isLocked: isLocked)
+        state.feedback = nil
+        return .merge(
+          .cancel(id: CancelID.feedback),
+          .cancel(id: CancelID.correctionMonitoring),
+          handleStartRecording(&state, isLocked: isLocked)
+        )
 
       case .stopRecording:
         return handleStopRecording(&state)
@@ -128,6 +153,31 @@ struct TranscriptionFeature {
 
       case let .transcriptionError(error, audioURL):
         return handleTranscriptionError(&state, error: error, audioURL: audioURL)
+
+      case let .beginCorrectionMonitoring(baseline):
+        return monitorForCorrectionEffect(baseline: baseline)
+
+      case let .correctionDetected(correction):
+        return handleCorrectionDetected(&state, correction: correction)
+
+      case let .pasteUnavailable(text, reason):
+        state.feedback = .pasteUnavailable(text: text, reason: reason)
+        return dismissFeedbackEffect(after: .seconds(4))
+
+      case .copyFeedback:
+        guard case let .pasteUnavailable(text, _) = state.feedback else { return .none }
+        return .run { [pasteboard] send in
+          await pasteboard.copy(text)
+          await send(.feedbackCopied)
+        }
+
+      case .feedbackCopied:
+        state.feedback = .copied
+        return dismissFeedbackEffect(after: .seconds(1.8))
+
+      case .feedbackDismissed:
+        state.feedback = nil
+        return .cancel(id: CancelID.feedback)
 
       case .modelMissing:
         return .none
@@ -437,6 +487,7 @@ private extension TranscriptionFeature {
     let removalsEnabled = state.hexSettings.wordRemovalsEnabled
     let removals = state.hexSettings.wordRemovals
     let aiMode = state.hexSettings.aiPostProcessingMode
+    var canLearnDictionary = false
     let modifiedResult: String
 
     if state.isRemappingScratchpadFocused {
@@ -460,6 +511,7 @@ private extension TranscriptionFeature {
       if snippetResult != remappedResult {
         transcriptionFeatureLogger.info("Applied snippet expansion(s)")
       }
+      canLearnDictionary = remappedResult == output && snippetResult == remappedResult
       modifiedResult = snippetResult
     }
 
@@ -473,6 +525,7 @@ private extension TranscriptionFeature {
     let transcriptionHistory = state.$transcriptionHistory
     let isRemappingScratchpadFocused = state.isRemappingScratchpadFocused
     let useAI = aiMode != .off && !isRemappingScratchpadFocused
+    let shouldLearnDictionary = canLearnDictionary && !isRemappingScratchpadFocused && !useAI
 
     return .run { send in
       var resultToUse = modifiedResult
@@ -492,7 +545,7 @@ private extension TranscriptionFeature {
       }
 
       do {
-        try await finalizeRecordingAndStoreTranscript(
+        let pasteResult = try await finalizeRecordingAndStoreTranscript(
           result: resultToUse,
           duration: duration,
           sourceAppBundleID: sourceAppBundleID,
@@ -500,6 +553,19 @@ private extension TranscriptionFeature {
           audioURL: audioURL,
           transcriptionHistory: transcriptionHistory
         )
+
+        switch pasteResult {
+        case let .pasted(_, afterText) where shouldLearnDictionary:
+          if let afterText {
+            await send(.beginCorrectionMonitoring(baseline: afterText))
+          }
+        case .noFocusedInput:
+          await send(.pasteUnavailable(resultToUse, reason: .noFocusedInput))
+        case .failed:
+          await send(.pasteUnavailable(resultToUse, reason: .insertionRejected))
+        case .pasted:
+          break
+        }
       } catch {
         await send(.transcriptionError(error, audioURL))
       }
@@ -533,7 +599,7 @@ private extension TranscriptionFeature {
     sourceAppName: String?,
     audioURL: URL,
     transcriptionHistory: Shared<TranscriptionHistory>
-  ) async throws {
+  ) async throws -> PasteboardPasteResult {
     @Shared(.hexSettings) var hexSettings: HexSettings
 
     if hexSettings.saveTranscriptionHistory {
@@ -562,8 +628,84 @@ private extension TranscriptionFeature {
       try? FileManager.default.removeItem(at: audioURL)
     }
 
-    await pasteboard.paste(result)
-    soundEffect.play(.pasteTranscript)
+    let pasteResult = await pasteboard.paste(result)
+    if case .pasted = pasteResult {
+      soundEffect.play(.pasteTranscript)
+    }
+    return pasteResult
+  }
+}
+
+// MARK: - Dictionary Learning & Feedback
+
+private extension TranscriptionFeature {
+  func monitorForCorrectionEffect(baseline: String) -> Effect<Action> {
+    .run { [pasteboard] send in
+      // Keep the observation window long enough for a normal correction, while
+      // polling lightly so the overlay remains completely independent of it.
+      do {
+        for _ in 0..<80 {
+          try await Task.sleep(for: .milliseconds(250))
+          guard let currentText = await pasteboard.focusedText() else { continue }
+          guard let correction = WordCorrectionDetector.detect(before: baseline, after: currentText) else {
+            continue
+          }
+          await send(.correctionDetected(correction))
+          return
+        }
+      } catch {
+        // Cancellation is expected when another transcription starts.
+      }
+    }
+    .cancellable(id: CancelID.correctionMonitoring, cancelInFlight: true)
+  }
+
+  func handleCorrectionDetected(
+    _ state: inout State,
+    correction: WordCorrection
+  ) -> Effect<Action> {
+    guard correction.match.caseInsensitiveCompare(correction.replacement) != .orderedSame else {
+      return .none
+    }
+
+    let didAdd = state.$hexSettings.withLock { settings in
+      let alreadyExists = settings.wordRemappings.contains {
+        $0.isEnabled
+          && $0.match.caseInsensitiveCompare(correction.match) == .orderedSame
+          && $0.replacement.caseInsensitiveCompare(correction.replacement) == .orderedSame
+      }
+      guard !alreadyExists else { return false }
+      settings.wordRemappings.append(
+        WordRemapping(match: correction.match, replacement: correction.replacement)
+      )
+      return true
+    }
+
+    guard didAdd else { return .cancel(id: CancelID.correctionMonitoring) }
+    transcriptionFeatureLogger.notice(
+      "Learned dictionary correction match=\(correction.match, privacy: .private) replacement=\(correction.replacement, privacy: .private)"
+    )
+    state.feedback = .dictionaryAdded(
+      match: correction.match,
+      replacement: correction.replacement
+    )
+
+    return .merge(
+      .cancel(id: CancelID.correctionMonitoring),
+      dismissFeedbackEffect(after: .seconds(4))
+    )
+  }
+
+  func dismissFeedbackEffect(after duration: Duration) -> Effect<Action> {
+    .run { send in
+      do {
+        try await Task.sleep(for: duration)
+        await send(.feedbackDismissed)
+      } catch {
+        // Cancellation is expected when feedback is replaced.
+      }
+    }
+    .cancellable(id: CancelID.feedback, cancelInFlight: true)
   }
 }
 
@@ -628,7 +770,9 @@ struct TranscriptionView: View {
       isLocked: store.isLocked,
       meter: store.meter,
       sourceAppBundleID: store.sourceAppBundleID,
-      sourceAppName: store.sourceAppName
+      sourceAppName: store.sourceAppName,
+      feedback: store.feedback,
+      onCopy: { store.send(.copyFeedback) }
     )
     .task {
       await store.send(.task).finish()

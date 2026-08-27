@@ -8,6 +8,7 @@ import SwiftUI
 struct AppFeature {
   enum ActiveTab: Equatable, Hashable {
     case home
+    case insights
     case dictionary
     case snippets
     case style
@@ -86,8 +87,20 @@ struct AppFeature {
         guard let lastTranscript = transcriptionHistory.history.first?.text else {
           return .none
         }
-        return .run { _ in
-          await pasteboard.paste(lastTranscript)
+        return .run { send in
+          // Surface failures the same way dictation results do, so the floating
+          // bottom-center Copy pill shows up instead of the paste vanishing
+          // silently when no input was focused.
+          let result = await pasteboard.paste(lastTranscript)
+          HexLog.app.debug("Paste Last Transcript outcome=\(String(describing: result), privacy: .public)")
+          switch result {
+          case .pasted:
+            break
+          case .noFocusedInput:
+            await send(.transcription(.pasteUnavailable(lastTranscript, reason: .noFocusedInput)))
+          case .failed:
+            await send(.transcription(.pasteUnavailable(lastTranscript, reason: .insertionRejected)))
+          }
         }
 
       case .transcription(.modelMissing):
@@ -250,7 +263,6 @@ struct AppFeature {
 struct AppView: View {
   @Bindable var store: StoreOf<AppFeature>
   @State private var isSidebarVisible = true
-  @State private var isStatsPresented = false
   @State private var isPersonalisationWizardPresented = false
 
   // Cached stats to prevent expensive main-thread sorting and reductions on every body evaluation
@@ -391,9 +403,9 @@ struct AppView: View {
         audioPath: URL(fileURLWithPath: ""),
         duration: 4.0
       )
-      sortedTranscripts = [t1, t2, t3, t4, t5, t6]
+      sortedTranscripts = [t6, t5, t4, t3, t2, t1]
     } else {
-      sortedTranscripts = currentHistory.sorted(by: { $0.timestamp < $1.timestamp })
+      sortedTranscripts = currentHistory.sorted(by: { $0.timestamp > $1.timestamp })
     }
     
     // Update state
@@ -427,16 +439,6 @@ struct AppView: View {
           .background(AppTheme.detailBackground)
       }
       .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSidebarVisible)
-
-      if isStatsPresented {
-        StatisticsModal(
-          wordCount: wordCount,
-          dailyStreak: dailyStreak,
-          averageWPM: averageWPM,
-          uniqueAppsCount: uniqueAppsCount,
-          onDismiss: { isStatsPresented = false }
-        )
-      }
 
       if isPersonalisationWizardPresented {
         PersonalisationWizardModal(onDismiss: { isPersonalisationWizardPresented = false })
@@ -496,6 +498,9 @@ struct AppView: View {
         SidebarItem(icon: "square.grid.2x2", title: "Home", isActive: store.activeTab == .home) {
           store.send(.setActiveTab(.home))
         }
+        SidebarItem(icon: "chart.xyaxis.line", title: "Insights", isActive: store.activeTab == .insights) {
+          store.send(.setActiveTab(.insights))
+        }
         SidebarItem(icon: "book", title: "Dictionary", isActive: store.activeTab == .dictionary) {
           store.send(.setActiveTab(.dictionary))
         }
@@ -540,6 +545,14 @@ struct AppView: View {
           switch store.activeTab {
           case .home:
             homeTabContent
+          case .insights:
+            InsightsTabView(
+              transcripts: store.history.transcriptionHistory.history,
+              wordCount: wordCount,
+              averageWPM: averageWPM,
+              uniqueAppsCount: uniqueAppsCount
+            )
+            .padding(24)
           case .dictionary:
             DictionaryTabView()
               .padding(24)
@@ -569,22 +582,22 @@ struct AppView: View {
 
   private var homeHeader: some View {
     HStack {
-      Text("Welcome back, \(userName)")
-        .font(TickFont.headingFunc(22, weight: .semibold))
+      Text(homeGreeting)
+        .font(TickFont.headingFunc(19, weight: .medium))
         .foregroundStyle(TickColor.textPrimary)
       
       HStack(spacing: 8) {
-        Button(action: { isStatsPresented = true }) {
+        Button(action: { store.send(.setActiveTab(.insights)) }) {
           StatPill(emoji: "🔥", text: "\(dailyStreak) \(dailyStreak == 1 ? "day" : "days")")
         }
         .buttonStyle(.plain)
         
-        Button(action: { isStatsPresented = true }) {
+        Button(action: { store.send(.setActiveTab(.insights)) }) {
           StatPill(emoji: "🚀", text: "\(wordCount) \(wordCount == 1 ? "word" : "words")")
         }
         .buttonStyle(.plain)
         
-        Button(action: { isStatsPresented = true }) {
+        Button(action: { store.send(.setActiveTab(.insights)) }) {
           StatPill(emoji: "👋", text: "\(averageWPM) WPM")
         }
         .buttonStyle(.plain)
@@ -603,10 +616,25 @@ struct AppView: View {
     .frame(height: 56)
   }
 
+  private var homeGreeting: String {
+    switch wordCount {
+    case 0:
+      return "Ready when you are, \(userName)"
+    case 1...200:
+      return "You're finding your flow, \(userName)"
+    case 201...500:
+      return "You're in a good rhythm, \(userName)"
+    case 501...2_000:
+      return "You're on a roll, \(userName)"
+    default:
+      return "You're in full flow, \(userName)"
+    }
+  }
+
   private var standardHeader: some View {
     HStack {
       Text(tabTitle(store.activeTab))
-        .font(TickFont.headingFunc(18, weight: .semibold))
+        .font(TickFont.headingFunc(18, weight: .medium))
         .foregroundStyle(TickColor.textPrimary)
 
       Spacer()
@@ -620,6 +648,7 @@ struct AppView: View {
   private func tabTitle(_ tab: AppFeature.ActiveTab) -> String {
     switch tab {
     case .home: return "Home"
+    case .insights: return "Insights"
     case .dictionary: return "Dictionary"
     case .snippets: return "Snippets"
     case .style: return "Style"
@@ -631,51 +660,6 @@ struct AppView: View {
   @ViewBuilder
   private var homeTabContent: some View {
     VStack(alignment: .leading, spacing: 0) {
-      if !store.hexSettings.hasSelectedStyle {
-        VStack(alignment: .leading, spacing: 12) {
-          HStack(spacing: 0) {
-            Text("Make Tick sound like ")
-              .font(TickFont.display(28, weight: .regular))
-              .foregroundStyle(TickColor.textPrimary)
-            Text("you")
-              .font(TickFont.displayItalic(28))
-              .foregroundStyle(TickColor.brand)
-          }
-
-          Text("Tick adapts to how you write in different apps. Personalize your style for messages, work chats, emails, and other apps so every word sounds like you.")
-            .font(TickFont.bodyFunc(14))
-            .foregroundStyle(TickColor.textPrimary)
-            .opacity(0.75)
-            .lineSpacing(4)
-            .padding(.trailing, 40)
-
-          Button(action: {
-            store.send(.setActiveTab(.style))
-          }) {
-            Text("Start now")
-              .font(TickFont.labelFunc(13, weight: .medium))
-              .foregroundColor(.white)
-              .padding(.horizontal, 18)
-              .padding(.vertical, 9)
-              .background(TickColor.textPrimary)
-              .cornerRadius(8)
-          }
-          .buttonStyle(.plain)
-          .padding(.top, 4)
-        }
-        .padding(28)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.bannerBackground)
-        .cornerRadius(16)
-        .overlay(
-          RoundedRectangle(cornerRadius: 16)
-            .stroke(Color.primary.opacity(0.04), lineWidth: 1)
-        )
-        .padding(.horizontal, 24)
-        .padding(.top, 24)
-        .padding(.bottom, 24)
-      }
-      
       HStack {
         Text("TODAY")
           .font(TickFont.headingFunc(11, weight: .bold))
@@ -683,7 +667,7 @@ struct AppView: View {
         Spacer()
       }
       .padding(.horizontal, 24)
-      .padding(.top, store.hexSettings.hasSelectedStyle ? 24 : 0)
+      .padding(.top, 24)
       .padding(.bottom, 10)
       
       LazyVStack(alignment: .leading, spacing: 0) {
@@ -844,13 +828,6 @@ struct TranscriptRow: View {
           Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
             .font(TickFont.captionFunc(12))
             .foregroundColor(showCopied ? .green : .secondary)
-        }
-        .buttonStyle(.plain)
-        
-        Button(action: {}) {
-          Image(systemName: "flag")
-            .font(TickFont.captionFunc(12))
-            .foregroundStyle(TickColor.textSecondary)
         }
         .buttonStyle(.plain)
         

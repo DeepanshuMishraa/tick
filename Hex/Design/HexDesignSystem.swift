@@ -46,127 +46,130 @@ enum TickColor {
 
 // MARK: - Typography
 //
-// Two custom variable fonts, each used where they fit best:
-// - **Clash Grotesk** — sharp, geometric, premium. Big editorial headlines,
-//   section titles, brand text, uppercase tracked labels. Variable weights
-//   from 200 to 700.
-// - **Tabular** — clean, neutral, friendly. Body text, UI labels, buttons,
-//   captions, metadata. Variable weights from 300 to 900 with italic axis.
-// Clash Grotesk is registered via `TickFonts.registerIfNeeded()` in `HexApp.init()`.
+// Spline Sans Mono is used consistently across display text, labels, controls,
+// captions, and metadata. It is registered via `TickFonts.registerIfNeeded()`
+// in `HexApp.init()`.
 // `INFOPLIST_KEY_UIAppFonts` is set as a belt-and-braces fallback.
 
-// We bundle one custom font: ClashGrotesk-Variable.ttf (PostScript name:
-// `ClashGroteskVariable-Regular` — the regular instance of the variable font
-// at weight 400).
+// Regular and italic variable faces are bundled so the app does not depend on
+// a font being installed on the user's Mac.
 //
-// Following user preferences, the entire app uses only this font at regular weight.
+// Following user preferences, the entire app uses Spline Sans Mono.
 
 enum TickFontName {
-    static let display = "ClashGroteskVariable-Bold"   // the registered font name from bundle
+    static let regular = "SplineSansMono-Regular"
+    static let italic = "SplineSansMono-Italic"
 }
 
 // MARK: - Helper
 
-private func tickFont(_ size: CGFloat, italic: Bool = false) -> Font {
-    // 2003265652 is the 'wght' variation axis identifier in ClashGrotesk-Variable.ttf
+private func tickFont(_ size: CGFloat, weight: Font.Weight = .regular, italic: Bool = false) -> Font {
+    // 2003265652 is the 'wght' variation axis identifier in Spline Sans Mono.
     let weightAxisIdentifier = 2003265652
-    let regularWeightValue = 400.0 // Regular
+    let weightValue: Double
+    switch weight {
+    case .ultraLight: weightValue = 200
+    case .thin: weightValue = 300
+    case .light: weightValue = 350
+    case .regular: weightValue = 400
+    case .medium: weightValue = 450
+    case .semibold: weightValue = 500
+    case .bold: weightValue = 600
+    case .heavy: weightValue = 700
+    case .black: weightValue = 800
+    default: weightValue = 400
+    }
 
     let descriptor = CTFontDescriptorCreateWithAttributes([
-        kCTFontNameAttribute: TickFontName.display as CFString,
+        kCTFontNameAttribute: (italic ? TickFontName.italic : TickFontName.regular) as CFString,
         kCTFontVariationAttribute: [
-            weightAxisIdentifier: regularWeightValue
+            weightAxisIdentifier: weightValue
         ]
     ] as CFDictionary)
 
     let ctFont = CTFontCreateWithFontDescriptor(descriptor, size, nil)
-    let base = Font(ctFont as NSFont)
-    if italic {
-        return base.italic()
-    }
-    return base
+    return Font(ctFont as NSFont)
 }
 
 // MARK: - TickFont
 //
-// Two clear voices:
-//   Clash Grotesk → editorial display, headlines, eyebrows, brand
-//   Tabular       → body, UI, labels, buttons, captions, all the rest
+// One clear voice:
+//   Spline Sans Mono → display, headlines, body, UI, labels, buttons, captions
 
 enum TickFont {
     // Touch the font registration to force it to run before any Font.custom lookup.
     static let _ensureRegistered: Void = { TickFonts.registerIfNeeded() }()
-    // MARK: Display (Clash Grotesk)
+    // MARK: Display
     // Big editorial headlines, hero text, page titles
 
     /// Page/section titles
-    static let title: Font = tickFont(24)
+    static let title: Font = tickFont(22)
 
     /// Section heading
-    static let heading: Font = tickFont(16)
+    static let heading: Font = tickFont(15)
 
     /// Subheading / large label
-    static let subhead: Font = tickFont(18)
+    static let subhead: Font = tickFont(17)
 
     /// Editorial display — used in hero cards and stat numbers
     static func display(_ size: CGFloat = 32, weight: Font.Weight = .regular) -> Font {
-        tickFont(size)
+        tickFont(max(10, size * 0.92), weight: weight)
     }
 
     /// Editorial accent (displayed in brand color for emphasis, e.g. "you")
     static func displayAccent(_ size: CGFloat = 32, weight: Font.Weight = .semibold) -> Font {
-        tickFont(size)
+        tickFont(max(10, size * 0.92), weight: weight)
     }
 
     /// Editorial italic accent — falls back to display (custom fonts are not italic by default).
     /// Use with brand color to call out a word in a headline.
     static func displayItalic(_ size: CGFloat = 32) -> Font {
-        tickFont(size, italic: true)
+        tickFont(max(10, size * 0.92), italic: true)
     }
 
     /// Custom-size section heading
     static func headingFunc(_ size: CGFloat = 24, weight: Font.Weight = .semibold) -> Font {
-        tickFont(size)
+        tickFont(max(10, size * 0.94), weight: weight)
     }
 
-    // MARK: Body (Clash Grotesk)
-    // All body text, UI labels, buttons, captions use the custom Clash Grotesk font at regular weight.
+    // MARK: Body
+    // All body text, UI labels, buttons, and captions use Spline Sans Mono.
 
-    /// Body text — Clash Grotesk Regular 14pt
+    /// Body text — Spline Sans Mono Regular 14pt
     static let body: Font = tickFont(14)
 
-    /// UI label / button — Clash Grotesk Regular 13pt
+    /// UI label / button — Spline Sans Mono Regular 13pt
     static let label: Font = tickFont(13)
 
-    /// Caption / metadata — Clash Grotesk Regular 12pt
+    /// Caption / metadata — Spline Sans Mono Regular 12pt
     static let caption: Font = tickFont(12)
 
-    /// Eyebrow — uppercase tracked label (uses Clash Grotesk for display character)
+    /// Eyebrow — uppercase tracked label
     static let eyebrow: Font = tickFont(11)
 
-    /// Body text (function form for custom size). Defaults to Clash Grotesk Regular.
+    /// Body text (function form for custom size).
     static func bodyFunc(_ size: CGFloat = 14, weight: Font.Weight = .regular) -> Font {
-        tickFont(size)
+        tickFont(size, weight: weight)
     }
 
-    /// UI label / button (function form for custom size). Defaults to Clash Grotesk Regular.
+    /// UI label / button (function form for custom size).
     static func labelFunc(_ size: CGFloat = 13, weight: Font.Weight = .medium) -> Font {
-        tickFont(size)
+        tickFont(size, weight: weight)
     }
 
-    /// Caption (function form for custom size). Defaults to Clash Grotesk Regular.
+    /// Caption (function form for custom size).
     static func captionFunc(_ size: CGFloat = 12, weight: Font.Weight = .regular) -> Font {
-        tickFont(size)
+        tickFont(size, weight: weight)
     }
 
-    /// Monospace (for values, codes, shortcuts) — Clash Grotesk Regular
+    /// Monospace (for values, codes, shortcuts) — Spline Sans Mono
     static func mono(_ size: CGFloat = 12, weight: Font.Weight = .medium) -> Font {
-        tickFont(size)
+        tickFont(size, weight: weight)
     }
 
-    /// Italic body — Clash Grotesk Regular Italic
+    /// Italic body — Spline Sans Mono Italic
     static func bodyItalic(_ size: CGFloat = 14, weight: Font.Weight = .regular) -> Font {
-        tickFont(size, italic: true)
+        tickFont(size, weight: weight, italic: true)
     }
 }
 
@@ -715,19 +718,21 @@ import CoreText
 
 /// Keep CGFont references alive — CoreText does not retain graphics fonts after registration.
 private let _tickFontRegistration: Void = {
-    guard let url = Bundle.main.url(forResource: "ClashGrotesk-Variable", withExtension: "ttf"),
-          let data = try? Data(contentsOf: url),
-          let provider = CGDataProvider(data: data as CFData),
-          let cgFont = CGFont(provider) else {
-        NSLog("[TickFonts] Failed to load ClashGrotesk from bundle")
-        return
-    }
-    var errorRef: Unmanaged<CFError>?
-    CTFontManagerRegisterGraphicsFont(cgFont, &errorRef)
-    if let err = errorRef?.takeRetainedValue() {
-        let d = CFErrorCopyDescription(err) as String
-        if !d.contains("already registered") && !d.contains("duplicate") {
-            NSLog("[TickFonts] Failed: \(d)")
+    for resource in ["SplineSansMono-Variable", "SplineSansMono-Italic-Variable"] {
+        guard let url = Bundle.main.url(forResource: resource, withExtension: "ttf"),
+              let data = try? Data(contentsOf: url),
+              let provider = CGDataProvider(data: data as CFData),
+              let cgFont = CGFont(provider) else {
+            NSLog("[TickFonts] Failed to load \(resource) from bundle")
+            continue
+        }
+        var errorRef: Unmanaged<CFError>?
+        CTFontManagerRegisterGraphicsFont(cgFont, &errorRef)
+        if let err = errorRef?.takeRetainedValue() {
+            let d = CFErrorCopyDescription(err) as String
+            if !d.contains("already registered") && !d.contains("duplicate") {
+                NSLog("[TickFonts] Failed: \(d)")
+            }
         }
     }
 }()

@@ -12,13 +12,22 @@ import Foundation
 import HexCore
 import Sauce
 import SwiftUI
+import AppKit
 
 private let pasteboardLogger = HexLog.pasteboard
 
+enum PasteboardPasteResult: Equatable, Sendable {
+    case pasted(beforeText: String?, afterText: String?)
+    case noFocusedInput
+    case failed
+}
+
 @DependencyClient
 struct PasteboardClient {
-    var paste: @Sendable (String) async -> Void
+    var paste: @Sendable (String) async -> PasteboardPasteResult = { _ in .failed }
     var copy: @Sendable (String) async -> Void
+    var focusedText: @Sendable () async -> String? = { nil }
+    var focusedInputAvailable: @Sendable () async -> Bool = { false }
     var sendKeyboardCommand: @Sendable (KeyboardCommand) async -> Void
 }
 
@@ -31,6 +40,12 @@ extension PasteboardClient: DependencyKey {
             },
             copy: { text in
                 await live.copy(text: text)
+            },
+            focusedText: {
+                await PasteboardClientLive.focusedText()
+            },
+            focusedInputAvailable: {
+                await PasteboardClientLive.focusedInputAvailable()
             },
             sendKeyboardCommand: { command in
                 await live.sendKeyboardCommand(command)
@@ -47,48 +62,110 @@ extension DependencyValues {
 }
 
 struct PasteboardClientLive {
-    @Shared(.hexSettings) var hexSettings: HexSettings
-    
     private struct PasteboardSnapshot {
-        let items: [[String: Any]]
-        
-        init(pasteboard: NSPasteboard) {
-            var saved: [[String: Any]] = []
-            for item in pasteboard.pasteboardItems ?? [] {
-                var itemDict: [String: Any] = [:]
-                for type in item.types {
-                    if let data = item.data(forType: type) {
-                        itemDict[type.rawValue] = data
-                    }
-                }
-                saved.append(itemDict)
+        let items: [[NSPasteboard.PasteboardType: Data]]
+
+        init(_ pasteboard: NSPasteboard) {
+            items = (pasteboard.pasteboardItems ?? []).map { item in
+                Dictionary(uniqueKeysWithValues: item.types.compactMap { type in
+                    item.data(forType: type).map { (type, $0) }
+                })
             }
-            self.items = saved
         }
-        
+
+        @MainActor
         func restore(to pasteboard: NSPasteboard) {
             pasteboard.clearContents()
-            for itemDict in items {
+            let restoredItems = items.map { savedItem in
                 let item = NSPasteboardItem()
-                for (type, data) in itemDict {
-                    if let data = data as? Data {
-                        item.setData(data, forType: NSPasteboard.PasteboardType(rawValue: type))
-                    }
+                for (type, data) in savedItem {
+                    item.setData(data, forType: type)
                 }
-                pasteboard.writeObjects([item])
+                return item
+            }
+            if !restoredItems.isEmpty {
+                pasteboard.writeObjects(restoredItems)
             }
         }
     }
 
     @MainActor
-    func paste(text: String) async {
-        if hexSettings.useClipboardPaste {
-            await pasteWithClipboard(text)
+    func paste(text: String) async -> PasteboardPasteResult {
+        // A freshly launched process's first Accessibility queries can
+        // transiently fail while its HIServices/AX connection warms up, and
+        // target apps occasionally answer `.cannotComplete` while they're busy.
+        // Poll briefly before concluding that nothing is focused, otherwise the
+        // very first transcription after launch would always end up in the
+        // "Couldn't paste" pill.
+        if let frontmost = NSWorkspace.shared.frontmostApplication {
+            pasteboardLogger.notice("Paste: frontmost=\(frontmost.bundleIdentifier ?? "unknown", privacy: .public)")
         } else {
-            simulateTypingWithAppleScript(text)
+            pasteboardLogger.notice("Paste: no frontmost application")
+        }
+
+        let foundFocus = await waitUntilFocusedInputAvailable(timeout: 0.4)
+
+        if !foundFocus {
+            // Some apps (notably Chromium/Electron UIs — Helium, Slack, web
+            // chat editors) never expose an AX-focused element even when a
+            // text field genuinely holds keyboard focus. Rather than silently
+            // dropping the transcript, park it on the clipboard (restored
+            // immediately afterwards) and post a synthetic Cmd+V so the
+            // focused view receives it regardless of its AX support.
+            if let frontmost = NSWorkspace.shared.frontmostApplication,
+               frontmost.bundleIdentifier != Bundle.main.bundleIdentifier,
+               frontmost.bundleIdentifier != "com.apple.finder" {
+                pasteboardLogger.notice("No AX focus reported; falling back to blind clipboard paste")
+                return await pasteWithRestoredClipboard(text, beforeText: nil)
+            }
+            pasteboardLogger.notice("Paste skipped because no focused text input was found (after 0.4s of retries)")
+            return .noFocusedInput
+        }
+        let beforeText = Self.focusedText()
+
+        var afterText: String?
+        do {
+            // Prefer direct Accessibility insertion. It preserves the user's
+            // clipboard and replaces the current selection atomically.
+            try Self.insertTextAtCursor(text)
+            // Verify the target app actually reflected the edit. Some apps
+            // (e.g. Ghostty and other GPU-accelerated terminals) report AX
+            // success but silently ignore external value mutations — without
+            // this check we would report a paste that never appeared.
+            afterText = await Self.focusedTextAfterInsertion(previous: beforeText, inserted: text)
+            if let afterText {
+                return .pasted(beforeText: beforeText, afterText: afterText)
+            }
+            pasteboardLogger.notice("AX insertion not reflected by the target app; falling back to clipboard paste")
+        } catch {
+            // Web views and several Electron editors expose focus through AX
+            // but reject direct value mutation. Use the system paste command
+            // as a final transport, then restore the user's clipboard in all
+            // cases so the transcription never remains there.
+            pasteboardLogger.debug("Accessibility insertion unavailable; using restored paste fallback")
+        }
+        return await pasteWithRestoredClipboard(text, beforeText: beforeText)
+    }
+
+    /// Polls until a focused text input becomes visible via Accessibility, or
+    /// the timeout elapses. See `paste(text:)` for why the first query can miss.
+    @MainActor
+    private func waitUntilFocusedInputAvailable(timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var iterations = 0
+        while true {
+            if Self.focusedInputAvailable() {
+                if iterations > 0 {
+                    pasteboardLogger.notice("Focused text input appeared after \(iterations, privacy: .public) AX retry/retries")
+                }
+                return true
+            }
+            guard Date() < deadline else { return false }
+            iterations += 1
+            try? await Task.sleep(for: .milliseconds(40))
         }
     }
-    
+
     @MainActor
     func copy(text: String) async {
         let pasteboard = NSPasteboard.general
@@ -99,11 +176,11 @@ struct PasteboardClientLive {
     @MainActor
     func sendKeyboardCommand(_ command: KeyboardCommand) async {
         let source = CGEventSource(stateID: .combinedSessionState)
-        
+
         // Convert modifiers to CGEventFlags and key codes for modifier keys
         var modifierKeyCodes: [CGKeyCode] = []
         var flags = CGEventFlags()
-        
+
         for modifier in command.modifiers.sorted {
             switch modifier.kind {
             case .command:
@@ -123,7 +200,7 @@ struct PasteboardClientLive {
                 // Fn key doesn't need explicit key down/up
             }
         }
-        
+
         // Press modifiers down
         for keyCode in modifierKeyCodes {
             let modDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
@@ -152,229 +229,240 @@ struct PasteboardClientLive {
         pasteboardLogger.debug("Sent keyboard command: \(command.displayName)")
     }
 
-    /// Pastes current clipboard content to the frontmost application
-    static func pasteToFrontmostApp() -> Bool {
-        let script = """
-        if application "System Events" is not running then
-            tell application "System Events" to launch
-            delay 0.1
-        end if
-        tell application "System Events"
-            tell process (name of first application process whose frontmost is true)
-                tell (menu item "Paste" of menu of menu item "Paste" of menu "Edit" of menu bar item "Edit" of menu bar 1)
-                    if exists then
-                        log (get properties of it)
-                        if enabled then
-                            click it
-                            return true
-                        else
-                            return false
-                        end if
-                    end if
-                end tell
-                tell (menu item "Paste" of menu "Edit" of menu bar item "Edit" of menu bar 1)
-                    if exists then
-                        if enabled then
-                            click it
-                            return true
-                        else
-                            return false
-                        end if
-                    else
-                        return false
-                    end if
-                end tell
-            end tell
-        end tell
-        """
-        
-        var error: NSDictionary?
-        if let scriptObject = NSAppleScript(source: script) {
-            let result = scriptObject.executeAndReturnError(&error)
-            if let error = error {
-                pasteboardLogger.error("AppleScript paste failed: \(error)")
-                return false
-            }
-            return result.booleanValue
-        }
-        return false
-    }
-
-    @MainActor
-    func pasteWithClipboard(_ text: String) async {
-        let pasteboard = NSPasteboard.general
-        let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
-        let targetChangeCount = writeAndTrackChangeCount(pasteboard: pasteboard, text: text)
-        _ = await waitForPasteboardCommit(targetChangeCount: targetChangeCount)
-        let pasteSucceeded = await performPaste(text)
-        
-        // Only restore original pasteboard contents if:
-        // 1. Copying to clipboard is disabled AND
-        // 2. The paste operation succeeded
-        if !hexSettings.copyToClipboard && pasteSucceeded {
-            let savedSnapshot = snapshot
-            Task { @MainActor in
-                // Give slower apps a short window to read the plain-text entry
-                // before we repopulate the clipboard with the user's previous rich data.
-                try? await Task.sleep(for: .milliseconds(500))
-                pasteboard.clearContents()
-                savedSnapshot.restore(to: pasteboard)
-            }
-        }
-        
-        // If we failed to paste AND user doesn't want clipboard retention,
-        // show a notification that text is available in clipboard
-        if !pasteSucceeded && !hexSettings.copyToClipboard {
-            // Keep the transcribed text in clipboard regardless of setting
-            pasteboardLogger.notice("Paste operation failed; text remains in clipboard as fallback.")
-            
-            // TODO: Could add a notification here to inform user
-            // that text is available in clipboard
-        }
-    }
-
-    @MainActor
-    private func writeAndTrackChangeCount(pasteboard: NSPasteboard, text: String) -> Int {
-        let before = pasteboard.changeCount
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        let after = pasteboard.changeCount
-        if after == before {
-            // Ensure we always advance by at least one to avoid infinite waits if the system
-            // coalesces writes (seen on Sonoma betas with zero-length strings).
-            return after + 1
-        }
-        return after
-    }
-
-    @MainActor
-    private func waitForPasteboardCommit(
-        targetChangeCount: Int,
-        timeout: Duration = .milliseconds(150),
-        pollInterval: Duration = .milliseconds(5)
-    ) async -> Bool {
-        guard targetChangeCount > NSPasteboard.general.changeCount else { return true }
-
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            if NSPasteboard.general.changeCount >= targetChangeCount {
-                return true
-            }
-            try? await Task.sleep(for: pollInterval)
-        }
-        return false
-    }
-
-    // MARK: - Paste Orchestration
-
-    @MainActor
-    private enum PasteStrategy: CaseIterable {
-        case cmdV
-        case menuItem
-        case accessibility
-    }
-
-    @MainActor
-    private func performPaste(_ text: String) async -> Bool {
-        for strategy in PasteStrategy.allCases {
-            if await attemptPaste(text, using: strategy) {
-                return true
-            }
-        }
-        return false
-    }
-
-    @MainActor
-    private func attemptPaste(_ text: String, using strategy: PasteStrategy) async -> Bool {
-        switch strategy {
-        case .cmdV:
-            return await postCmdV(delayMs: 0)
-        case .menuItem:
-            return PasteboardClientLive.pasteToFrontmostApp()
-        case .accessibility:
-            return (try? Self.insertTextAtCursor(text)) != nil
-        }
-    }
-
     // MARK: - Helpers
 
-    @MainActor
-    private func postCmdV(delayMs: Int) async -> Bool {
-        // Optional tiny wait before keystrokes
-        try? await wait(milliseconds: delayMs)
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let vKey = vKeyCode()
-        let cmdKey: CGKeyCode = 55
-        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: true)
-        let vDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true)
-        vDown?.flags = .maskCommand
-        let vUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false)
-        vUp?.flags = .maskCommand
-        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: false)
-        cmdDown?.post(tap: .cghidEventTap)
-        vDown?.post(tap: .cghidEventTap)
-        vUp?.post(tap: .cghidEventTap)
-        cmdUp?.post(tap: .cghidEventTap)
-        return true
-    }
-
-    @MainActor
-    private func vKeyCode() -> CGKeyCode {
-        if Thread.isMainThread { return Sauce.shared.keyCode(for: .v) }
-        return DispatchQueue.main.sync { Sauce.shared.keyCode(for: .v) }
-    }
-
-    @MainActor
-    private func wait(milliseconds: Int) async throws {
-        try Task.checkCancellation()
-        try await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
-    }
-    
-    func simulateTypingWithAppleScript(_ text: String) {
-        let escapedText = text.replacingOccurrences(of: "\"", with: "\\\"")
-        let script = NSAppleScript(source: "tell application \"System Events\" to keystroke \"\(escapedText)\"")
-        var error: NSDictionary?
-        script?.executeAndReturnError(&error)
-        if let error = error {
-            pasteboardLogger.error("Error executing AppleScript typing fallback: \(error)")
-        }
-    }
-
     enum PasteError: Error {
-        case systemWideElementCreationFailed
         case focusedElementNotFound
         case elementDoesNotSupportTextEditing
         case failedToInsertText
     }
-    
+
     static func insertTextAtCursor(_ text: String) throws {
         // Get the system-wide accessibility element
         let systemWideElement = AXUIElementCreateSystemWide()
-        
+
         // Get the focused element
         var focusedElementRef: CFTypeRef?
         let axError = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElementRef)
-        
+
         guard axError == .success, let focusedElementRef = focusedElementRef else {
+            pasteboardLogger.error("Focused element lookup failed; AXError.rawValue=\(axError.rawValue, privacy: .public)")
             throw PasteError.focusedElementNotFound
         }
-        
+
         let focusedElement = focusedElementRef as! AXUIElement
-        
-        // Verify if the focused element supports text insertion
+
         var value: CFTypeRef?
-        let supportsText = AXUIElementCopyAttributeValue(focusedElement, kAXValueAttribute as CFString, &value) == .success
-        let supportsSelectedText = AXUIElementCopyAttributeValue(focusedElement, kAXSelectedTextAttribute as CFString, &value) == .success
-        
-        if !supportsText && !supportsSelectedText {
+        let hasValue = AXUIElementCopyAttributeValue(
+            focusedElement,
+            kAXValueAttribute as CFString,
+            &value
+        ) == .success
+
+        if hasValue, let currentText = value as? String,
+           let selectedRange = selectedRange(of: focusedElement) {
+            let currentValue = currentText as NSString
+            let range = NSRange(
+                location: Int(selectedRange.location),
+                length: Int(selectedRange.length)
+            )
+
+            guard range.location >= 0,
+                  range.length >= 0,
+                  NSMaxRange(range) <= currentValue.length else {
+                throw PasteError.failedToInsertText
+            }
+
+            let updatedText = currentValue.replacingCharacters(in: range, with: text)
+            if AXUIElementSetAttributeValue(
+                focusedElement,
+                kAXValueAttribute as CFString,
+                updatedText as CFTypeRef
+            ) == .success {
+                // Keep the caret immediately after the inserted text.
+                var caretRange = CFRange(
+                    location: selectedRange.location + text.utf16.count,
+                    length: 0
+                )
+                if let axCaretRange = AXValueCreate(.cfRange, &caretRange) {
+                    _ = AXUIElementSetAttributeValue(
+                        focusedElement,
+                        kAXSelectedTextRangeAttribute as CFString,
+                        axCaretRange
+                    )
+                }
+                return
+            }
+        }
+
+        // A number of editors support setting selected text even though they
+        // do not expose a writable value/range pair.
+        var selectedText: CFTypeRef?
+        let supportsSelectedText = AXUIElementCopyAttributeValue(
+            focusedElement,
+            kAXSelectedTextAttribute as CFString,
+            &selectedText
+        ) == .success
+
+        if !supportsSelectedText {
             throw PasteError.elementDoesNotSupportTextEditing
         }
 
-        // Insert text at cursor position by replacing selected text (or empty selection)
         let insertResult = AXUIElementSetAttributeValue(focusedElement, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
-        
         if insertResult != .success {
             throw PasteError.failedToInsertText
         }
+    }
+
+    private static func selectedRange(of element: AXUIElement) -> CFRange? {
+        var rangeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &rangeValue
+        ) == .success,
+        let rangeValue,
+        CFGetTypeID(rangeValue) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        var range = CFRange()
+        guard AXValueGetValue(rangeValue as! AXValue, .cfRange, &range) else {
+            return nil
+        }
+        return range
+    }
+
+    @MainActor
+    private func pasteWithRestoredClipboard(
+        _ text: String,
+        beforeText: String?
+    ) async -> PasteboardPasteResult {
+        let pasteboard = NSPasteboard.general
+        let snapshot = PasteboardSnapshot(pasteboard)
+
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            snapshot.restore(to: pasteboard)
+            return .failed
+        }
+
+        // Let the pasteboard server commit the temporary item before posting
+        // Cmd-V, then give the target app enough time to consume it.
+        try? await Task.sleep(for: .milliseconds(30))
+        let didPostPaste = postCommandV()
+        try? await Task.sleep(for: .milliseconds(300))
+        let afterText = Self.focusedText()
+        snapshot.restore(to: pasteboard)
+
+        guard didPostPaste else { return .failed }
+        return .pasted(beforeText: beforeText, afterText: afterText)
+    }
+
+    @MainActor
+    private func postCommandV() -> Bool {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let commandKey: CGKeyCode = 55
+        let vKey = Sauce.shared.keyCode(for: .v)
+        guard let commandDown = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: commandKey,
+            keyDown: true
+        ), let vDown = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: vKey,
+            keyDown: true
+        ), let vUp = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: vKey,
+            keyDown: false
+        ), let commandUp = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: commandKey,
+            keyDown: false
+        ) else {
+            return false
+        }
+
+        vDown.flags = .maskCommand
+        vUp.flags = .maskCommand
+        commandDown.post(tap: .cghidEventTap)
+        vDown.post(tap: .cghidEventTap)
+        vUp.post(tap: .cghidEventTap)
+        commandUp.post(tap: .cghidEventTap)
+        return true
+    }
+
+    /// Reads the focused accessibility value without touching the clipboard.
+    /// An empty string is a valid value for a focused, empty text field.
+    @MainActor
+    static func focusedText() -> String? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementRef: CFTypeRef?
+        let axError = AXUIElementCopyAttributeValue(
+            systemWideElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedElementRef
+        )
+        guard axError == .success, let focusedElementRef else { return nil }
+        let focusedElement = focusedElementRef as! AXUIElement
+
+        var value: CFTypeRef?
+        if AXUIElementCopyAttributeValue(focusedElement, kAXValueAttribute as CFString, &value) == .success,
+           let text = value as? String {
+            return text
+        }
+
+        if AXUIElementCopyAttributeValue(focusedElement, kAXSelectedTextAttribute as CFString, &value) == .success,
+           let selectedText = value as? String {
+            return selectedText
+        }
+
+        return nil
+    }
+
+    @MainActor
+    static func focusedInputAvailable() -> Bool {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementRef: CFTypeRef?
+        let axError = AXUIElementCopyAttributeValue(
+            systemWideElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedElementRef
+        )
+        guard axError == .success, let focusedElementRef else { return false }
+        let focusedElement = focusedElementRef as! AXUIElement
+        var value: CFTypeRef?
+        let supportsText = AXUIElementCopyAttributeValue(
+            focusedElement,
+            kAXValueAttribute as CFString,
+            &value
+        ) == .success
+        let supportsSelectedText = AXUIElementCopyAttributeValue(
+            focusedElement,
+            kAXSelectedTextAttribute as CFString,
+            &value
+        ) == .success
+        return supportsText || supportsSelectedText
+    }
+
+    @MainActor
+    private static func focusedTextAfterInsertion(previous: String?, inserted: String) async -> String? {
+        // Fast read-back loop: most apps reflect the edit within one or two
+        // frames, so poll aggressively rather than waiting out a long window —
+        // this keeps the happy path snappy while still catching silent-rejector
+        // apps like Ghostty.
+        for _ in 0..<6 {
+            try? await Task.sleep(for: .milliseconds(40))
+            guard let current = focusedText() else { continue }
+            if current != previous && current.localizedCaseInsensitiveContains(inserted) {
+                return current
+            }
+        }
+        // Returning nil (rather than any readable value) matters: callers use
+        // this to VERIFY the edit landed. Apps like Ghostty keep a readable
+        // value that simply never changes, and nil is what tells them to fall
+        // back to the clipboard transport.
+        return nil
     }
 }

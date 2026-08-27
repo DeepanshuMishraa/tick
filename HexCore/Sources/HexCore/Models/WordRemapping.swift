@@ -19,6 +19,47 @@ public struct WordRemapping: Codable, Equatable, Identifiable, Sendable {
 	}
 }
 
+/// A single, intentional replacement made to text Hex just inserted.
+///
+/// This is deliberately conservative: dictionary learning only happens when
+/// the user changes exactly one word and leaves the rest of the field intact.
+public struct WordCorrection: Equatable, Sendable {
+	public var match: String
+	public var replacement: String
+
+	public init(match: String, replacement: String) {
+		self.match = match
+		self.replacement = replacement
+	}
+}
+
+public enum WordCorrectionDetector {
+	/// Finds one word replacement between two snapshots of the same text field.
+	/// Insertions, deletions, multi-word edits, and punctuation-only edits are
+	/// ignored so an accidental edit cannot pollute the dictionary.
+	public static func detect(before: String, after: String) -> WordCorrection? {
+		let beforeWords = words(in: before)
+		let afterWords = words(in: after)
+		guard beforeWords.count == afterWords.count, !beforeWords.isEmpty else { return nil }
+
+		let changedIndices = beforeWords.indices.filter {
+			beforeWords[$0].caseInsensitiveCompare(afterWords[$0]) != .orderedSame
+		}
+		guard changedIndices.count == 1, let index = changedIndices.first else { return nil }
+
+		let match = beforeWords[index]
+		let replacement = afterWords[index]
+		guard match.count > 1, replacement.count > 1 else { return nil }
+		return WordCorrection(match: match, replacement: replacement)
+	}
+
+	private static func words(in text: String) -> [String] {
+		text.split { character in
+			!character.isLetter && !character.isNumber && character != "'"
+		}.map(String.init)
+	}
+}
+
 public enum WordRemappingApplier {
 	public static func apply(_ text: String, remappings: [WordRemapping]) -> String {
 		guard !remappings.isEmpty else { return text }
