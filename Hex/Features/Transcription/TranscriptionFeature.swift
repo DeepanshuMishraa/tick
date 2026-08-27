@@ -647,7 +647,10 @@ private extension TranscriptionFeature {
       // against intermediate states. Otherwise in-flight edits (backspacing
       // through "pushh" -> "push" -> "pu") would be captured as bogus
       // dictionary entries mid-keystroke.
-      let settleWindow: TimeInterval = 1.2
+      // The pasted value is already known, so a short stable-text window is
+      // enough to distinguish an intentional replacement from an in-flight
+      // edit without making the dictionary notification feel delayed.
+      let settleWindow: TimeInterval = 0.6
       let observationWindow: TimeInterval = 20
 
       let startedAt = Date()
@@ -656,7 +659,7 @@ private extension TranscriptionFeature {
 
       do {
         while Date().timeIntervalSince(startedAt) < observationWindow {
-          try await Task.sleep(for: .milliseconds(150))
+          try await Task.sleep(for: .milliseconds(80))
           guard let currentText = await pasteboard.focusedText() else { continue }
 
           if currentText != lastSeenText {

@@ -1,4 +1,5 @@
 import ComposableArchitecture
+import HexCore
 import Inject
 import Sparkle
 import AppKit
@@ -22,6 +23,7 @@ struct HexApp: App {
         MenuBarExtra {
             CheckForUpdatesView()
             MenuBarCopyLastTranscriptButton()
+            MenuBarMicrophoneMenu()
             Button("Settings") {
                 appDelegate.presentSettingsView()
             }.keyboardShortcut(",")
@@ -44,6 +46,73 @@ struct HexApp: App {
 				CommandGroup(replacing: .help) {}
 			}
 	}
+}
+
+// MARK: - Microphone menu
+
+struct MenuBarMicrophoneMenu: View {
+    @Dependency(\.recording) private var recording
+    @Shared(.hexSettings) private var hexSettings: HexSettings
+
+    @State private var inputDevices: [AudioInputDevice] = []
+    @State private var defaultInputDeviceName: String?
+
+    var body: some View {
+        Menu("Microphone") {
+            Button {
+                selectMicrophone(nil)
+            } label: {
+                menuLabel(
+                    title: defaultInputDeviceName.map { "System Default (\($0))" } ?? "System Default",
+                    isSelected: hexSettings.selectedMicrophoneID == nil
+                )
+            }
+
+            if !inputDevices.isEmpty {
+                Divider()
+
+                ForEach(inputDevices) { device in
+                    Button {
+                        selectMicrophone(device.id)
+                    } label: {
+                        menuLabel(
+                            title: device.name,
+                            isSelected: hexSettings.selectedMicrophoneID == device.id
+                        )
+                    }
+                }
+            } else {
+                Text("No microphones found")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear {
+            refreshDevices()
+        }
+    }
+
+    private func menuLabel(title: String, isSelected: Bool) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+            }
+        }
+    }
+
+    private func selectMicrophone(_ id: String?) {
+        $hexSettings.withLock { $0.selectedMicrophoneID = id }
+    }
+
+    private func refreshDevices() {
+        Task {
+            async let devices = recording.getAvailableInputDevices()
+            async let defaultName = recording.getDefaultInputDeviceName()
+            inputDevices = await devices
+            defaultInputDeviceName = await defaultName
+        }
+    }
 }
 
 // MARK: - Animated Menu Bar Recording Icon

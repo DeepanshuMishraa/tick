@@ -104,7 +104,6 @@ class InvisibleWindow: NSPanel {
         HexLog.overlay.debug("Hiding floating copy pill")
       }
       feedbackButtonWindow?.orderOut(nil)
-      feedbackButtonWindow = nil
       return
     }
 
@@ -213,20 +212,24 @@ private final class FeedbackButtonWindow: NSPanel {
     onCopy: @escaping () -> Void
   ) {
     setFrame(frame, display: true)
-    if let hostingView = contentView as? NSHostingView<FloatingCopyPillView> {
-      hostingView.rootView = FloatingCopyPillView(
-        feedback: feedback,
-        startedAt: startedAt,
-        duration: duration,
-        onCopy: onCopy
-      )
-    } else {
-      contentView = NSHostingView(
-        rootView: FloatingCopyPillView(
+    if let hostingView = contentView as? NSHostingView<AnyView> {
+      hostingView.rootView = AnyView(
+        FloatingCopyPillView(
           feedback: feedback,
           startedAt: startedAt,
           duration: duration,
           onCopy: onCopy
+        ).id(startedAt)
+      )
+    } else {
+      contentView = NSHostingView(
+        rootView: AnyView(
+          FloatingCopyPillView(
+            feedback: feedback,
+            startedAt: startedAt,
+            duration: duration,
+            onCopy: onCopy
+          ).id(startedAt)
         )
       )
     }

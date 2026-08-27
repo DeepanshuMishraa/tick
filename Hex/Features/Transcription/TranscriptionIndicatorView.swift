@@ -95,13 +95,7 @@ struct TranscriptionIndicatorView: View {
   @State private var feedbackStartedAt = Date()
 
   var body: some View {
-    // When pasting isn't possible, the entire notification moves into the
-    // floating bottom-center Copy pill (its own interactive panel), so the
-    // notch housing stays in its compact state.
-    let notchFeedback = notchVisibleFeedback
-    let targetHeight = notchFeedback != nil
-      ? geometry.notchHeight + 68
-      : (isLocked ? (geometry.notchHeight + 30) : geometry.notchHeight)
+    let targetHeight = isLocked ? (geometry.notchHeight + 30) : geometry.notchHeight
     ZStack(alignment: .top) {
       // Black housing that blends with the notch's own black bezel.
       // The height animates from 0 to target height for a premium slide-down effect.
@@ -115,14 +109,6 @@ struct TranscriptionIndicatorView: View {
       .frame(width: geometry.notchWidth + extensionWidth * 2, height: isActive ? targetHeight : 0)
       
       if isActive {
-        if let feedback = notchFeedback {
-          NotchFeedbackView(
-            feedback: feedback,
-            startedAt: feedbackStartedAt,
-            duration: 4
-          )
-          .frame(width: geometry.notchWidth + extensionWidth * 2, height: targetHeight)
-        } else {
         HStack(spacing: 0) {
           Group {
             switch status {
@@ -201,7 +187,6 @@ struct TranscriptionIndicatorView: View {
           .padding(.top, geometry.notchHeight)
           .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
-        }
       }
     }
     .frame(width: geometry.notchWidth + extensionWidth * 2, height: targetHeight)
@@ -224,19 +209,7 @@ struct TranscriptionIndicatorView: View {
   }
 
   private var isActive: Bool {
-    status != .hidden || notchVisibleFeedback != nil
-  }
-
-  private var isFloatingFeedback: Bool {
-    guard let feedback else { return false }
-    return feedback.isPasteUnavailable || feedback == .copied
-  }
-
-  /// Feedback states that render inside the notch bubble. Floating pill states
-  /// (paste unavailable & copied) are excluded — they render in the bottom-center HUD.
-  private var notchVisibleFeedback: TranscriptionFeature.State.Feedback? {
-    guard let feedback else { return nil }
-    return isFloatingFeedback ? nil : feedback
+    status != .hidden
   }
 
   private func updateGeometry() {
@@ -244,72 +217,26 @@ struct TranscriptionIndicatorView: View {
   }
 
   private func updateFeedbackInteraction() {
-    HexLog.app.debug("updateFeedbackInteraction called; floatingFeedback=\(self.isFloatingFeedback, privacy: .public)")
+    HexLog.app.debug("updateFeedbackInteraction called; feedback=\(String(describing: self.feedback), privacy: .public)")
     guard let window = InvisibleWindow.current else {
       HexLog.app.error("Copy pill: invisibleWindow has not been created yet")
       return
     }
-    // When paste is unavailable or copied, hand the notification over to the
-    // floating bottom-center pill panel.
-    let duration: TimeInterval = feedback == .copied ? 1.8 : 4.0
+    let duration: TimeInterval
+    switch feedback {
+    case .copied:
+      duration = 1.8
+    case .dictionaryAdded, .pasteUnavailable:
+      duration = 4.0
+    case nil:
+      duration = 0
+    }
     window.updateCopyPill(
-      feedback: isFloatingFeedback ? feedback : nil,
+      feedback: feedback,
       startedAt: feedbackStartedAt,
       duration: duration,
       onCopy: onCopy
     )
-  }
-}
-
-private struct NotchFeedbackView: View {
-  let feedback: TranscriptionFeature.State.Feedback
-  let startedAt: Date
-  let duration: TimeInterval
-
-  var body: some View {
-    TimelineView(.animation(minimumInterval: 0.05)) { context in
-      let elapsed = context.date.timeIntervalSince(startedAt)
-      let progress = max(0, min(1, 1 - elapsed / duration))
-
-      VStack(alignment: .leading, spacing: 7) {
-        HStack(spacing: 8) {
-          Image(systemName: feedback.iconName)
-            .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(TickColor.success)
-            .frame(width: 20, height: 20)
-            .background(TickColor.success.opacity(0.14), in: Circle())
-
-          VStack(alignment: .leading, spacing: 1) {
-            Text(feedback.title)
-              .font(TickFont.bodyFunc(11, weight: .medium))
-              .foregroundStyle(.white)
-              .lineLimit(1)
-            Text(feedback.detail)
-              .font(TickFont.bodyFunc(9))
-              .foregroundStyle(.white.opacity(0.65))
-              .lineLimit(1)
-          }
-
-          Spacer(minLength: 4)
-        }
-
-        GeometryReader { proxy in
-          Capsule()
-            .fill(TickColor.success.opacity(0.2))
-            .overlay(alignment: .leading) {
-              Capsule()
-                .fill(TickColor.success)
-                .frame(width: proxy.size.width * progress)
-            }
-        }
-        .frame(height: 3)
-        .accessibilityLabel("Notification dismisses soon")
-        .accessibilityValue("\(Int(progress * 100)) percent remaining")
-      }
-      .padding(.horizontal, 14)
-      .padding(.top, 20)
-      .padding(.bottom, 8)
-    }
   }
 }
 
@@ -397,11 +324,18 @@ struct FloatingCopyPillView: View {
     hasLocallyCopied || feedback == .copied
   }
 
+  private var isDictionaryState: Bool {
+    if case .dictionaryAdded = feedback { return true }
+    return false
+  }
+
   private var pillTitle: String {
     if isCopiedState {
       return "Copied to clipboard"
     }
     switch feedback {
+    case .dictionaryAdded:
+      return "Added to Dictionary"
     case let .pasteUnavailable(_, reason):
       switch reason {
       case .noFocusedInput:
@@ -418,7 +352,14 @@ struct FloatingCopyPillView: View {
     if isCopiedState {
       return "Ready to paste anywhere"
     }
-    return "Click to copy transcript"
+    switch feedback {
+    case let .dictionaryAdded(match, replacement):
+      return "\u{201c}\(match)\u{201d} → \u{201c}\(replacement)\u{201d}"
+    case .pasteUnavailable:
+      return "Click to copy transcript"
+    default:
+      return ""
+    }
   }
 
   var body: some View {
@@ -426,12 +367,14 @@ struct FloatingCopyPillView: View {
       let elapsed = context.date.timeIntervalSince(startedAt)
       let progress = max(0, min(1, 1 - elapsed / max(duration, 0.1)))
 
-      // The whole pill is one tappable surface: any click copies the transcript.
+      // The whole pill is one tappable surface: any click copies when copyable.
       Button(action: {
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-          hasLocallyCopied = true
+        if case .pasteUnavailable = feedback {
+          withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
+            hasLocallyCopied = true
+          }
+          onCopy()
         }
-        onCopy()
       }) {
         VStack(spacing: 0) {
           HStack(spacing: 10) {
@@ -444,6 +387,17 @@ struct FloatingCopyPillView: View {
                 Image(systemName: "checkmark")
                   .font(.system(size: 11, weight: .bold))
                   .foregroundStyle(Color(red: 0.20, green: 0.78, blue: 0.45))
+              } else if isDictionaryState {
+                Circle()
+                  .fill(TickColor.brand.opacity(0.22))
+                  .frame(width: 24, height: 24)
+                  .overlay(
+                    Circle()
+                      .strokeBorder(TickColor.brandMid.opacity(0.3), lineWidth: 0.5)
+                  )
+                Image(systemName: "character.book.closed.fill")
+                  .font(.system(size: 11.5, weight: .medium))
+                  .foregroundStyle(TickColor.brandMid)
               } else {
                 Circle()
                   .fill(Color.white.opacity(0.10))
@@ -462,12 +416,16 @@ struct FloatingCopyPillView: View {
             // Clean text hierarchy
             VStack(alignment: .leading, spacing: 1) {
               Text(pillTitle)
-                .font(TickFont.labelFunc(12, weight: isCopiedState ? .semibold : .medium))
+                .font(TickFont.labelFunc(12, weight: (isCopiedState || isDictionaryState) ? .semibold : .medium))
                 .foregroundStyle(Color.white.opacity(0.95))
                 .lineLimit(1)
               Text(pillDetail)
                 .font(TickFont.captionFunc(10, weight: .regular))
-                .foregroundStyle(isCopiedState ? Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.90) : Color.white.opacity(0.55))
+                .foregroundStyle(
+                  isCopiedState
+                    ? Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.90)
+                    : (isDictionaryState ? Color.white.opacity(0.70) : Color.white.opacity(0.55))
+                )
                 .lineLimit(1)
             }
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isCopiedState)
@@ -488,6 +446,25 @@ struct FloatingCopyPillView: View {
               .background(
                 Capsule()
                   .fill(Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.15))
+              )
+              .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            } else if isDictionaryState {
+              HStack(spacing: 4) {
+                Image(systemName: "checkmark")
+                  .font(.system(size: 9.5, weight: .bold))
+                Text("Learned")
+                  .font(TickFont.labelFunc(11, weight: .semibold))
+              }
+              .foregroundStyle(TickColor.brandMid)
+              .padding(.horizontal, 9)
+              .padding(.vertical, 4.5)
+              .background(
+                Capsule()
+                  .fill(TickColor.brand.opacity(0.20))
+                  .overlay(
+                    Capsule()
+                      .strokeBorder(TickColor.brandMid.opacity(0.25), lineWidth: 0.5)
+                  )
               )
               .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else {
@@ -532,7 +509,9 @@ struct FloatingCopyPillView: View {
                   LinearGradient(
                     colors: isCopiedState
                       ? [Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.90), Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.45)]
-                      : [TickColor.brandMid.opacity(0.90), TickColor.brand.opacity(0.60)],
+                      : (isDictionaryState
+                          ? [TickColor.brandMid.opacity(0.95), TickColor.brand.opacity(0.70)]
+                          : [TickColor.brandMid.opacity(0.90), TickColor.brand.opacity(0.60)]),
                     startPoint: .leading,
                     endPoint: .trailing
                   )
@@ -569,7 +548,7 @@ struct FloatingCopyPillView: View {
         .contentShape(Capsule())
       }
       .buttonStyle(.plain)
-      .accessibilityLabel("Copy transcription to clipboard")
+      .accessibilityLabel(isDictionaryState ? "Added word to dictionary" : "Copy transcription to clipboard")
     }
   }
 }
@@ -780,6 +759,12 @@ struct NotchWaveform: View {
     )
     FloatingCopyPillView(
       feedback: .pasteUnavailable(text: "Hello world transcript", reason: .insertionRejected),
+      startedAt: Date(),
+      duration: 4.0,
+      onCopy: {}
+    )
+    FloatingCopyPillView(
+      feedback: .dictionaryAdded(match: "teh", replacement: "the"),
       startedAt: Date(),
       duration: 4.0,
       onCopy: {}
