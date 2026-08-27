@@ -1,0 +1,150 @@
+{
+  "branding": {
+    "colorScheme": "light",
+    "fonts": [
+      {
+        "family": "TWKLausannePan",
+        "count": 6
+      },
+      {
+        "family": "sans-serif",
+        "count": 6
+      },
+      {
+        "family": "Geist",
+        "count": 1
+      },
+      {
+        "family": "Geist Fallback",
+        "count": 1
+      },
+      {
+        "family": "system-ui",
+        "count": 1
+      },
+      {
+        "family": "-apple-system",
+        "count": 1
+      }
+    ],
+    "colors": {
+      "primary": "#000000",
+      "accent": "#000000",
+      "background": "#EFEFEF",
+      "textPrimary": "#111111",
+      "link": "#000000"
+    },
+    "typography": {
+      "fontFamilies": {
+        "primary": "TWKLausannePan",
+        "heading": "TWKLausannePan"
+      },
+      "fontStacks": {
+        "body": [
+          "TWKLausannePan",
+          "Geist",
+          "Geist Fallback",
+          "system-ui",
+          "-apple-system",
+          "sans-serif"
+        ],
+        "heading": [
+          "TWKLausannePan",
+          "sans-serif"
+        ],
+        "paragraph": [
+          "TWKLausannePan",
+          "sans-serif"
+        ]
+      },
+      "fontSizes": {
+        "h1": "34px",
+        "h2": "34px",
+        "body": "18px"
+      }
+    },
+    "spacing": {
+      "baseUnit": 8,
+      "borderRadius": "0px"
+    },
+    "components": {},
+    "images": {
+      "logo": null,
+      "favicon": "https://www.mc1ane.com/favicon.ico",
+      "ogImage": "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/og-image.jpg"
+    },
+    "confidence": {
+      "buttons": 0,
+      "colors": 0,
+      "overall": 0
+    },
+    "__llm_metadata": {
+      "logoSelection": {
+        "llmCalled": false,
+        "llmSucceeded": false,
+        "finalSource": "none"
+      },
+      "buttonClassification": {
+        "llmCalled": false,
+        "llmSucceeded": false,
+        "error": "LLM call failed or returned fallback values"
+      }
+    },
+    "brandName": "McLane Teitel"
+  },
+  "metadata": {
+    "twitter:card": "summary_large_image",
+    "viewport": "width=device-width, initial-scale=1, viewport-fit=cover",
+    "og:site_name": "McLane Teitel",
+    "language": "en",
+    "og:image:width": "1200",
+    "og:locale": "en_US",
+    "og:video:width": "1200",
+    "ogVideo": "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/og-video.mp4",
+    "apple-mobile-web-app-status-bar-style": "default",
+    "ogImage": "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/og-image.jpg",
+    "og:video:type": "video/mp4",
+    "og:video:height": "630",
+    "twitter:description": "McLane Teitel is a product and visual designer based in Brooklyn, New York.",
+    "ogLocale": "en_US",
+    "theme-color": "#f0f4f0",
+    "og:image:height": "630",
+    "og:video": "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/og-video.mp4",
+    "title": "McLane Teitel",
+    "next-size-adjust": "",
+    "og:description": "McLane Teitel is a product and visual designer based in Brooklyn, New York.",
+    "og:title": "McLane Teitel",
+    "ogSiteName": "McLane Teitel",
+    "og:image": "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/og-image.jpg",
+    "description": "McLane Teitel is a product and visual designer based in Brooklyn, New York. Currently on the Product Design Studio at Shopify.",
+    "twitter:image": "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/og-image.jpg",
+    "ogDescription": "McLane Teitel is a product and visual designer based in Brooklyn, New York.",
+    "ogTitle": "McLane Teitel",
+    "og:type": "website",
+    "twitter:title": "McLane Teitel",
+    "og:url": "https://mc1ane.com",
+    "ogUrl": "https://mc1ane.com",
+    "favicon": "https://www.mc1ane.com/favicon.ico",
+    "scrapeId": "01a0422c-09a8-72ee-8245-9b5440766d21",
+    "sourceURL": "https://www.mc1ane.com",
+    "url": "https://www.mc1ane.com/",
+    "statusCode": 200,
+    "contentType": "text/html; charset=utf-8",
+    "timezone": "America/New_York",
+    "proxyUsed": "basic",
+    "indexId": "2e7f605f-578a-463d-aeba-8482551bbafe",
+    "creditsUsed": 1,
+    "concurrencyLimited": false
+  },
+  "images": [
+    "https://www.mc1ane.com/images/shopify-pulse.jpg",
+    "https://images.squarespace-cdn.com/content/v1/61c4bf01d41d7f150ba3346d/f0ef0f6f-b978-4760-a08c-02698db2ee87/fluid-engine-01.jpg?format=1500w",
+    "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/icons/instagram.png",
+    "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/icons/shopify.png",
+    "https://images.squarespace-cdn.com/content/v1/61c4bf01d41d7f150ba3346d/7f2497a2-eb62-41a2-a17d-ea4fc096a8bc/sqsp-000.jpg?format=1500w",
+    "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/icons/squarespace.png",
+    "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/images/shopify-sidekick-2.jpg",
+    "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/icons/airbnb.png",
+    "https://pub-29538ab109e54342b38840217c4fce91.r2.dev/images/squarespace-home.jpg"
+  ]
+}
