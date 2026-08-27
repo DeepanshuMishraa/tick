@@ -67,7 +67,7 @@ struct TranscriptionFeature {
     // Transcription result flow
     case transcriptionResult(String, URL)
     case transcriptionError(Error, URL?)
-    case beginCorrectionMonitoring(baseline: String)
+    case beginCorrectionMonitoring(baseline: String?)
     case correctionDetected(WordCorrection)
     case pasteUnavailable(String, reason: State.PasteFailureReason)
     case copyFeedback
@@ -556,9 +556,10 @@ private extension TranscriptionFeature {
 
         switch pasteResult {
         case let .pasted(_, afterText) where shouldLearnDictionary:
-          if let afterText {
-            await send(.beginCorrectionMonitoring(baseline: afterText))
-          }
+          // Some apps report a successful paste before Accessibility exposes
+          // the updated value. Start monitoring regardless and let the
+          // monitor recover the baseline with a short retry.
+          await send(.beginCorrectionMonitoring(baseline: afterText))
         case .noFocusedInput:
           await send(.pasteUnavailable(resultToUse, reason: .noFocusedInput))
         case .failed:
@@ -639,7 +640,7 @@ private extension TranscriptionFeature {
 // MARK: - Dictionary Learning & Feedback
 
 private extension TranscriptionFeature {
-  func monitorForCorrectionEffect(baseline: String) -> Effect<Action> {
+  func monitorForCorrectionEffect(baseline initialBaseline: String?) -> Effect<Action> {
     .run { [pasteboard] send in
       // Watch the edited field for a while after pasting. A correction is only
       // learned once the text has SETTLED — unchanged for a full settle window
@@ -654,8 +655,23 @@ private extension TranscriptionFeature {
       let observationWindow: TimeInterval = 20
 
       let startedAt = Date()
-      var lastSeenText: String?
-      var lastChangedAt = startedAt
+      var baseline = initialBaseline
+
+      // The paste can succeed before AX publishes the new value. Recover it
+      // here instead of silently disabling dictionary learning for that app.
+      if baseline == nil {
+        for _ in 0..<20 {
+          try? await Task.sleep(for: .milliseconds(50))
+          if let currentText = await pasteboard.focusedText() {
+            baseline = currentText
+            break
+          }
+        }
+      }
+
+      guard let baseline else { return }
+      var lastSeenText: String? = baseline
+      var lastChangedAt = Date()
 
       do {
         while Date().timeIntervalSince(startedAt) < observationWindow {
