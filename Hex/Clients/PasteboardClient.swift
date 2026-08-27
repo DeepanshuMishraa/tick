@@ -132,7 +132,7 @@ struct PasteboardClientLive {
             // (e.g. Ghostty and other GPU-accelerated terminals) report AX
             // success but silently ignore external value mutations — without
             // this check we would report a paste that never appeared.
-            afterText = await Self.focusedTextAfterInsertion(previous: beforeText, inserted: text)
+            afterText = await Self.focusedTextAfterInsertion(previous: beforeText)
             if let afterText {
                 return .pasted(beforeText: beforeText, afterText: afterText)
             }
@@ -348,11 +348,12 @@ struct PasteboardClientLive {
         }
 
         // Let the pasteboard server commit the temporary item before posting
-        // Cmd-V, then give the target app enough time to consume it.
+        // Cmd-V, then poll for the target app to reflect the insertion. A
+        // single fixed read is too early for several web and terminal apps,
+        // which makes dictionary monitoring miss otherwise successful pastes.
         try? await Task.sleep(for: .milliseconds(30))
         let didPostPaste = postCommandV()
-        try? await Task.sleep(for: .milliseconds(300))
-        let afterText = Self.focusedText()
+        let afterText = await Self.focusedTextAfterInsertion(previous: beforeText)
         snapshot.restore(to: pasteboard)
 
         guard didPostPaste else { return .failed }
@@ -447,22 +448,25 @@ struct PasteboardClientLive {
     }
 
     @MainActor
-    private static func focusedTextAfterInsertion(previous: String?, inserted: String) async -> String? {
+    private static func focusedTextAfterInsertion(previous: String?) async -> String? {
         // Fast read-back loop: most apps reflect the edit within one or two
         // frames, so poll aggressively rather than waiting out a long window —
         // this keeps the happy path snappy while still catching silent-rejector
         // apps like Ghostty.
-        for _ in 0..<6 {
+        for _ in 0..<20 {
             try? await Task.sleep(for: .milliseconds(40))
             guard let current = focusedText() else { continue }
-            if current != previous && current.localizedCaseInsensitiveContains(inserted) {
+            // The target may normalize whitespace, punctuation, casing, or
+            // otherwise represent the inserted value differently. The
+            // important signal is that the focused value changed from the
+            // pre-paste snapshot. This gives the correction monitor a reliable
+            // baseline while still rejecting silent AX insertion failures.
+            if current != previous {
                 return current
             }
         }
-        // Returning nil (rather than any readable value) matters: callers use
-        // this to VERIFY the edit landed. Apps like Ghostty keep a readable
-        // value that simply never changes, and nil is what tells them to fall
-        // back to the clipboard transport.
+        // Returning nil tells callers to use the clipboard transport when the
+        // target never exposed a changed value through Accessibility.
         return nil
     }
 }

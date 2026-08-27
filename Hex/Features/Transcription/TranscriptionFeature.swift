@@ -680,8 +680,12 @@ private extension TranscriptionFeature {
 
           if let correction = WordCorrectionDetector.detect(before: baseline, after: currentText) {
             await send(.correctionDetected(correction))
+            return
           }
-          return
+
+          // A user may pause after an intermediate multi-word edit. Keep
+          // watching instead of abandoning the monitor so a later valid
+          // one-word correction can still be learned.
         }
       } catch {
         // Cancellation is expected when another transcription starts.
