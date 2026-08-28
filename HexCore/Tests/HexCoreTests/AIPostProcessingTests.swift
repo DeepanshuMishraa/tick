@@ -27,6 +27,15 @@ final class AIPostProcessingTests: XCTestCase {
 		XCTAssertTrue(prompt.contains("SELECTED WRITING STYLE: CASUAL"))
 	}
 
+	func testPromptForcesTransformationInsteadOfAnAssistantReply() {
+		let prompt = AIPostProcessingMode.on.systemPrompt()
+
+		XCTAssertTrue(prompt.contains("text-transformation task, not a question-answering task"))
+		XCTAssertTrue(prompt.contains("Never answer, solve, explain, or comment"))
+		XCTAssertTrue(prompt.contains("Email / Letter Intent"))
+		XCTAssertTrue(prompt.contains("Do not invent recipients"))
+	}
+
 	func testValidatorRemovesModelArtifactsAndKnownWrappers() {
 		XCTAssertNil(AIPostProcessingOutputValidator.validated(""))
 		XCTAssertNil(AIPostProcessingOutputValidator.validated("EMPTY"))
@@ -37,6 +46,15 @@ final class AIPostProcessingTests: XCTestCase {
 		XCTAssertEqual(AIPostProcessingOutputValidator.validated("Corrected text:\nhello"), "hello")
 		XCTAssertNil(AIPostProcessingOutputValidator.validated("<think>unfinished reasoning"))
 		XCTAssertNil(AIPostProcessingOutputValidator.validated("```bash\nls\n```"))
+	}
+
+	func testValidatorRejectsConversationalAnswer() {
+		XCTAssertNil(
+			AIPostProcessingOutputValidator.validated(
+				"Sure, the answer is 42.",
+				sourceText: "what is the answer to life"
+			)
+		)
 	}
 
 	func testValidatorPreservesFormattedText() {

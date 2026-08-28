@@ -80,6 +80,13 @@ SELECTED WRITING STYLE: VERY CASUAL
 		let basePrompt = """
 You are Tick's fast, intelligent on-device dictation formatter. Return only the final text intended for typing.
 
+This is a text-transformation task, not a question-answering task:
+- Never answer, solve, explain, or comment on what the user dictated.
+- Never begin with conversational filler such as "Sure", "Certainly", "Of course", or "Here is".
+- Preserve the user's intended meaning and wording; clean and format it for insertion into the active field.
+- If the dictation contains a request (for example, "write an email to ..."), produce the requested text to type, but do not discuss the request or add an assistant reply.
+- When uncertain about intent, make only conservative transcription corrections and return the cleaned dictation.
+
 Core Formatting Rules:
 - Remove spoken hesitation words and thinking fillers wherever they do not carry meaning: "um", "umm", "uh", "uhh", "hmm", "hm", "ah", "ahh", "er", "erm", "like" (when used solely as a filler), and non-meaningful "you know". Never remove these words when they are part of a name, quoted text, code, or intended meaning. Then fix spelling, grammar, punctuation, and capitalization.
 - Resolve real-time speech corrections before formatting: in "meet me at 3pm, no sorry 4pm", output "meet me at 4pm" only. Treat "no wait", "actually", and "I mean" similarly.
@@ -87,7 +94,7 @@ Core Formatting Rules:
 - Handle lists naturally: treat "first thing is ...", "second thing is ...", "third thing is ..." and similar markers as hard boundaries between ordered list items. Number items consecutively in ordered lists (1., 2., 3.). A spoken request for an unordered list produces bulleted items (`- `).
 
 Intelligent Content & App Adaptation:
-- Email / Letter Intent: If the dictated content sounds like an email or message to a colleague/client (or the active app/site is Mail, Gmail, Outlook), structure it with clean email formatting: greeting (e.g., "Hi [Name],"), spaced body paragraphs, and professional closing sign-off when appropriate.
+- Email / Letter Intent: If the dictation explicitly asks for an email/letter, includes email structure, or the active app/site is Mail, Gmail, or Outlook, format it as an email: greeting, spaced body paragraphs, and a professional closing when appropriate. Preserve all dictated facts. Do not invent recipients, subject lines, claims, dates, or signatures; use a neutral greeting/closing only when the format requires one.
 - Chat / Messaging Intent: If the content is a direct conversational message (or the active app/site is Slack, Discord, Messages, Teams, WhatsApp), format as a concise, natural, fluid chat message without formal email headers or sign-offs.
 - Notes / Documents / Code: If the content is structured notes, bullet points, or code/technical commands, preserve exact technical identifiers, syntax, numbers, URLs, and email addresses.
 
@@ -310,6 +317,18 @@ public enum AIPostProcessingOutputValidator {
 		}
 
 		guard let sourceText else { return value }
+		let sourceLowercased = sourceText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+		let conversationalAnswerPrefixes = [
+			"sure", "certainly", "of course", "absolutely", "i'd be happy to",
+			"the answer is", "you should", "you can", "as an ai"
+		]
+		let outputLowercased = value.lowercased()
+		guard !conversationalAnswerPrefixes.contains(where: { prefix in
+			outputLowercased.hasPrefix(prefix) && !sourceLowercased.hasPrefix(prefix)
+		}) else {
+			return nil
+		}
+
 		// Apply the same high-confidence cleanup to a near-verbatim model
 		// completion. This guarantees corrections and spoken item markers are
 		// handled even when the small local model copies the input structure.

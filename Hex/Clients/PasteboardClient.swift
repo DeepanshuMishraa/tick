@@ -349,27 +349,35 @@ struct PasteboardClientLive {
             snapshot.restore(to: pasteboard)
             return .failed
         }
+        let temporaryChangeCount = pasteboard.changeCount
 
         // Let the pasteboard server commit the temporary item before posting
         // Cmd-V. Do not wait for an Accessibility read-back; web editors often
         // do not expose one and the correction monitor can observe it later.
-        let isGhostty = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.mitchellh.ghostty"
         try? await Task.sleep(for: .milliseconds(20))
         let didPostPaste = postCommandV()
 
-        // Ghostty handles Cmd-V on its event loop and reads the pasteboard
-        // after the key event arrives. Restoring immediately after posting
-        // races that read and makes Ghostty paste the user's old clipboard
-        // (or nothing). Give it a short, app-specific consumption window;
-        // other applications already snapshot the pasteboard synchronously.
-        if isGhostty {
-            try? await Task.sleep(for: .milliseconds(250))
+        // Cmd-V is delivered asynchronously. Restoring immediately after
+        // posting it races web views, Electron apps, terminals, and Ghostty;
+        // those apps can read the pasteboard after the event returns and end
+        // up pasting the user's previous screenshot/clipboard item. Keep the
+        // temporary item available for the same consumption window for every
+        // fallback transport.
+        try? await Task.sleep(for: .milliseconds(500))
+
+        // Do not overwrite a clipboard change made by the user while the
+        // paste was in flight.
+        let didRestoreClipboard: Bool
+        if pasteboard.changeCount == temporaryChangeCount {
+            snapshot.restore(to: pasteboard)
+            didRestoreClipboard = true
+        } else {
+            didRestoreClipboard = false
         }
-        snapshot.restore(to: pasteboard)
 
         guard didPostPaste else { return .failed }
         pasteboardLogger.notice(
-            "Clipboard paste command posted app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public) restoreDelayMs=\(isGhostty ? 250 : 0, privacy: .public)"
+            "Clipboard paste command posted app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public) restoreDelayMs=500 restored=\(didRestoreClipboard, privacy: .public)"
         )
         return .pasted(beforeText: beforeText, afterText: nil)
     }
