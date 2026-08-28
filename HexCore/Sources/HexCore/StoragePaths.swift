@@ -35,6 +35,20 @@ public extension URL {
 			return modelsDirectory
 		}
 	}
+
+	/// The sandbox-owned directory for optional on-device AI models.
+	///
+	/// Keeping this separate from the speech-model directory lets users remove
+	/// the post-processor without touching their transcription models.
+	static var hexAIModelsDirectory: URL {
+		get throws {
+			let directory = try hexApplicationSupport
+				.appendingPathComponent("cache", isDirectory: true)
+				.appendingPathComponent("ai-models", isDirectory: true)
+			try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+			return directory
+		}
+	}
 }
 
 public extension FileManager {

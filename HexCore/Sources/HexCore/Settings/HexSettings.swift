@@ -29,86 +29,96 @@ public enum AIPostProcessingMode: String, Codable, CaseIterable, Equatable, Send
 		}
 	}
 
+	public static func styleName(for styleIndex: Int) -> String {
+		switch styleIndex {
+		case 0: return "Formal"
+		case 1: return "Casual"
+		default: return "Very Casual"
+		}
+	}
+
 	private static func styleInstructions(for styleIndex: Int) -> String {
 		switch styleIndex {
 		case 0: // Formal
 			return """
 
-CRITICAL WRITING STYLE REQUIREMENT (FORMAL STYLE):
-- Enforce strict capitalization (standard capitalization for sentence starts, proper nouns, and "I").
-- Use standard, grammatically correct punctuation (periods, commas, question marks).
-- Maintain a formal and professional tone appropriate for business or academic communication.
+SELECTED WRITING STYLE: FORMAL
+- Use standard capitalization, grammar, and punctuation.
+- Use a polished, professional tone without changing the speaker's meaning.
+- End complete prose sentences with appropriate punctuation.
+- For an unordered list, use one bullet per line. For an explicitly ordered list, use `1.`, `2.`, `3.`.
 """
 		case 1: // Casual
 			return """
 
-CRITICAL WRITING STYLE REQUIREMENT (CASUAL STYLE):
-- Keep sentence-initial capitalization (start of sentences and proper nouns capitalized).
-- Use relaxed punctuation and a natural, conversational tone (e.g., fewer commas/periods where natural in chat, but still readable).
-- Maintain a conversational, friendly, and natural voice.
+SELECTED WRITING STYLE: CASUAL
+- Keep sentence-initial capitalization and proper nouns capitalized.
+- Use a relaxed, natural, friendly tone.
+- Do not force a final period on a short chat/message unless it improves clarity.
+- Preserve intentional emphasis and contractions; do not add slang or emoji.
 """
 		case 2: // Very Casual
 			fallthrough
 		default:
 			return """
 
-CRITICAL WRITING STYLE REQUIREMENT (VERY CASUAL STYLE):
-- Enforce strict lowercase formatting: DO NOT use any capital letters at all. All letters must be in lowercase.
-- Use relaxed punctuation and a natural/conversational tone.
-- Keep the tone very informal, as if typing a quick message to a close friend.
+SELECTED WRITING STYLE: VERY CASUAL
+- Use lowercase for prose, including sentence starts, while preserving required spelling of code, commands, URLs, email addresses, and identifiers.
+- Keep punctuation light and the tone very informal.
+- Do not add slang, emoji, or content that was not spoken.
 """
 		}
 	}
 
 	private static func genericPrompt(styleIndex: Int) -> String {
 		let basePrompt = """
-You are an intelligent dictation post-processor. You receive raw speech-to-text output and return clean, polished text ready to be typed into any application.
+You are Tick's fast, local dictation formatter. You receive imperfect speech-to-text and return the exact text the user intended to type.
 
 Your job:
-- Detect the tone and context of the transcription automatically (email, message, command, formal writing, casual note, etc.)
-- Adapt your processing based on the detected context:
-  * For emails: Use professional tone, add proper greeting/closing if appropriate, structure paragraphs clearly
-  * For casual messages/chat: Keep it conversational, add emoji where natural (don't overdo it), preserve personality
-  * For commands: Be concise and precise, extract clear intent. Specifically, if the user dictates a command message (like "git commit this is a good landing page"), transform it to the correct flag syntax: e.g., `git commit -m "this is a good landing page"`.
-  * For formal writing: Use proper grammar, professional language, structured formatting
-  * For notes/lists: Keep it simple and organized
-- Remove filler words (um, uh, you know, like, er) unless they carry meaning or add personality (in casual contexts)
-- Fix spelling, grammar, and punctuation errors appropriately for the context
-- Handle self-corrections intelligently: when the speaker corrects themselves (e.g., "at 3 pm oh I'm sorry at 4 pm" → "at 4 pm" or "Tuesday sorry Wednesday" → "Wednesday"), use the correction and remove the original. Common correction patterns: "sorry", "I mean", "no wait", "actually", "oh", "no"
-- Add proper punctuation and capitalization suitable for the context
-- Preserve the speaker's core intent, meaning, and personality
+- Infer whether the input is prose, a message, an email, a note, a list, a command, code, or a short fragment.
+- Remove speech fillers such as "um", "uh", "you know", and meaningless "like".
+- Fix spelling, grammar, capitalization, punctuation, and obvious transcription homophones.
+- Resolve self-corrections: in "Tuesday, sorry, Wednesday", output only "Wednesday". Recognize "I mean", "no wait", "actually", and "sorry" as correction cues.
+- Preserve the speaker's words, intent, language, and personality. Do not invent facts or expand content.
+
+Formatting rules:
+- Convert spoken formatting cues into formatting: "new line"/"next line" means a line break, "new paragraph" means a blank line, and spoken "comma", "period", "question mark", or "colon" means the corresponding punctuation.
+- Detect list intent. Use one item per line. Use `1.`, `2.`, `3.` for an explicitly ordered sequence ("first", "second", "step one"), and `- ` for an unordered list ("bullet points", "items", or a series of things). Never turn ordinary prose into a list.
+- Use blank lines between distinct paragraphs. Keep headings only when the speaker clearly dictates a heading or the destination context calls for one.
+- Keep code, shell commands, URLs, email addresses, numbers, and identifiers syntactically valid. Never wrap code or commands in fences.
+- Output in the same language as the transcription unless the transcription explicitly asks for translation.
 
 Output rules:
-- Return ONLY the cleaned, context-appropriate text, nothing else
-- If the transcription is empty, return exactly: EMPTY
-- Do not add words or content that are not in the transcription
-- Do not change the core meaning of what was said
-- Match the formality level to what seems intended by the speaker
+- Return ONLY the final text, with no explanation, preamble, labels, or markdown fences.
+- If the transcription is empty, return exactly: EMPTY.
+- Never output reasoning, analysis, or a correction summary.
+- When style conflicts with code/command syntax or required email/URL casing, preserve the syntax.
 """
 		return basePrompt + styleInstructions(for: styleIndex)
 	}
 
 	private static func appAwarePrompt(appContext: AppContext?, styleIndex: Int) -> String {
 		let basePrompt = """
-You are an intelligent dictation post-processor that adapts its formatting based on the application context. You receive raw speech-to-text output and return clean, polished text formatted for the target application.
+You are Tick's fast, local dictation formatter. You receive imperfect speech-to-text and return only the final text intended for the target application.
 
 General rules:
-- Remove filler words (um, uh, you know, like, er) unless they carry meaning
-- Fix spelling, grammar, and punctuation errors
-- Handle self-corrections: use the corrected version, remove the original mistake
-- Preserve the speaker's core intent and meaning
+- Remove filler words (um, uh, you know, like, er) when they do not carry meaning.
+- Fix spelling, grammar, punctuation, and obvious speech-recognition errors.
+- Resolve self-corrections by keeping the corrected phrase only.
+- Translate spoken formatting cues into line breaks, paragraphs, punctuation, and lists.
+- For list intent, put each item on its own line: number ordered items and use bullets for unordered items.
+- Preserve language, meaning, code syntax, identifiers, URLs, and email addresses.
 
 Output rules:
-- Return ONLY the cleaned, context-appropriate text, nothing else
-- If the transcription is empty, return exactly: EMPTY
-- Do not add words or content that are not in the transcription
-- Do not change the core meaning of what was said
+- Return ONLY the final text. Do not include explanations, labels, reasoning, or markdown fences.
+- If the transcription is empty, return exactly: EMPTY.
+- Do not add content that was not spoken, except the standard email structure explicitly required by email context below.
 """
 		let category = appContext?.category ?? .other
 		let categoryContext = category.systemPromptContext
 
 		guard !categoryContext.isEmpty else {
-			return basePrompt + "\n\nFormat the text appropriately based on its content, keeping it simple and clean." + styleInstructions(for: styleIndex)
+			return basePrompt + "\n\nNo specific application is known. Choose the simplest formatting supported by the content." + styleInstructions(for: styleIndex)
 		}
 
 		var contextSection = "\n\nApplication context:\n- Application: \(appContext?.appName ?? "Unknown")\n- Category: \(category.displayName)"
@@ -123,10 +133,7 @@ Output rules:
 			}
 		}
 
-		let appendStyle = (category != .terminal && category != .codeEditor)
-		let styleSection = appendStyle ? styleInstructions(for: styleIndex) : ""
-
-		return basePrompt + "\n\nFormatting rules for \(category.displayName) context:\n" + categoryContext + contextSection + styleSection
+		return basePrompt + "\n\nFormatting rules for \(category.displayName) context:\n" + categoryContext + contextSection + styleInstructions(for: styleIndex)
 	}
 
 	private static func urlHint(for host: String) -> String {
@@ -161,6 +168,54 @@ Output rules:
 			"""
 		}
 		return ""
+	}
+}
+
+/// The single model used for optional on-device post-processing.
+public enum OnDeviceAIModel {
+	public static let identifier = "Qwen/Qwen3-1.7B-MLX-4bit"
+	public static let displayName = "Qwen3 1.7B"
+	public static let approximateSize = "~914 MB"
+	public static let remoteBaseURL = URL(string: "https://pub-54623ce7fca847f9aec8c62f976b6c09.r2.dev/tick/models")!
+	public static let files: [(name: String, size: Int64)] = [
+		("config.json", 988),
+		("merges.txt", 1_671_853),
+		("model.safetensors.index.json", 49_731),
+		("tokenizer.json", 11_422_654),
+		("tokenizer_config.json", 8_311),
+		("vocab.json", 2_776_833),
+		("model.safetensors", 914_316_100)
+	]
+}
+
+/// Defensive validation for local model output. A bad completion must never
+/// replace a good raw transcription.
+public enum AIPostProcessingOutputValidator {
+	public static func validated(_ output: String) -> String? {
+		let value = output.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard !value.isEmpty, value.caseInsensitiveCompare("EMPTY") != .orderedSame else {
+			return nil
+		}
+
+		let invalidMarkers = [
+			"<think>", "</think>", "<reasoning>", "</reasoning>",
+			"<analysis>", "</analysis>", "<|im_start|>", "<|im_end|>",
+			"<|endoftext|>", "```"
+		]
+		guard !invalidMarkers.contains(where: { value.range(of: $0, options: .caseInsensitive) != nil }) else {
+			return nil
+		}
+
+		let firstLine = value.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+		let wrapperPrefixes = [
+			"corrected transcription:", "corrected text:", "final answer:",
+			"here is the corrected text:", "here's the corrected text:", "output:"
+		]
+		guard !wrapperPrefixes.contains(where: { firstLine.hasPrefix($0) }) else {
+			return nil
+		}
+
+		return value
 	}
 }
 
@@ -205,9 +260,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var wordRemovalsEnabled: Bool
 	public var wordRemovals: [WordRemoval]
 	public var wordRemappings: [WordRemapping]
-	public var groqAPIKey: String?
 	public var aiPostProcessingMode: AIPostProcessingMode
-	public var aiPostProcessingModel: String
 	public var selectedStyleIndex: Int
 	public var hasSelectedStyle: Bool
 	public var snippets: [SnippetSetting]
@@ -243,9 +296,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		wordRemovalsEnabled: Bool = false,
 		wordRemovals: [WordRemoval] = HexSettings.defaultWordRemovals,
 		wordRemappings: [WordRemapping] = [],
-		groqAPIKey: String? = nil,
 		aiPostProcessingMode: AIPostProcessingMode = .off,
-		aiPostProcessingModel: String = "llama-3.3-70b-versatile",
 		selectedStyleIndex: Int = 2,
 		hasSelectedStyle: Bool = false,
 		snippets: [SnippetSetting] = [
@@ -278,9 +329,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.wordRemovalsEnabled = wordRemovalsEnabled
 		self.wordRemovals = wordRemovals
 		self.wordRemappings = wordRemappings
-		self.groqAPIKey = groqAPIKey
 		self.aiPostProcessingMode = aiPostProcessingMode
-		self.aiPostProcessingModel = aiPostProcessingModel
 		self.selectedStyleIndex = selectedStyleIndex
 		self.hasSelectedStyle = hasSelectedStyle
 		self.snippets = snippets
@@ -290,6 +339,9 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public init(from decoder: Decoder) throws {
 		self.init()
 		let container = try decoder.container(keyedBy: HexSettingKey.self)
+		// Legacy Groq fields are intentionally not part of HexSettingKey. They
+		// are ignored while decoding and disappear on the next save, so an
+		// existing user keeps their mode/style without retaining cloud settings.
 		for field in HexSettingsSchema.fields {
 			try field.decode(into: &self, from: container)
 		}
@@ -332,9 +384,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case wordRemovalsEnabled
 	case wordRemovals
 	case wordRemappings
-	case groqAPIKey
 	case aiPostProcessingMode
-	case aiPostProcessingModel
 	case selectedStyleIndex
 	case hasSelectedStyle
 	case snippets
@@ -479,16 +529,7 @@ private enum HexSettingsSchema {
 			keyPath: \.wordRemappings,
 			default: defaults.wordRemappings
 		).eraseToAny(),
-		SettingsField(
-			.groqAPIKey,
-			keyPath: \.groqAPIKey,
-			default: defaults.groqAPIKey,
-			encode: { container, key, value in
-				try container.encodeIfPresent(value, forKey: key)
-			}
-		).eraseToAny(),
 		SettingsField(.aiPostProcessingMode, keyPath: \.aiPostProcessingMode, default: defaults.aiPostProcessingMode).eraseToAny(),
-		SettingsField(.aiPostProcessingModel, keyPath: \.aiPostProcessingModel, default: defaults.aiPostProcessingModel).eraseToAny(),
 		SettingsField(.selectedStyleIndex, keyPath: \.selectedStyleIndex, default: defaults.selectedStyleIndex).eraseToAny(),
 		SettingsField(.hasSelectedStyle, keyPath: \.hasSelectedStyle, default: defaults.hasSelectedStyle).eraseToAny(),
 		SettingsField(.snippets, keyPath: \.snippets, default: defaults.snippets).eraseToAny()

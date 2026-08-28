@@ -6,46 +6,41 @@ import SwiftUI
 struct AIPostProcessingSectionView: View {
 	@ObserveInjection var inject
 	@Bindable var store: StoreOf<SettingsFeature>
-	@State private var apiKeyInput: String = ""
-	@State private var showValidationMessage = false
-	@State private var validationMessageTimer: Task<Void, Never>?
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: TickSpacing.m) {
-			TickEyebrow(text: "AI Post-Processing")
+			TickEyebrow(text: "Tick On-Device AI Post-Processing")
 				.padding(.leading, TickSpacing.xs)
 
 			VStack(alignment: .leading, spacing: TickSpacing.l) {
-				// Cream hero with editorial display
 				TickHero {
 					VStack(alignment: .leading, spacing: TickSpacing.m) {
 						HStack(alignment: .firstTextBaseline) {
 							Text("Clean and format transcriptions ")
 								.font(TickFont.display(28, weight: .regular))
 								.foregroundStyle(TickColor.textPrimary)
-							+ Text("with AI")
+							+ Text("on your Mac")
 								.font(TickFont.displayItalic(28))
 								.foregroundStyle(TickColor.brand)
 						}
-						Text("Strips filler words, fixes self-corrections, and adapts tone to the app you're typing in.")
+						Text("Fixes grammar, removes filler words, understands lists, and formats text for the app you're typing in. Nothing is sent to the cloud.")
 							.font(TickFont.body)
 							.foregroundStyle(TickColor.textPrimary)
 							.opacity(0.7)
 					}
 				}
 
-				// Mode + API Key in a card
 				VStack(spacing: 0) {
 					HStack(alignment: .center, spacing: TickSpacing.l) {
 						VStack(alignment: .leading, spacing: 4) {
-							Text("MODE".uppercased())
+							Text("MODE")
 								.font(TickFont.eyebrow)
 								.tracking(0.8)
 								.foregroundStyle(TickColor.textTertiary)
-							Text("Off / App-Aware")
+							Text("Off / On / App-Aware")
 								.font(TickFont.body)
 								.foregroundStyle(TickColor.textPrimary)
-							Text("App-Aware detects the active application and adapts formatting")
+							Text("App-Aware adapts formatting to the active application and website.")
 								.font(TickFont.caption)
 								.foregroundStyle(TickColor.textSecondary)
 						}
@@ -57,6 +52,7 @@ struct AIPostProcessingSectionView: View {
 							),
 							options: [
 								(.off, "Off", "nosign"),
+								(.on, "On", "sparkles"),
 								(.appAware, "App-Aware", "app.badge")
 							]
 						)
@@ -65,83 +61,7 @@ struct AIPostProcessingSectionView: View {
 
 					if store.hexSettings.aiPostProcessingMode != .off {
 						Rectangle().fill(TickColor.line).frame(height: 1)
-
-						HStack(alignment: .center, spacing: TickSpacing.l) {
-							VStack(alignment: .leading, spacing: 4) {
-								Text("MODEL".uppercased())
-									.font(TickFont.eyebrow)
-									.tracking(0.8)
-									.foregroundStyle(TickColor.textTertiary)
-								Text(store.hexSettings.aiPostProcessingModel == "llama-3.3-70b-versatile" ? "Llama 3.3 70B" :
-									 store.hexSettings.aiPostProcessingModel == "qwen/qwen3-32b" ? "Qwen 3 32B" : "Qwen 3.6 27B")
-									.font(TickFont.body)
-									.foregroundStyle(TickColor.textPrimary)
-								Text("Select the LLM model to process your transcriptions")
-									.font(TickFont.caption)
-									.foregroundStyle(TickColor.textSecondary)
-							}
-							Spacer()
-							CustomMenuPicker(
-								selection: Binding(
-									get: { store.hexSettings.aiPostProcessingModel },
-									set: { store.send(.setAIPostProcessingModel($0)) }
-								),
-								options: [
-									("llama-3.3-70b-versatile", "Llama 3.3 70B", "brain"),
-									("qwen/qwen3-32b", "Qwen 3 32B", "cpu"),
-									("qwen/qwen3.6-27b", "Qwen 3.6 27B", "network")
-								]
-							)
-						}
-						.padding(.vertical, TickSpacing.s)
-					}
-
-					if store.hexSettings.aiPostProcessingMode != .off {
-						Rectangle().fill(TickColor.line).frame(height: 1)
-
-						VStack(alignment: .leading, spacing: TickSpacing.s) {
-							Text("GROQ API KEY")
-								.font(TickFont.eyebrow)
-								.tracking(0.8)
-								.foregroundStyle(TickColor.textTertiary)
-
-							CustomTextField(
-								placeholder: "Enter your Groq API key",
-								text: $apiKeyInput,
-								isSecure: true
-							)
-							.onChange(of: apiKeyInput) { _, newValue in
-								store.send(.setGroqAPIKey(newValue))
-							}
-
-							HStack {
-								TickPrimaryButton(title: store.isValidatingAPIKey ? "Validating…" : "Validate", icon: "checkmark") {
-									store.send(.validateGroqAPIKey)
-									showValidationMessage = true
-									validationMessageTimer?.cancel()
-									validationMessageTimer = Task {
-										try? await Task.sleep(for: .seconds(3))
-										showValidationMessage = false
-									}
-								}
-								.disabled(apiKeyInput.isEmpty || store.isValidatingAPIKey)
-
-								if showValidationMessage, let status = store.apiKeyValidationStatus {
-									HStack(spacing: 4) {
-										Image(systemName: status == .success ? "checkmark.circle.fill" : "xmark.circle.fill")
-										Text(status == .success ? "Valid" : (status.failureMessage ?? "Invalid"))
-									}
-									.font(TickFont.caption)
-									.foregroundStyle(status == .success ? TickColor.success : TickColor.error)
-									.transition(.opacity)
-								}
-							}
-
-							Text("Uses \(store.hexSettings.aiPostProcessingModel) via Groq.")
-								.font(TickFont.caption)
-								.foregroundStyle(TickColor.textTertiary)
-						}
-						.padding(.vertical, TickSpacing.s)
+						modelManagement
 					}
 				}
 				.padding(.horizontal, TickSpacing.l)
@@ -157,18 +77,85 @@ struct AIPostProcessingSectionView: View {
 			}
 		}
 		.animation(TickAnimation.ease, value: store.hexSettings.aiPostProcessingMode)
-		.onAppear {
-			apiKeyInput = store.hexSettings.groqAPIKey ?? ""
-		}
 		.enableInjection()
 	}
-}
 
-extension SettingsFeature.APIKeyValidationStatus {
-	var failureMessage: String? {
-		if case .failure(let msg) = self { return msg }
-		return nil
+	@ViewBuilder
+	private var modelManagement: some View {
+		VStack(alignment: .leading, spacing: TickSpacing.s) {
+			HStack(alignment: .firstTextBaseline) {
+				VStack(alignment: .leading, spacing: 4) {
+					Text("LOCAL MODEL")
+						.font(TickFont.eyebrow)
+						.tracking(0.8)
+						.foregroundStyle(TickColor.textTertiary)
+					Text(OnDeviceAIModel.displayName)
+						.font(TickFont.body)
+						.foregroundStyle(TickColor.textPrimary)
+					Text("\(OnDeviceAIModel.approximateSize) download · runs fully offline")
+						.font(TickFont.caption)
+						.foregroundStyle(TickColor.textSecondary)
+				}
+				Spacer()
+				if store.isDownloadingAIModel {
+					Button {
+						store.send(.cancelAIModelDownload)
+					} label: {
+						Label("Cancel", systemImage: "xmark")
+					}
+					.buttonStyle(.borderless)
+				} else if store.aiModelIsDownloaded {
+					Label("Ready", systemImage: "checkmark.circle.fill")
+					.foregroundStyle(TickColor.success)
+				}
+			}
+
+			if store.isDownloadingAIModel {
+				ProgressView(value: store.aiModelDownloadProgress)
+					.tint(TickColor.brand)
+				Text("Downloading… \(Int(store.aiModelDownloadProgress * 100))%")
+					.font(TickFont.caption)
+					.foregroundStyle(TickColor.textSecondary)
+			} else if store.aiModelIsDownloaded {
+				HStack {
+					if let size = store.aiModelSize {
+						Text("Installed size: \(Self.byteCountFormatter.string(fromByteCount: size))")
+							.font(TickFont.caption)
+							.foregroundStyle(TickColor.textTertiary)
+					}
+					Spacer()
+					TickSecondaryButton(title: "Delete Model", icon: "trash") {
+						store.send(.deleteAIModel)
+					}
+				}
+			} else {
+				TickPrimaryButton(
+					title: store.aiModelError == nil ? "Download Qwen3 1.7B" : "Retry Download",
+					icon: "arrow.down.circle"
+				) {
+					store.send(.downloadAIModel)
+				}
+			}
+
+			if let error = store.aiModelError {
+				Label(error, systemImage: "exclamationmark.triangle.fill")
+					.font(TickFont.caption)
+					.foregroundStyle(TickColor.error)
+			}
+
+			Text("Privacy: transcription text stays on this Mac. Tick never sends it to a cloud API.")
+				.font(TickFont.caption)
+				.foregroundStyle(TickColor.textTertiary)
+				.fixedSize(horizontal: false, vertical: true)
+		}
+		.padding(.vertical, TickSpacing.s)
 	}
+
+	private static let byteCountFormatter: ByteCountFormatter = {
+		let formatter = ByteCountFormatter()
+		formatter.countStyle = .file
+		return formatter
+	}()
 }
 
 // MARK: - Custom Text Field (cream background, subtle, no native chrome)

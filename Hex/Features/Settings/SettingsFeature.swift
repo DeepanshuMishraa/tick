@@ -57,14 +57,15 @@ struct SettingsFeature {
     var modelDownload = ModelDownloadFeature.State()
     var shouldFlashModelSection = false
     
-    // API Key Validation
-    var isValidatingAPIKey = false
-    var apiKeyValidationStatus: APIKeyValidationStatus?
-  }
-  
-  enum APIKeyValidationStatus: Equatable {
-    case success
-    case failure(String)
+    // On-device AI model management
+    var isLoadingAIModel = false
+    var isDownloadingAIModel = false
+    var isWarmingAIModel = false
+    var aiModelIsDownloaded = false
+    var aiModelSize: Int64?
+    var aiModelDownloadProgress: Double = 0
+    var aiModelError: String?
+    var activeAIModelDownloadID: UUID?
   }
 
   enum Action: BindableAction {
@@ -109,10 +110,16 @@ struct SettingsFeature {
 
     // AI Post-Processing
     case setAIPostProcessingMode(AIPostProcessingMode)
-    case setAIPostProcessingModel(String)
-    case setGroqAPIKey(String)
-    case validateGroqAPIKey
-    case groqAPIKeyValidationResult(Result<Bool, Error>)
+    case fetchAIModel
+    case aiModelStatusLoaded(isDownloaded: Bool, size: Int64?)
+    case downloadAIModel
+    case aiModelDownloadProgress(Double)
+    case aiModelDownloadCompleted(Result<Void, Error>)
+    case cancelAIModelDownload
+    case warmAIModel
+    case aiModelWarmCompleted(Result<Void, Error>)
+    case deleteAIModel
+    case aiModelDeleteCompleted(Result<Void, Error>)
 
     // Direct settings mutations
     case toggleUseClipboardPaste(Bool)
@@ -267,6 +274,7 @@ struct SettingsFeature {
         // Listen for key events and load microphones (existing + new)
         return .run { send in
           await send(.modelDownload(.fetchModels))
+          await send(.fetchAIModel)
           await send(.loadAvailableInputDevices)
           
           // Set up periodic refresh of available devices (every 120 seconds)
@@ -485,48 +493,120 @@ struct SettingsFeature {
 
       case let .setAIPostProcessingMode(mode):
         state.$hexSettings.withLock { $0.aiPostProcessingMode = mode }
+        return mode == .off || !state.aiModelIsDownloaded ? .none : .send(.warmAIModel)
+
+      case .fetchAIModel:
+        guard !state.isLoadingAIModel else { return .none }
+        state.isLoadingAIModel = true
+        return .run { send in
+          let isDownloaded = await aiPostProcessing.isModelDownloaded()
+          let size = await aiPostProcessing.modelSize()
+          await send(.aiModelStatusLoaded(isDownloaded: isDownloaded, size: size))
+        }
+
+      case let .aiModelStatusLoaded(isDownloaded, size):
+        state.isLoadingAIModel = false
+        state.aiModelIsDownloaded = isDownloaded
+        state.aiModelSize = size
+        if isDownloaded {
+          state.aiModelError = nil
+          state.aiModelDownloadProgress = 1
+        }
+        return isDownloaded && state.hexSettings.aiPostProcessingMode != .off
+          ? .send(.warmAIModel)
+          : .none
+
+      case .downloadAIModel:
+        guard !state.isDownloadingAIModel else { return .none }
+        state.isDownloadingAIModel = true
+        state.aiModelError = nil
+        state.aiModelDownloadProgress = 0
+        let downloadID = UUID()
+        state.activeAIModelDownloadID = downloadID
+        return .run { send in
+          do {
+            try await aiPostProcessing.downloadModel { progress in
+              Task { await send(.aiModelDownloadProgress(progress.fractionCompleted)) }
+            }
+            await send(.aiModelDownloadCompleted(.success(())))
+          } catch {
+            await send(.aiModelDownloadCompleted(.failure(error)))
+          }
+        }
+        .cancellable(id: downloadID)
+
+      case let .aiModelDownloadProgress(progress):
+        state.aiModelDownloadProgress = progress
         return .none
 
-      case let .setAIPostProcessingModel(model):
-        state.$hexSettings.withLock { $0.aiPostProcessingModel = model }
-        return .none
-
-      case let .setGroqAPIKey(key):
-        state.$hexSettings.withLock { $0.groqAPIKey = key.isEmpty ? nil : key }
-        state.apiKeyValidationStatus = nil // Reset validation status when key changes
-        return .none
-      
-      case .validateGroqAPIKey:
-        guard let apiKey = state.hexSettings.groqAPIKey, !apiKey.isEmpty else {
-          state.apiKeyValidationStatus = .failure("API key is empty")
+      case let .aiModelDownloadCompleted(result):
+        state.isDownloadingAIModel = false
+        state.activeAIModelDownloadID = nil
+        switch result {
+        case .success:
+          state.aiModelIsDownloaded = true
+          state.aiModelDownloadProgress = 1
+          state.aiModelError = nil
+          return .merge(.send(.fetchAIModel), .send(.warmAIModel))
+        case let .failure(error):
+          state.aiModelIsDownloaded = false
+          state.aiModelDownloadProgress = 0
+          state.aiModelError = error.localizedDescription
           return .none
         }
-        
-        state.isValidatingAPIKey = true
-        state.apiKeyValidationStatus = nil
-        
+
+      case .cancelAIModelDownload:
+        guard let downloadID = state.activeAIModelDownloadID else { return .none }
+        state.isDownloadingAIModel = false
+        state.activeAIModelDownloadID = nil
+        state.aiModelDownloadProgress = 0
+        state.aiModelError = "Download cancelled"
+        return .cancel(id: downloadID)
+
+      case .warmAIModel:
+        guard state.hexSettings.aiPostProcessingMode != .off,
+              state.aiModelIsDownloaded,
+              !state.isWarmingAIModel
+        else { return .none }
+        state.isWarmingAIModel = true
         return .run { send in
-          await send(.groqAPIKeyValidationResult(
-            Result { try await aiPostProcessing.validateAPIKey(apiKey) }
-          ))
+          do {
+            try await aiPostProcessing.warmModel()
+            await send(.aiModelWarmCompleted(.success(())))
+          } catch {
+            await send(.aiModelWarmCompleted(.failure(error)))
+          }
         }
-      
-      case let .groqAPIKeyValidationResult(.success(isValid)):
-        state.isValidatingAPIKey = false
-        if isValid {
-          state.apiKeyValidationStatus = .success
-          settingsLogger.info("Groq API key validated successfully")
+
+      case let .aiModelWarmCompleted(result):
+        state.isWarmingAIModel = false
+        if case let .failure(error) = result {
+          settingsLogger.error("On-device AI warm-up failed: \(error.localizedDescription)")
+          state.aiModelError = error.localizedDescription
+        }
+        return .none
+
+      case .deleteAIModel:
+        guard !state.isDownloadingAIModel else { return .none }
+        state.aiModelIsDownloaded = false
+        state.aiModelSize = nil
+        state.aiModelDownloadProgress = 0
+        return .run { send in
+          do {
+            try await aiPostProcessing.deleteModel()
+            await send(.aiModelDeleteCompleted(.success(())))
+          } catch {
+            await send(.aiModelDeleteCompleted(.failure(error)))
+          }
+        }
+
+      case let .aiModelDeleteCompleted(result):
+        if case let .failure(error) = result {
+          state.aiModelError = error.localizedDescription
         } else {
-          state.apiKeyValidationStatus = .failure("Invalid API key")
-          settingsLogger.warning("Groq API key validation failed")
+          state.aiModelError = nil
         }
-        return .none
-      
-      case let .groqAPIKeyValidationResult(.failure(error)):
-        state.isValidatingAPIKey = false
-        state.apiKeyValidationStatus = .failure(error.localizedDescription)
-        settingsLogger.error("Groq API key validation error: \(error.localizedDescription)")
-        return .none
+        return .send(.fetchAIModel)
 
       // Direct settings mutations
       case let .toggleUseClipboardPaste(enabled):

@@ -75,6 +75,19 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded.recordingAudioBehavior, .doNothing)
 	}
 
+	func testLegacyGroqSettingsAreIgnoredWithoutLosingAISettings() throws {
+		let payload = #"{"groqAPIKey":"legacy-secret","aiPostProcessingModel":"legacy-model","aiPostProcessingMode":"appAware","selectedStyleIndex":0}"#
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: Data(payload.utf8))
+
+		XCTAssertEqual(decoded.aiPostProcessingMode, .appAware)
+		XCTAssertEqual(decoded.selectedStyleIndex, 0)
+
+		let saved = try JSONEncoder().encode(decoded)
+		let savedJSON = String(decoding: saved, as: UTF8.self)
+		XCTAssertFalse(savedJSON.contains("groqAPIKey"))
+		XCTAssertFalse(savedJSON.contains("aiPostProcessingModel"))
+	}
+
 	private func loadFixture(named name: String) throws -> Data {
 		guard let url = Bundle.module.url(
 			forResource: name,

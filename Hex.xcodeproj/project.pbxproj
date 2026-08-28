@@ -16,6 +16,10 @@
 		47E05E0A2D44525B00D26DA6 /* Dependencies in Frameworks */ = {isa = PBXBuildFile; productRef = 47E05E092D44525B00D26DA6 /* Dependencies */; };
 		47E05E0C2D44525B00D26DA6 /* DependenciesMacros in Frameworks */ = {isa = PBXBuildFile; productRef = 47E05E0B2D44525B00D26DA6 /* DependenciesMacros */; };
 		47E16A622EC6C9D300885CF7 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 47E16A612EC6C9D300885CF7 /* FluidAudio */; };
+		4A0000010000000000000001 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 4A0000010000000000000011 /* MLXLLM */; };
+		4A0000010000000000000002 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 4A0000010000000000000012 /* MLXLMCommon */; };
+		4A0000010000000000000005 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = 4A0000010000000000000015 /* Tokenizers */; };
+		4A0000010000000000000006 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 4A0000010000000000000016 /* MLX */; };
 		B5045C972D78DED500D0A119 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = B5045C962D78DED500D0A119 /* MarkdownUI */; };
 		B53356002D7B8D4900E5F542 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B53355FF2D7B8D4900E5F542 /* Localizable.xcstrings */; };
 		C1A5H00100000000000000A1 /* ClashGrotesk-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C1A5H00100000000000000B1 /* ClashGrotesk-Variable.ttf */; };
@@ -87,6 +91,10 @@
 				47C08AB62DE9F61B00564AE6 /* Inject in Frameworks */,
 				47E05E0C2D44525B00D26DA6 /* DependenciesMacros in Frameworks */,
 				47E05E022D444EE900D26DA6 /* ComposableArchitecture in Frameworks */,
+				4A0000010000000000000001 /* MLXLLM in Frameworks */,
+				4A0000010000000000000002 /* MLXLMCommon in Frameworks */,
+				4A0000010000000000000005 /* Tokenizers in Frameworks */,
+				4A0000010000000000000006 /* MLX in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -174,6 +182,10 @@
 				47512ABE2E14D8C9000E25BA /* WhisperKit */,
 				476316262E5FB31400913CDE /* HexCore */,
 				47E16A612EC6C9D300885CF7 /* FluidAudio */,
+				4A0000010000000000000011 /* MLXLLM */,
+				4A0000010000000000000012 /* MLXLMCommon */,
+				4A0000010000000000000015 /* Tokenizers */,
+				4A0000010000000000000016 /* MLX */,
 			);
 			productName = tick;
 			productReference = 47E05DEE2D444EC600D26DA6 /* tick Debug.app */;
@@ -217,6 +229,9 @@
 				47512ABD2E14D8C9000E25BA /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				476316252E5FB31400913CDE /* XCLocalSwiftPackageReference "HexCore" */,
 				47E16A602EC6C9D300885CF7 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				4A0000010000000000000101 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				4A0000010000000000000103 /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				4A0000010000000000000104 /* XCRemoteSwiftPackageReference "mlx-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 47E05DEF2D444EC600D26DA6 /* Products */;
@@ -640,6 +655,30 @@
 				kind = branch;
 			};
 		};
+		4A0000010000000000000101 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = exactVersion;
+				version = 3.31.3;
+			};
+		};
+		4A0000010000000000000103 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers";
+			requirement = {
+				kind = exactVersion;
+				version = 1.1.9;
+			};
+		};
+		4A0000010000000000000104 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 0.31.3;
+			};
+		};
 		B5045C952D78DED500D0A119 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
@@ -699,6 +738,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B5045C952D78DED500D0A119 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
 			productName = MarkdownUI;
+		};
+		4A0000010000000000000011 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4A0000010000000000000101 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		4A0000010000000000000012 /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4A0000010000000000000101 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
+		4A0000010000000000000015 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4A0000010000000000000103 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
+		};
+		4A0000010000000000000016 /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4A0000010000000000000104 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
