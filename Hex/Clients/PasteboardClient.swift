@@ -354,13 +354,22 @@ struct PasteboardClientLive {
         // Cmd-V. Do not wait for an Accessibility read-back; web editors often
         // do not expose one and the correction monitor can observe it later.
         let isGhostty = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.mitchellh.ghostty"
-        try? await Task.sleep(for: isGhostty ? .milliseconds(150) : .milliseconds(20))
+        try? await Task.sleep(for: .milliseconds(20))
         let didPostPaste = postCommandV()
+
+        // Ghostty handles Cmd-V on its event loop and reads the pasteboard
+        // after the key event arrives. Restoring immediately after posting
+        // races that read and makes Ghostty paste the user's old clipboard
+        // (or nothing). Give it a short, app-specific consumption window;
+        // other applications already snapshot the pasteboard synchronously.
+        if isGhostty {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
         snapshot.restore(to: pasteboard)
 
         guard didPostPaste else { return .failed }
         pasteboardLogger.notice(
-            "Clipboard paste command posted app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public) restoreDelayMs=\(isGhostty ? 150 : 20, privacy: .public)"
+            "Clipboard paste command posted app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public) restoreDelayMs=\(isGhostty ? 250 : 0, privacy: .public)"
         )
         return .pasted(beforeText: beforeText, afterText: nil)
     }
