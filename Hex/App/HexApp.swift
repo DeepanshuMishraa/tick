@@ -125,42 +125,66 @@ struct MenuBarMicrophoneMenu: View {
 struct MenuBarRecordingIcon: View {
     @State private var isRecording = false
     @State private var phase: Double = 0
-    @State private var digit: Int = 0
 
     // Poll the store every 200ms — cheap enough for a menu bar icon.
     let timer = Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        Group {
-            if isRecording {
-                // 4 tiny animating bars
-                HStack(spacing: 2) {
-                    ForEach(0..<4) { i in
-                        Capsule()
-                            .fill(TickColor.brand)
-                            .frame(width: 2, height: barHeight(for: i))
-                    }
+        HStack(alignment: .center, spacing: 2.5) {
+            glassBar(height: isRecording ? recordingBarHeight(for: 0) : 9, opacity: 0.80)
+            glassBar(height: isRecording ? recordingBarHeight(for: 1) : 15, opacity: 1.0)
+            glassBar(height: isRecording ? recordingBarHeight(for: 2) : 11, opacity: 0.85)
+        }
+        .frame(width: 18, height: 18)
+        .onReceive(timer) { _ in
+            let recordingNow = HexApp.appStore.state.transcription.isRecording
+            if recordingNow != isRecording {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                    isRecording = recordingNow
                 }
-                .onAppear {
-                    withAnimation(
-                        .linear(duration: 0.5).repeatForever(autoreverses: false)
-                    ) { phase = .pi * 2 }
-                }
-            } else {
-                // Static app icon (pulled from existing asset)
-                Image(nsImage: NSImage(named: "HexIcon")!
-                    .resized(to: NSSize(width: 18, height: 18)))
             }
         }
-        .onReceive(timer) { _ in
-            isRecording = HexApp.appStore.state.transcription.isRecording
+        .onAppear {
+            withAnimation(.linear(duration: 0.6).repeatForever(autoreverses: false)) {
+                phase = .pi * 2
+            }
         }
     }
 
-    private func barHeight(for index: Int) -> CGFloat {
-        let offset = Double(index) * 0.5
+    @ViewBuilder
+    private func glassBar(height: CGFloat, opacity: Double) -> some View {
+        Capsule(style: .continuous)
+            .fill(
+                LinearGradient(
+                    stops: [
+                        .init(color: Color.primary.opacity(opacity), location: 0.0),
+                        .init(color: Color.primary.opacity(opacity * 0.45), location: 1.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: 2.75, height: height)
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.white.opacity(0.40), location: 0.0),
+                                .init(color: Color.clear, location: 0.75)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.5
+                    )
+            )
+    }
+
+    private func recordingBarHeight(for index: Int) -> CGFloat {
+        let offset = Double(index) * 0.7
         let val = sin(phase + offset) * 0.5 + 0.5
-        return 3 + CGFloat(val) * 8
+        return 4 + CGFloat(val) * 11
     }
 }
 

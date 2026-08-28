@@ -18,9 +18,9 @@ final class AIPostProcessingTests: XCTestCase {
 		XCTAssertTrue(formal.contains("unordered list"))
 	}
 
-	func testAppAwarePromptKeepsApplicationContextAndStyle() {
+	func testSmartPromptKeepsApplicationContextAndStyle() {
 		let context = AppContext(bundleID: "com.apple.Terminal", appName: "Terminal")
-		let prompt = AIPostProcessingMode.appAware.systemPrompt(appContext: context, selectedStyleIndex: 1)
+		let prompt = AIPostProcessingMode.on.systemPrompt(appContext: context, selectedStyleIndex: 1)
 
 		XCTAssertTrue(prompt.contains("Terminal"))
 		XCTAssertTrue(prompt.contains("raw shell command"))

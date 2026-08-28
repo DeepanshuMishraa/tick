@@ -8,13 +8,21 @@ public enum RecordingAudioBehavior: String, Codable, CaseIterable, Equatable, Se
 public enum AIPostProcessingMode: String, Codable, CaseIterable, Equatable, Sendable {
 	case off
 	case on
-	case appAware
+
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.singleValueContainer()
+		let raw = try container.decode(String.self)
+		if raw == "appAware" || raw == "on" {
+			self = .on
+		} else {
+			self = .off
+		}
+	}
 
 	public var displayName: String {
 		switch self {
 		case .off: return "Off"
 		case .on: return "On"
-		case .appAware: return "App-Aware"
 		}
 	}
 
@@ -23,9 +31,7 @@ public enum AIPostProcessingMode: String, Codable, CaseIterable, Equatable, Send
 		case .off:
 			return ""
 		case .on:
-			return Self.genericPrompt(styleIndex: selectedStyleIndex)
-		case .appAware:
-			return Self.appAwarePrompt(appContext: appContext, styleIndex: selectedStyleIndex)
+			return Self.smartPrompt(appContext: appContext, styleIndex: selectedStyleIndex)
 		}
 	}
 
@@ -70,77 +76,41 @@ SELECTED WRITING STYLE: VERY CASUAL
 		}
 	}
 
-	private static func genericPrompt(styleIndex: Int) -> String {
+	private static func smartPrompt(appContext: AppContext?, styleIndex: Int) -> String {
 		let basePrompt = """
-You are Tick's fast local dictation formatter. Return only the final text the speaker intended to type.
+You are Tick's fast, intelligent on-device dictation formatter. Return only the final text intended for typing.
 
-Rules:
-- Remove spoken thinking fillers and hesitation words wherever they do not carry meaning: "um", "umm", "uh", "uhh", "hmm", "hm", "ah", "ahh", "er", "erm", "like" when used only as a filler, and "you know" when it is not meaningful. Never remove these words when they are part of a name, quoted text, code, or intended meaning. Then fix spelling, grammar, capitalization, punctuation, and obvious transcription errors.
-- Resolve corrections before formatting. In "meet me at 3pm, no sorry 4pm", output "meet me at 4pm" only. Treat "no wait", "actually", and "I mean" the same way.
-- Convert spoken "new line", "next line", "new paragraph", "comma", "period", "question mark", and "colon" to formatting.
-- Treat "first thing is ...", "second thing is ...", "third thing is ...", and similar item markers as hard boundaries between ordered list items. Keep any introduction as prose, then put each item on its own line.
-- A request for a "list" alone is an unordered list: one `- ` bullet per item. Use `1.`, `2.`, `3.` only for explicit numbering/order or ordinal cues such as "first" and "second". Number items consecutively in ordered lists, even if a spoken ordinal is wrong. For example, first/second/fourth becomes 1/2/3. Never turn ordinary prose into a list.
-- Preserve meaning, language, personality, code, commands, URLs, email addresses, numbers, and identifiers. Do not invent content or use markdown fences.
-- Use blank lines between paragraphs and return EMPTY for empty input.
+Core Formatting Rules:
+- Remove spoken hesitation words and thinking fillers wherever they do not carry meaning: "um", "umm", "uh", "uhh", "hmm", "hm", "ah", "ahh", "er", "erm", "like" (when used solely as a filler), and non-meaningful "you know". Never remove these words when they are part of a name, quoted text, code, or intended meaning. Then fix spelling, grammar, punctuation, and capitalization.
+- Resolve real-time speech corrections before formatting: in "meet me at 3pm, no sorry 4pm", output "meet me at 4pm" only. Treat "no wait", "actually", and "I mean" similarly.
+- Convert spoken structural commands ("new line", "next line", "new paragraph", "comma", "period", "question mark", "colon") into real formatting.
+- Handle lists naturally: treat "first thing is ...", "second thing is ...", "third thing is ..." and similar markers as hard boundaries between ordered list items. Number items consecutively in ordered lists (1., 2., 3.). A spoken request for an unordered list produces bulleted items (`- `).
 
-Output only the final answer. No reasoning, labels, explanations, or correction summary.
+Intelligent Content & App Adaptation:
+- Email / Letter Intent: If the dictated content sounds like an email or message to a colleague/client (or the active app/site is Mail, Gmail, Outlook), structure it with clean email formatting: greeting (e.g., "Hi [Name],"), spaced body paragraphs, and professional closing sign-off when appropriate.
+- Chat / Messaging Intent: If the content is a direct conversational message (or the active app/site is Slack, Discord, Messages, Teams, WhatsApp), format as a concise, natural, fluid chat message without formal email headers or sign-offs.
+- Notes / Documents / Code: If the content is structured notes, bullet points, or code/technical commands, preserve exact technical identifiers, syntax, numbers, URLs, and email addresses.
 
-Examples:
-Input: meet me at 3pm, no sorry 4pm
-Output: meet me at 4pm
-Input: give me a list of three things: how to be nice, how to be fair, and how to be great
-Output:
-- how to be nice
-- how to be fair
-- how to be great
-Input: give me a list of three things. First, how to be nice. Second, how to be fair. Fourth, how to be great.
-Output:
-1. How to be nice
-2. How to be fair
-3. How to be great
-Input: The first thing is hello everyone. Second thing is hello, how are you? And third thing is how are you doing, mate.
-Output:
-1. Hello everyone.
-2. Hello, how are you?
-3. How are you doing, mate.
+Output only the final text. No reasoning, explanations, markdown code fences, or labels. Return EMPTY for empty input.
 """
-		return basePrompt + styleInstructions(for: styleIndex)
-	}
 
-	private static func appAwarePrompt(appContext: AppContext?, styleIndex: Int) -> String {
-		let basePrompt = """
-You are Tick's fast local dictation formatter. Return only the final text intended for the target application.
-
-Rules:
-- Remove spoken thinking fillers and hesitation words such as "um", "umm", "uh", "uhh", "hmm", "hm", "ah", "ahh", "er", "erm", filler "like", and non-meaningful "you know". Preserve them when intentional or part of a name, quote, code, or identifier. Fix spelling, grammar, punctuation, capitalization, and obvious speech-recognition errors.
-- Resolve corrections before formatting: "meet me at 3pm, no sorry 4pm" becomes "meet me at 4pm" only.
-- Convert spoken line breaks, paragraphs, and punctuation into real formatting.
-- Treat "first thing is", "second thing is", "third thing is", and similar markers as hard boundaries between ordered list items.
-- A "list" alone uses one `- ` bullet per item. Explicit numbering/order or ordinal cues use consecutive `1.`, `2.`, `3.` numbering, even when the spoken ordinal is wrong.
-- Preserve meaning, language, code, commands, URLs, email addresses, numbers, and identifiers. Never use fences or add content unless the email context below requires standard email structure.
-
-Output only the final answer. No reasoning, labels, or explanations. Empty input becomes EMPTY.
-"""
-		let category = appContext?.category ?? .other
-		let categoryContext = category.systemPromptContext
-
-		guard !categoryContext.isEmpty else {
-			return basePrompt + "\n\nNo specific application is known. Choose the simplest formatting supported by the content." + styleInstructions(for: styleIndex)
-		}
-
-		var contextSection = "\n\nApplication context:\n- Application: \(appContext?.appName ?? "Unknown")\n- Category: \(category.displayName)"
-
-		if let url = appContext?.url, let host = appContext?.browserURLHost {
-			contextSection += "\n- URL: \(url)"
-			contextSection += "\n- Domain: \(host)"
-
-			let urlHint = urlHint(for: host)
-			if !urlHint.isEmpty {
-				contextSection += "\n\(urlHint)"
+		var contextDetails = ""
+		if let context = appContext, context.category != .other || context.appName != "Unknown" {
+			let category = context.category
+			contextDetails += "\n\nApplication Context:\n- Active Application: \(context.appName)\n- Category: \(category.displayName)"
+			if !category.systemPromptContext.isEmpty {
+				contextDetails += "\n- Category hints: \(category.systemPromptContext)"
+			}
+			if let host = context.browserURLHost {
+				contextDetails += "\n- Browser Site: \(host)"
+				let hint = urlHint(for: host)
+				if !hint.isEmpty {
+					contextDetails += "\n\(hint)"
+				}
 			}
 		}
 
-		return basePrompt + "\n\nFormatting rules for \(category.displayName) context:\n" + categoryContext + contextSection + styleInstructions(for: styleIndex)
+		return basePrompt + contextDetails + styleInstructions(for: styleIndex)
 	}
 
 	private static func urlHint(for host: String) -> String {

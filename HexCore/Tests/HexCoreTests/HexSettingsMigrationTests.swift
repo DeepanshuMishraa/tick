@@ -79,7 +79,7 @@ final class HexSettingsMigrationTests: XCTestCase {
 		let payload = #"{"groqAPIKey":"legacy-secret","aiPostProcessingModel":"legacy-model","aiPostProcessingMode":"appAware","selectedStyleIndex":0}"#
 		let decoded = try JSONDecoder().decode(HexSettings.self, from: Data(payload.utf8))
 
-		XCTAssertEqual(decoded.aiPostProcessingMode, .appAware)
+		XCTAssertEqual(decoded.aiPostProcessingMode, .on)
 		XCTAssertEqual(decoded.selectedStyleIndex, 0)
 
 		let saved = try JSONEncoder().encode(decoded)

@@ -9,63 +9,59 @@ struct AIPostProcessingSectionView: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: TickSpacing.m) {
-			TickEyebrow(text: "Tick On-Device AI Post-Processing")
+			TickEyebrow(text: "Intelligence")
 				.padding(.leading, TickSpacing.xs)
 
 			VStack(alignment: .leading, spacing: TickSpacing.l) {
 				TickHero {
-					VStack(alignment: .leading, spacing: TickSpacing.m) {
-						HStack(alignment: .firstTextBaseline) {
-							Text("Clean and format transcriptions ")
-								.font(TickFont.display(28, weight: .regular))
-								.foregroundStyle(TickColor.textPrimary)
-							+ Text("on your Mac")
-								.font(TickFont.displayItalic(28))
-								.foregroundStyle(TickColor.brand)
-						}
-						Text("Fixes grammar, removes filler words, understands lists, and formats text for the app you're typing in. Nothing is sent to the cloud.")
-							.font(TickFont.body)
+					VStack(alignment: .leading, spacing: TickSpacing.s) {
+						Text("On-Device AI Post-Processing")
+							.font(TickFont.display(24, weight: .semibold))
 							.foregroundStyle(TickColor.textPrimary)
-							.opacity(0.7)
+
+						Text("Removes hesitation fillers, resolves speech corrections, and intelligently formats emails, chat messages, and structured notes. Runs 100% privately on your Mac.")
+							.font(TickFont.body)
+							.foregroundStyle(TickColor.textSecondary)
+							.fixedSize(horizontal: false, vertical: true)
 					}
 				}
 
 				VStack(spacing: 0) {
+					// Main On/Off Toggle Row
 					HStack(alignment: .center, spacing: TickSpacing.l) {
-						VStack(alignment: .leading, spacing: 4) {
-							Text("MODE")
-								.font(TickFont.eyebrow)
-								.tracking(0.8)
-								.foregroundStyle(TickColor.textTertiary)
-							Text("Off / On / App-Aware")
-								.font(TickFont.body)
+						VStack(alignment: .leading, spacing: 3) {
+							Text("AI Post-Processing")
+								.font(TickFont.headingFunc(15, weight: .semibold))
 								.foregroundStyle(TickColor.textPrimary)
-							Text("App-Aware adapts formatting to the active application and website.")
+							Text("Intelligently adapt formatting based on content and active app")
 								.font(TickFont.caption)
 								.foregroundStyle(TickColor.textSecondary)
 						}
 						Spacer()
-						CustomMenuPicker(
-							selection: Binding(
-								get: { store.hexSettings.aiPostProcessingMode },
-								set: { store.send(.setAIPostProcessingMode($0)) }
-							),
-							options: [
-								(.off, "Off", "nosign"),
-								(.on, "On", "sparkles"),
-								(.appAware, "App-Aware", "app.badge")
-							]
+						Toggle(
+							"",
+							isOn: Binding(
+								get: { store.hexSettings.aiPostProcessingMode == .on },
+								set: { store.send(.setAIPostProcessingMode($0 ? .on : .off)) }
+							)
 						)
+						.toggleStyle(.switch)
+						.labelsHidden()
 					}
-					.padding(.vertical, TickSpacing.s)
+					.padding(.vertical, TickSpacing.m)
 
-					if store.hexSettings.aiPostProcessingMode != .off {
-						Rectangle().fill(TickColor.line).frame(height: 1)
+					// Sub-card for local model management
+					if store.hexSettings.aiPostProcessingMode == .on {
+						Rectangle()
+							.fill(TickColor.line)
+							.frame(height: 1)
+							.padding(.vertical, TickSpacing.xs)
+
 						modelManagement
 					}
 				}
 				.padding(.horizontal, TickSpacing.l)
-				.padding(.vertical, TickSpacing.m)
+				.padding(.vertical, TickSpacing.s)
 				.hexGlass(cornerRadius: TickRadius.card)
 			}
 		}
@@ -75,21 +71,28 @@ struct AIPostProcessingSectionView: View {
 
 	@ViewBuilder
 	private var modelManagement: some View {
-		VStack(alignment: .leading, spacing: TickSpacing.s) {
-			HStack(alignment: .firstTextBaseline) {
-				VStack(alignment: .leading, spacing: 4) {
-					Text("LOCAL MODEL")
-						.font(TickFont.eyebrow)
-						.tracking(0.8)
-						.foregroundStyle(TickColor.textTertiary)
-					Text(OnDeviceAIModel.displayName)
-						.font(TickFont.body)
-						.foregroundStyle(TickColor.textPrimary)
-					Text("\(OnDeviceAIModel.approximateSize) download · runs fully offline")
-						.font(TickFont.caption)
-						.foregroundStyle(TickColor.textSecondary)
+		VStack(alignment: .leading, spacing: TickSpacing.m) {
+			HStack(alignment: .center) {
+				HStack(spacing: TickSpacing.s) {
+					ZStack {
+						Circle()
+							.fill(Color.primary.opacity(0.06))
+							.frame(width: 32, height: 32)
+						Image(systemName: "sparkles")
+							.font(.system(size: 14, weight: .medium))
+							.foregroundStyle(TickColor.textPrimary)
+					}
+					VStack(alignment: .leading, spacing: 2) {
+						Text(OnDeviceAIModel.displayName)
+							.font(TickFont.bodyFunc(14, weight: .medium))
+							.foregroundStyle(TickColor.textPrimary)
+						Text("\(OnDeviceAIModel.approximateSize) · Runs fully offline")
+							.font(TickFont.caption)
+							.foregroundStyle(TickColor.textTertiary)
+					}
 				}
 				Spacer()
+
 				if store.isDownloadingAIModel {
 					Button {
 						store.send(.cancelAIModelDownload)
@@ -98,17 +101,28 @@ struct AIPostProcessingSectionView: View {
 					}
 					.buttonStyle(.borderless)
 				} else if store.aiModelIsDownloaded {
-					Label("Ready", systemImage: "checkmark.circle.fill")
-					.foregroundStyle(TickColor.success)
+					HStack(spacing: 5) {
+						Image(systemName: "checkmark.circle.fill")
+							.foregroundStyle(TickColor.success)
+						Text("Ready")
+							.font(TickFont.captionFunc(12, weight: .medium))
+							.foregroundStyle(TickColor.success)
+					}
+					.padding(.horizontal, 8)
+					.padding(.vertical, 4)
+					.background(Color.green.opacity(0.12))
+					.clipShape(Capsule())
 				}
 			}
 
 			if store.isDownloadingAIModel {
-				ProgressView(value: store.aiModelDownloadProgress)
-					.tint(TickColor.brand)
-				Text("Downloading… \(store.aiModelDownloadProgress * 100, specifier: "%.1f")%")
-					.font(TickFont.caption)
-					.foregroundStyle(TickColor.textSecondary)
+				VStack(alignment: .leading, spacing: 4) {
+					ProgressView(value: store.aiModelDownloadProgress)
+						.tint(TickColor.brand)
+					Text("Downloading model… \(store.aiModelDownloadProgress * 100, specifier: "%.1f")%")
+						.font(TickFont.caption)
+						.foregroundStyle(TickColor.textSecondary)
+				}
 			} else if store.aiModelIsDownloaded {
 				HStack {
 					if let size = store.aiModelSize {
@@ -123,7 +137,7 @@ struct AIPostProcessingSectionView: View {
 				}
 			} else {
 				TickPrimaryButton(
-					title: store.aiModelError == nil ? "Download Qwen3 1.7B" : "Retry Download",
+					title: store.aiModelError == nil ? "Download \(OnDeviceAIModel.displayName)" : "Retry Download",
 					icon: "arrow.down.circle"
 				) {
 					store.send(.downloadAIModel)
@@ -136,10 +150,15 @@ struct AIPostProcessingSectionView: View {
 					.foregroundStyle(TickColor.error)
 			}
 
-			Text("Privacy: transcription text stays on this Mac. Tick never sends it to a cloud API.")
-				.font(TickFont.caption)
-				.foregroundStyle(TickColor.textTertiary)
-				.fixedSize(horizontal: false, vertical: true)
+			HStack(spacing: 6) {
+				Image(systemName: "lock.shield.fill")
+					.font(.system(size: 11))
+					.foregroundStyle(TickColor.textTertiary)
+				Text("Privacy: 100% on-device processing. No voice or text is ever sent to the cloud.")
+					.font(TickFont.caption)
+					.foregroundStyle(TickColor.textTertiary)
+			}
+			.padding(.top, 2)
 		}
 		.padding(.vertical, TickSpacing.s)
 	}
