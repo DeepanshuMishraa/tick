@@ -56,11 +56,11 @@ private func getNotchGeometry() -> NotchGeometry {
   }
 }
 
-// MARK: - Liquid Notch Shape (Droppy / Dynamic Lake style)
+// MARK: - Liquid Notch Shape (Filled body attached to top screen bezel)
 
 struct LiquidNotchShape: Shape {
-  var shoulderWidth: CGFloat = 14
-  var cornerRadius: CGFloat = 16
+  var shoulderWidth: CGFloat = 16
+  var cornerRadius: CGFloat = 18
 
   func path(in rect: CGRect) -> Path {
     var path = Path()
@@ -111,8 +111,68 @@ struct LiquidNotchShape: Shape {
       control2: CGPoint(x: w - sw * 0.45, y: 0)
     )
 
-    // Top edge back to start
+    // Close top along screen bezel
     path.closeSubpath()
+    return path
+  }
+}
+
+// MARK: - Liquid Notch Outline Shape (Exposed perimeter only, NO top bezel stroke)
+
+struct LiquidNotchOutlineShape: Shape {
+  var shoulderWidth: CGFloat = 16
+  var cornerRadius: CGFloat = 18
+
+  func path(in rect: CGRect) -> Path {
+    var path = Path()
+    let w = rect.width
+    let h = rect.height
+    guard w > 0, h > 0 else { return path }
+
+    let sw = min(shoulderWidth, w / 4, h)
+    let cr = min(cornerRadius, (w - 2 * sw) / 2, h)
+
+    // Start at top-left shoulder (0, 0)
+    path.move(to: CGPoint(x: 0, y: 0))
+
+    // Shoulder flare from (0,0) down to (sw, sw)
+    path.addCurve(
+      to: CGPoint(x: sw, y: sw),
+      control1: CGPoint(x: sw * 0.45, y: 0),
+      control2: CGPoint(x: sw, y: sw * 0.45)
+    )
+
+    // Left vertical edge down to (sw, h - cr)
+    path.addLine(to: CGPoint(x: sw, y: h - cr))
+
+    // Bottom-left rounded corner to (sw + cr, h)
+    path.addCurve(
+      to: CGPoint(x: sw + cr, y: h),
+      control1: CGPoint(x: sw, y: h - cr * 0.45),
+      control2: CGPoint(x: sw + cr * 0.45, y: h)
+    )
+
+    // Bottom horizontal edge to (w - sw - cr, h)
+    path.addLine(to: CGPoint(x: w - sw - cr, y: h))
+
+    // Bottom-right rounded corner to (w - sw, h - cr)
+    path.addCurve(
+      to: CGPoint(x: w - sw, y: h - cr),
+      control1: CGPoint(x: w - sw - cr * 0.45, y: h),
+      control2: CGPoint(x: w - sw, y: h - cr * 0.45)
+    )
+
+    // Right vertical edge up to (w - sw, sw)
+    path.addLine(to: CGPoint(x: w - sw, y: sw))
+
+    // Shoulder flare from (w - sw, sw) up to (w, 0)
+    path.addCurve(
+      to: CGPoint(x: w, y: 0),
+      control1: CGPoint(x: w - sw, y: sw * 0.45),
+      control2: CGPoint(x: w - sw * 0.45, y: 0)
+    )
+
+    // Open path: does NOT stroke the top bezel edge
     return path
   }
 }
@@ -162,39 +222,40 @@ struct TranscriptionIndicatorView: View {
 
     ZStack(alignment: .top) {
       let notchShape = LiquidNotchShape(shoulderWidth: 16, cornerRadius: 18)
+      let outlineShape = LiquidNotchOutlineShape(shoulderWidth: 16, cornerRadius: 18)
 
       if isActive {
-        // Downward-only blurred ambient shadow: masked so it NEVER casts above/into top corner flares
-        notchShape
-          .fill(Color.black.opacity(0.35))
-          .blur(radius: 12)
-          .offset(y: 6)
-          .mask(
-            Rectangle()
-              .padding(.top, 8)
-          )
-
-        // Solid/dark glass housing that blends seamlessly with the hardware notch
-        notchShape
-          .fill(Color.black.opacity(0.88))
-          .frame(width: totalWidth, height: targetHeight)
-          .hexGlass(in: notchShape, style: .regular)
-          .overlay(
+        // Pure Dark Liquid Glass body
+        ZStack {
+          if #available(macOS 26.0, *) {
             notchShape
-              .stroke(
-                LinearGradient(
-                  stops: [
-                    .init(color: Color.white.opacity(0.38), location: 0.0),
-                    .init(color: Color.white.opacity(0.12), location: 0.35),
-                    .init(color: Color.white.opacity(0.28), location: 0.75),
-                    .init(color: Color.white.opacity(0.45), location: 1.0)
-                  ],
-                  startPoint: .topLeading,
-                  endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.75
-              )
-          )
+              .fill(Color.black.opacity(0.65))
+              .glassEffect(.regular, in: notchShape)
+          } else {
+            notchShape
+              .fill(Color.black.opacity(0.75))
+              .background(notchShape.fill(.ultraThinMaterial))
+          }
+        }
+        .clipShape(notchShape)
+        .overlay(
+          outlineShape
+            .stroke(
+              LinearGradient(
+                stops: [
+                  .init(color: Color.white.opacity(0.24), location: 0.0),
+                  .init(color: Color.white.opacity(0.08), location: 0.35),
+                  .init(color: Color.white.opacity(0.18), location: 0.75),
+                  .init(color: Color.white.opacity(0.28), location: 1.0)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              ),
+              lineWidth: 0.5
+            )
+        )
+        .shadow(color: Color.black.opacity(0.30), radius: 10, x: 0, y: 5)
+        .frame(width: totalWidth, height: targetHeight)
       }
       
       if isActive {

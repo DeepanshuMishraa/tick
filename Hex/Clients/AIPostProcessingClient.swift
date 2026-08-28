@@ -547,10 +547,12 @@ private actor LocalAIModelManager {
 			additionalContext: ["enable_thinking": false]
 		)
 		let preparedInput = try await container.prepare(input: input)
-		// Scale output capacity with the input so long dictation is never silently
-		// cut off by the old fixed 128-token ceiling.
-		let estimatedOutputTokens = normalizedInput.utf8.count / 3 + 128
-		let maxOutputTokens = min(8192, max(256, estimatedOutputTokens))
+		// Keep the generation budget proportional to the dictation. A large
+		// fixed budget makes the local model spend time exploring completions
+		// that cannot fit a short voice command, while still allowing longer
+		// dictation to be formatted without truncation.
+		let estimatedOutputTokens = normalizedInput.utf8.count / 4 + 64
+		let maxOutputTokens = min(2048, max(128, estimatedOutputTokens))
 		let generation = try await container.generate(
 			input: preparedInput,
 			parameters: GenerateParameters(

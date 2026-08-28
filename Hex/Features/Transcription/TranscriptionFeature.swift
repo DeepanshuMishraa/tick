@@ -68,6 +68,7 @@ struct TranscriptionFeature {
     // Transcription result flow
     case transcriptionResult(String, URL)
     case transcriptionError(Error, URL?)
+    case pasteCompleted
     case beginCorrectionMonitoring(beforeText: String?, baseline: String?, insertedText: String)
     case correctionKeyEvent(KeyEvent)
     case evaluateKeystrokeCorrection
@@ -163,6 +164,13 @@ struct TranscriptionFeature {
 
       case let .transcriptionError(error, audioURL):
         return handleTranscriptionError(&state, error: error, audioURL: audioURL)
+
+      case .pasteCompleted:
+        // Keep the notch in its processing state until the target application
+        // has accepted the final text, including any optional AI formatting.
+        state.isTranscribing = false
+        state.isPrewarming = false
+        return .none
 
       case let .beginCorrectionMonitoring(beforeText, baseline, insertedText):
         // Keyboard reconstruction is only a fallback for editors that do not
@@ -520,7 +528,9 @@ private extension TranscriptionFeature {
     result: String,
     audioURL: URL
   ) -> Effect<Action> {
-    state.isTranscribing = false
+    // Raw transcription is only the first stage. Keep this true while AI
+    // post-processing and paste are running so the notch reflects the actual
+    // end-to-end operation.
     state.isPrewarming = false
 
     // Check for force quit command (emergency escape hatch)
@@ -536,6 +546,7 @@ private extension TranscriptionFeature {
 
     // If empty text, nothing else to do
     guard !result.isEmpty else {
+      state.isTranscribing = false
       return .none
     }
 
@@ -574,6 +585,7 @@ private extension TranscriptionFeature {
     }
 
     guard !modifiedResult.isEmpty else {
+      state.isTranscribing = false
       return .none
     }
 
@@ -620,17 +632,20 @@ private extension TranscriptionFeature {
 
       switch pasteResult {
       case let .pasted(beforeText, afterText) where shouldLearnDictionary:
+        await send(.pasteCompleted)
         await send(.beginCorrectionMonitoring(
           beforeText: beforeText,
           baseline: afterText,
           insertedText: resultToUse
         ))
       case .noFocusedInput:
+        await send(.pasteCompleted)
         await send(.pasteUnavailable(resultToUse, reason: .noFocusedInput))
       case .failed:
+        await send(.pasteCompleted)
         await send(.pasteUnavailable(resultToUse, reason: .insertionRejected))
       case .pasted:
-        break
+        await send(.pasteCompleted)
       }
     }
     .cancellable(id: CancelID.transcription)
