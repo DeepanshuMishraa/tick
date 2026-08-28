@@ -73,23 +73,13 @@ struct AIPostProcessingSectionView: View {
 	private var modelManagement: some View {
 		VStack(alignment: .leading, spacing: TickSpacing.m) {
 			HStack(alignment: .center) {
-				HStack(spacing: TickSpacing.s) {
-					ZStack {
-						Circle()
-							.fill(Color.primary.opacity(0.06))
-							.frame(width: 32, height: 32)
-						Image(systemName: "sparkles")
-							.font(.system(size: 14, weight: .medium))
-							.foregroundStyle(TickColor.textPrimary)
-					}
-					VStack(alignment: .leading, spacing: 2) {
-						Text(OnDeviceAIModel.displayName)
-							.font(TickFont.bodyFunc(14, weight: .medium))
-							.foregroundStyle(TickColor.textPrimary)
-						Text("\(OnDeviceAIModel.approximateSize) · Runs fully offline")
-							.font(TickFont.caption)
-							.foregroundStyle(TickColor.textTertiary)
-					}
+				VStack(alignment: .leading, spacing: 2) {
+					Text(OnDeviceAIModel.displayName)
+						.font(TickFont.bodyFunc(14, weight: .semibold))
+						.foregroundStyle(TickColor.textPrimary)
+					Text("\(OnDeviceAIModel.approximateSize) · Runs fully offline")
+						.font(TickFont.caption)
+						.foregroundStyle(TickColor.textTertiary)
 				}
 				Spacer()
 

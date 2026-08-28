@@ -206,14 +206,31 @@ private struct ModifierSideChip: View {
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(TickFont.labelFunc(12, weight: .medium))
-                .foregroundStyle(isSelected ? TickColor.brand : TickColor.textPrimary)
-                .padding(.horizontal, TickSpacing.m)
-                .padding(.vertical, TickSpacing.xs)
-                .hexGlass(cornerRadius: 8, interactive: true)
+            HStack(spacing: 5) {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(TickColor.textPrimary)
+                }
+                Text(title)
+                    .font(TickFont.labelFunc(12, weight: isSelected ? .semibold : .medium))
+                    .foregroundStyle(TickColor.textPrimary)
+            }
+            .padding(.horizontal, TickSpacing.m)
+            .padding(.vertical, TickSpacing.xs + 3)
+            .hexGlass(
+                cornerRadius: 8,
+                tint: isSelected ? Color.primary.opacity(0.12) : nil,
+                interactive: true,
+                style: isSelected ? .prominent : .regular
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.primary.opacity(0.35) : Color.clear, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .animation(.spring(response: 0.22, dampingFraction: 0.8), value: isSelected)
     }
 }

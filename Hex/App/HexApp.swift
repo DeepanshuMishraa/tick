@@ -126,69 +126,52 @@ struct MenuBarRecordingIcon: View {
     @State private var isRecording = false
     @State private var phase: Double = 0
 
-    // Poll the store every 200ms — cheap enough for a menu bar icon.
-    let timer = Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
+    // Poll the store every 150ms during recording for fluid animation
+    let timer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(alignment: .center, spacing: 2.5) {
-            glassBar(height: isRecording ? recordingBarHeight(for: 0) : 9, opacity: 0.80)
-            glassBar(height: isRecording ? recordingBarHeight(for: 1) : 15, opacity: 1.0)
-            glassBar(height: isRecording ? recordingBarHeight(for: 2) : 11, opacity: 0.85)
-        }
-        .frame(width: 18, height: 18)
-        .onReceive(timer) { _ in
-            let recordingNow = HexApp.appStore.state.transcription.isRecording
-            if recordingNow != isRecording {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
-                    isRecording = recordingNow
+        Image(nsImage: .tickMenuBarIcon(isRecording: isRecording, phase: phase))
+            .onReceive(timer) { _ in
+                let recordingNow = HexApp.appStore.state.transcription.isRecording
+                isRecording = recordingNow
+                if isRecording {
+                    phase = (phase + 0.35).truncatingRemainder(dividingBy: .pi * 2)
                 }
             }
-        }
-        .onAppear {
-            withAnimation(.linear(duration: 0.6).repeatForever(autoreverses: false)) {
-                phase = .pi * 2
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func glassBar(height: CGFloat, opacity: Double) -> some View {
-        Capsule(style: .continuous)
-            .fill(
-                LinearGradient(
-                    stops: [
-                        .init(color: Color.primary.opacity(opacity), location: 0.0),
-                        .init(color: Color.primary.opacity(opacity * 0.45), location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .frame(width: 2.75, height: height)
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            stops: [
-                                .init(color: Color.white.opacity(0.40), location: 0.0),
-                                .init(color: Color.clear, location: 0.75)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 0.5
-                    )
-            )
-    }
-
-    private func recordingBarHeight(for index: Int) -> CGFloat {
-        let offset = Double(index) * 0.7
-        let val = sin(phase + offset) * 0.5 + 0.5
-        return 4 + CGFloat(val) * 11
     }
 }
 
 extension NSImage {
+    static func tickMenuBarIcon(isRecording: Bool = false, phase: Double = 0) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+
+            let bars: [(x: CGFloat, h: CGFloat)]
+            if isRecording {
+                let h0 = 4.0 + CGFloat(sin(phase) * 0.5 + 0.5) * 10.0
+                let h1 = 4.0 + CGFloat(sin(phase + 0.7) * 0.5 + 0.5) * 10.0
+                let h2 = 4.0 + CGFloat(sin(phase + 1.4) * 0.5 + 0.5) * 10.0
+                bars = [(2.5, h0), (7.5, h1), (12.5, h2)]
+            } else {
+                bars = [(2.5, 8.5), (7.5, 15.0), (12.5, 11.0)]
+            }
+
+            for bar in bars {
+                let y = (18.0 - bar.h) / 2.0
+                let barRect = CGRect(x: bar.x, y: y, width: 3.0, height: bar.h)
+                let path = CGPath(roundedRect: barRect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
+                context.addPath(path)
+            }
+
+            NSColor.black.setFill()
+            context.fillPath()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
     fileprivate func resized(to target: NSSize) -> NSImage {
         let img = NSImage(size: target)
         img.lockFocus()

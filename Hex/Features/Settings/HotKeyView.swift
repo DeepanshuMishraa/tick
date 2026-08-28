@@ -16,7 +16,12 @@ struct HotKeyView: View {
           .transition(.blurReplace)
       } else {
         ForEach(modifiers.sorted) { modifier in
-          KeyView(text: modifier.stringValue)
+          let sideLabel: String? = switch modifier.side {
+          case .left: "Left"
+          case .right: "Right"
+          case .either: nil
+          }
+          KeyView(text: modifier.stringValue, sideLabel: sideLabel)
             .transition(.blurReplace)
         }
       }
@@ -52,13 +57,23 @@ struct HotKeyView: View {
 struct KeyView: View {
   @ObserveInjection var inject
   var text: String
+  var sideLabel: String? = nil
 
   var body: some View {
-    Text(text)
-      .font(TickFont.headingFunc(17, weight: .bold))
-      .foregroundStyle(TickColor.textPrimary)
-      .frame(width: 44, height: 44)
-      .hexGlass(cornerRadius: 8, interactive: true, style: .regular)
-      .enableInjection()
+    VStack(spacing: 2) {
+      Text(text)
+        .font(TickFont.headingFunc(17, weight: .bold))
+        .foregroundStyle(TickColor.textPrimary)
+      if let sideLabel {
+        Text(sideLabel.uppercased())
+          .font(TickFont.captionFunc(8, weight: .bold))
+          .foregroundStyle(TickColor.textTertiary)
+          .tracking(0.5)
+      }
+    }
+    .frame(minWidth: 44, minHeight: 44)
+    .padding(.horizontal, sideLabel != nil ? 8 : 0)
+    .hexGlass(cornerRadius: 8, interactive: true, style: .regular)
+    .enableInjection()
   }
 }
