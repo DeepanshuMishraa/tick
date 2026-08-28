@@ -784,8 +784,8 @@ private struct HexGlassModifier<S: Shape>: ViewModifier {
                     shape.stroke(
                         LinearGradient(
                             stops: [
-                                .init(color: Color.white.opacity(0.25), location: 0.0),
-                                .init(color: Color.white.opacity(0.06), location: 0.4),
+                                .init(color: colorScheme == .dark ? Color.white.opacity(0.30) : Color.white.opacity(0.60), location: 0.0),
+                                .init(color: colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.20), location: 0.4),
                                 .init(color: Color.clear, location: 1.0)
                             ],
                             startPoint: .topLeading,
@@ -793,6 +793,12 @@ private struct HexGlassModifier<S: Shape>: ViewModifier {
                         ),
                         lineWidth: 0.75
                     )
+                )
+                .shadow(
+                    color: Color.black.opacity(colorScheme == .dark ? 0.15 : 0.04),
+                    radius: interactive ? 4 : 2,
+                    x: 0,
+                    y: 1
                 )
         }
     }
