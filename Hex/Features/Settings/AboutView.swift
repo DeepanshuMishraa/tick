@@ -85,14 +85,7 @@ struct AboutView: View {
                 }
                 .padding(.horizontal, TickSpacing.l)
                 .padding(.vertical, TickSpacing.m)
-                .background(
-                    RoundedRectangle(cornerRadius: TickRadius.card)
-                        .fill(TickColor.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: TickRadius.card)
-                                .stroke(TickColor.cardBorder, lineWidth: 1)
-                        )
-                )
+                .hexGlass(cornerRadius: TickRadius.card)
             }
 
             Spacer()

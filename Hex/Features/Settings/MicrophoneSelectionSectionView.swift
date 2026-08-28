@@ -48,21 +48,11 @@ struct MicrophoneSelectionSectionView: View {
 							.foregroundStyle(TickColor.warning)
 					}
 					.padding(TickSpacing.m)
-					.background(
-						RoundedRectangle(cornerRadius: 8)
-							.fill(TickColor.warning.opacity(0.08))
-					)
+					.hexGlass(cornerRadius: 8, tint: TickColor.warning.opacity(0.08))
 				}
 			}
 			.padding(TickSpacing.l)
-			.background(
-				RoundedRectangle(cornerRadius: TickRadius.card)
-					.fill(TickColor.surface)
-					.overlay(
-						RoundedRectangle(cornerRadius: TickRadius.card)
-							.stroke(TickColor.cardBorder, lineWidth: 1)
-					)
-			)
+			.hexGlass(cornerRadius: TickRadius.card)
 		}
 		.enableInjection()
 	}

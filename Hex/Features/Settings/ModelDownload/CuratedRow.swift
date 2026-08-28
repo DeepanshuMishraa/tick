@@ -24,12 +24,12 @@ struct CuratedRow: View {
 				// Selection dot
 				ZStack {
 					Circle()
-						.stroke(isSelected ? TickColor.brand : TickColor.lineStrong, lineWidth: 1.5)
-						.frame(width: 18, height: 18)
+						.stroke(isSelected ? Color.primary.opacity(0.8) : Color.primary.opacity(0.2), lineWidth: 1.5)
+						.frame(width: 16, height: 16)
 					if isSelected {
 						Circle()
-							.fill(TickColor.brand)
-							.frame(width: 10, height: 10)
+							.fill(Color.primary)
+							.frame(width: 8, height: 8)
 					}
 				}
 
@@ -41,13 +41,10 @@ struct CuratedRow: View {
 						if let badge = model.badge {
 							Text(badge.uppercased())
 								.font(TickFont.headingFunc(9, weight: .bold))
-								.foregroundStyle(.white)
-								.padding(.horizontal, 5)
-								.padding(.vertical, 1)
-								.background(
-									RoundedRectangle(cornerRadius: 3)
-										.fill(TickColor.brand)
-								)
+								.foregroundStyle(TickColor.textSecondary)
+								.padding(.horizontal, 6)
+								.padding(.vertical, 2)
+								.hexGlass(cornerRadius: 4, style: .regular)
 						}
 					}
 					HStack(spacing: TickSpacing.m) {
@@ -78,7 +75,7 @@ struct CuratedRow: View {
 							ProgressView(value: store.downloadProgress)
 								.progressViewStyle(.circular)
 								.controlSize(.small)
-								.tint(TickColor.brand)
+								.tint(Color.primary)
 								.frame(width: 24, height: 24)
 						} else if model.isDownloaded {
 							Image(systemName: "checkmark.circle.fill")
@@ -91,7 +88,7 @@ struct CuratedRow: View {
 							} label: {
 								Image(systemName: "arrow.down.circle")
 									.font(TickFont.labelFunc(18, weight: .medium))
-									.foregroundStyle(TickColor.brand)
+									.foregroundStyle(TickColor.textSecondary)
 							}
 							.buttonStyle(.plain)
 							.frame(width: 24, height: 24)
@@ -100,14 +97,7 @@ struct CuratedRow: View {
 				}
 			}
 			.padding(TickSpacing.m)
-			.background(
-				RoundedRectangle(cornerRadius: 12)
-					.fill(isSelected ? TickColor.brandSoft : TickColor.surface)
-					.overlay(
-						RoundedRectangle(cornerRadius: 12)
-							.stroke(isSelected ? TickColor.brand : TickColor.cardBorder, lineWidth: 1)
-					)
-			)
+			.hexGlass(cornerRadius: 12, tint: isSelected ? Color.primary.opacity(0.04) : nil, interactive: true, style: .regular)
 			.contentShape(.rect)
 		}
 		.buttonStyle(.plain)
@@ -119,7 +109,6 @@ struct CuratedRow: View {
 				Button("Show in Finder") { store.send(.openModelLocation) }
 			}
 			if model.isDownloaded {
-				Divider()
 				Button("Delete", role: .destructive) {
 					store.send(.selectModel(model.internalName))
 					store.send(.deleteSelectedModel)

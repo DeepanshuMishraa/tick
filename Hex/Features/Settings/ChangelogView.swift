@@ -20,10 +20,7 @@ struct ChangelogView: View {
                             .font(TickFont.labelFunc(13, weight: .semibold))
                             .foregroundStyle(TickColor.textSecondary)
                             .frame(width: 30, height: 30)
-                            .background(
-                                Circle()
-                                    .fill(TickColor.canvas)
-                            )
+                            .hexGlass(in: Circle(), interactive: true)
                     }
                     .buttonStyle(.plain)
                 }
@@ -66,14 +63,13 @@ struct ChangelogView: View {
                             .foregroundStyle(TickColor.error)
                     }
                     .padding(TickSpacing.l)
-                    .background(TickColor.error.opacity(0.08))
-                    .cornerRadius(TickRadius.card)
+                    .hexGlass(cornerRadius: TickRadius.card, tint: TickColor.error.opacity(0.08))
                 }
             }
             .padding(TickSpacing.xl)
         }
         .frame(minWidth: 500, idealWidth: 600, minHeight: 420)
-        .background(TickColor.canvas)
+        .background(Color.clear)
         .enableInjection()
     }
 }

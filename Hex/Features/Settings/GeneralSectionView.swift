@@ -57,14 +57,7 @@ struct GeneralSectionView: View {
 			}
 			.padding(.horizontal, TickSpacing.l)
 			.padding(.vertical, TickSpacing.m)
-			.background(
-				RoundedRectangle(cornerRadius: TickRadius.card)
-					.fill(TickColor.surface)
-					.overlay(
-						RoundedRectangle(cornerRadius: TickRadius.card)
-							.stroke(TickColor.cardBorder, lineWidth: 1)
-					)
-			)
+			.hexGlass(cornerRadius: TickRadius.card)
 		}
 		.enableInjection()
 	}
@@ -166,14 +159,7 @@ struct CustomMenuPicker<Option: Hashable>: View {
 			.foregroundStyle(TickColor.textPrimary)
 			.padding(.horizontal, TickSpacing.m)
 			.padding(.vertical, TickSpacing.s)
-			.background(
-				RoundedRectangle(cornerRadius: 10)
-					.fill(TickColor.canvas)
-					.overlay(
-						RoundedRectangle(cornerRadius: 10)
-							.stroke(isHovered ? TickColor.brand.opacity(0.4) : TickColor.line, lineWidth: 1)
-					)
-			)
+			.hexGlass(cornerRadius: 10, interactive: true)
 		}
 		.menuStyle(.borderlessButton)
 		.fixedSize()

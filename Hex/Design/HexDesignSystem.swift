@@ -2,46 +2,51 @@ import SwiftUI
 
 // MARK: - Design System: "Tick"
 //
-// Editorial, handcrafted macOS voice app.
-// - Light, warm, single theme (no dark mode churn)
-// - Custom controls that don't look like stock macOS
-// - Editorial serif headlines, geometric sans body
-// - Cream hero cards, off-white canvas, light grey stat surfaces
+// Native macOS visual language for a focused voice utility.
+// The bundled Spline Sans Mono type system stays intentionally intact; the
+// surfaces around it are adaptive materials rather than fixed color blocks.
 
 // MARK: - Color Tokens
 
 enum TickColor {
-    // Brand
-    static let brand = Color(red: 0.486, green: 0.227, blue: 0.929) // #7c3aed violet
-    static let brandSoft = Color(red: 0.929, green: 0.902, blue: 0.996) // #ede6fe
-    static let brandMid = Color(red: 0.706, green: 0.557, blue: 0.969) // #b48ef7
+    // Neutral Apple Monochrome / Liquid Glass Brand
+    static let brand = Color.primary
+    static let brandSoft = Color.primary.opacity(0.08)
+    static let brandMid = Color.primary.opacity(0.60)
+    static let brandGlow = Color.white.opacity(0.20)
 
-    // Canvas
-    static let canvas = Color(red: 0.969, green: 0.957, blue: 0.925) // #f7f4ec off-white
-    static let hero = Color(red: 0.992, green: 0.972, blue: 0.886) // #fdf8e2 cream hero
-    static let stat = Color(red: 0.953, green: 0.953, blue: 0.957) // #f3f3f5 light grey
-    static let surface = Color.white
-    static let row = Color(red: 0.984, green: 0.980, blue: 0.969) // #fbfaf7 row
+    // Semantic materials with layered optical depth and text contrast protection
+    static let canvas = Color.primary.opacity(0.015)
+    static let hero = Color.clear
+    static let stat = Color.clear
+    static let surface = Color.clear
+    static let row = Color.clear
 
-    // Text
-    static let textPrimary = Color(red: 0.039, green: 0.039, blue: 0.047) // #0a0a0c
-    static let textSecondary = Color(red: 0.361, green: 0.361, blue: 0.388) // #5c5c63
-    static let textTertiary = Color(red: 0.580, green: 0.576, blue: 0.608) // #94939b
+    // Text (crisp, high-contrast, razor-sharp on liquid glass)
+    static let textPrimary = Color.primary
+    static let textSecondary = Color.secondary
+    static let textTertiary = Color.primary.opacity(0.55)
     static let textOnDark = Color.white
-    static let textOnBrand = Color.white
+    static let textOnBrand = Color.primary
 
-    // Borders / lines
-    static let line = Color(red: 0.0, green: 0.0, blue: 0.0).opacity(0.08)
-    static let lineStrong = Color(red: 0.0, green: 0.0, blue: 0.0).opacity(0.14)
-    static let chipBorder = Color(red: 0.0, green: 0.0, blue: 0.0).opacity(0.06)
-    static let cardBorder = Color(red: 0.0, green: 0.0, blue: 0.0).opacity(0.04)
+    // Borders / Specular lines
+    static let line = Color.primary.opacity(0.08)
+    static let lineStrong = Color.primary.opacity(0.18)
+    static let chipBorder = Color.primary.opacity(0.10)
+    static let cardBorder = Color.primary.opacity(0.12)
 
     // Recording states (semantic)
-    static let recording = Color(red: 0.910, green: 0.310, blue: 0.310)
+    static let recording = Color(red: 0.930, green: 0.280, blue: 0.280)
     static let transcribing = Color(red: 0.180, green: 0.620, blue: 0.620)
-    static let success = Color(red: 0.122, green: 0.557, blue: 0.275)
-    static let warning = Color(red: 0.918, green: 0.580, blue: 0.149)
-    static let error = Color(red: 0.831, green: 0.235, blue: 0.235)
+    static let success = Color(red: 0.140, green: 0.680, blue: 0.360)
+    static let warning = Color(red: 0.940, green: 0.600, blue: 0.160)
+    static let error = Color(red: 0.880, green: 0.240, blue: 0.240)
+}
+
+enum HexGlassStyle {
+    case clear
+    case regular
+    case prominent
 }
 
 // MARK: - Typography
@@ -211,17 +216,14 @@ enum TickRadius {
 
 // MARK: - Hero / Card Surfaces
 
-/// A cream hero card — the "Make Flow sound like you" surface
+/// A hero card — elevated Liquid Glass surface with specular rim
 struct TickHero<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
         content
             .padding(TickSpacing.xl)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: TickRadius.hero)
-                    .fill(TickColor.hero)
-            )
+            .hexGlass(cornerRadius: TickRadius.hero, style: .regular)
     }
 }
 
@@ -243,21 +245,18 @@ struct TickSection<Content: View>: View {
     }
 }
 
-/// A stat card — light grey rounded surface
+/// A stat card — light rounded liquid glass surface
 struct TickStat<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
         content
             .padding(TickSpacing.l)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: TickRadius.card)
-                    .fill(TickColor.stat)
-            )
+            .hexGlass(cornerRadius: TickRadius.card, style: .regular)
     }
 }
 
-/// A bordered white card (e.g. for entry rows, model list)
+/// A bordered card (e.g. for entry rows, model list)
 struct TickCard<Content: View>: View {
     @ViewBuilder let content: Content
     var isSelected: Bool = false
@@ -265,14 +264,7 @@ struct TickCard<Content: View>: View {
         content
             .padding(TickSpacing.l)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: TickRadius.card)
-                    .fill(TickColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: TickRadius.card)
-                            .stroke(isSelected ? TickColor.brand : TickColor.cardBorder, lineWidth: isSelected ? 1.5 : 1)
-                    )
-            )
+            .hexGlass(cornerRadius: TickRadius.card, tint: isSelected ? TickColor.brandSoft : nil, interactive: true, style: .regular)
     }
 }
 
@@ -287,14 +279,7 @@ struct TickChip<Content: View>: View {
             .font(TickFont.labelFunc(12))
             .padding(.horizontal, TickSpacing.s)
             .padding(.vertical, TickSpacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: TickRadius.chip)
-                    .fill(TickColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: TickRadius.chip)
-                            .stroke(isSelected ? TickColor.brand : TickColor.chipBorder, lineWidth: 1)
-                    )
-            )
+            .hexGlass(cornerRadius: TickRadius.chip, tint: isSelected ? TickColor.brandSoft : nil, interactive: true, style: .regular)
             .foregroundStyle(isSelected ? TickColor.brand : TickColor.textPrimary)
     }
 }
@@ -311,65 +296,97 @@ struct TickEyebrow: View {
     }
 }
 
-// MARK: - Primary Button (black filled, white text)
+// MARK: - Primary Button (Luminous brand liquid glass)
 
 struct TickPrimaryButton: View {
     let title: String
     var icon: String? = nil
     let action: () -> Void
     @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: TickSpacing.s) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(TickFont.labelFunc(12))
+                        .font(TickFont.labelFunc(12, weight: .semibold))
                 }
                 Text(title)
-                    .font(TickFont.labelFunc(13, weight: .medium))
+                    .font(TickFont.labelFunc(13, weight: .semibold))
             }
             .padding(.horizontal, TickSpacing.l)
             .padding(.vertical, TickSpacing.s + 2)
-            .background(
+            .foregroundStyle(TickColor.textPrimary)
+            .hexGlass(cornerRadius: 10, interactive: true, style: .prominent)
+            .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(TickColor.textPrimary)
+                    .stroke(
+                        LinearGradient(
+                            stops: [
+                                .init(color: colorScheme == .dark ? Color.white.opacity(isHovered ? 0.65 : 0.40) : Color.white.opacity(isHovered ? 0.85 : 0.60), location: 0.0),
+                                .init(color: colorScheme == .dark ? Color.white.opacity(isHovered ? 0.25 : 0.12) : Color.white.opacity(isHovered ? 0.40 : 0.20), location: 0.5),
+                                .init(color: colorScheme == .dark ? Color.white.opacity(isHovered ? 0.45 : 0.22) : Color.white.opacity(isHovered ? 0.60 : 0.35), location: 1.0)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.75
+                    )
             )
-            .foregroundStyle(TickColor.textOnDark)
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? (isHovered ? 0.25 : 0.10) : (isHovered ? 0.12 : 0.04)), radius: isHovered ? 6 : 2, x: 0, y: isHovered ? 3 : 1)
         }
         .buttonStyle(.plain)
         .scaleEffect(isHovered ? 1.02 : 1.0)
-        .animation(.easeOut(duration: 0.15), value: isHovered)
+        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
         .onHover { isHovered = $0 }
     }
 }
 
-// MARK: - Secondary Button (subtle dark)
+// MARK: - Secondary Button (Refined crystal liquid glass)
 
 struct TickSecondaryButton: View {
     let title: String
     var icon: String? = nil
     let action: () -> Void
+    @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: TickSpacing.s) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(TickFont.labelFunc(12))
+                        .font(TickFont.labelFunc(12, weight: .medium))
                 }
                 Text(title)
                     .font(TickFont.labelFunc(13, weight: .medium))
             }
             .padding(.horizontal, TickSpacing.l)
             .padding(.vertical, TickSpacing.s + 2)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(TickColor.textPrimary.opacity(0.15), lineWidth: 1)
-            )
             .foregroundStyle(TickColor.textPrimary)
+            .hexGlass(cornerRadius: 10, interactive: true, style: .regular)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(
+                        LinearGradient(
+                            stops: [
+                                .init(color: colorScheme == .dark ? Color.white.opacity(isHovered ? 0.50 : 0.25) : Color.white.opacity(isHovered ? 0.75 : 0.45), location: 0.0),
+                                .init(color: colorScheme == .dark ? Color.white.opacity(isHovered ? 0.15 : 0.06) : Color.white.opacity(isHovered ? 0.25 : 0.12), location: 0.5),
+                                .init(color: colorScheme == .dark ? Color.white.opacity(isHovered ? 0.30 : 0.14) : Color.white.opacity(isHovered ? 0.45 : 0.22), location: 1.0)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.75
+                    )
+            )
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? (isHovered ? 0.20 : 0.08) : (isHovered ? 0.10 : 0.03)), radius: isHovered ? 5 : 2, x: 0, y: isHovered ? 2 : 1)
         }
         .buttonStyle(.plain)
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -382,16 +399,13 @@ struct TickToggle: View {
     var body: some View {
         ZStack {
             Capsule()
-                .fill(isOn ? TickColor.brand : Color(red: 0.886, green: 0.886, blue: 0.898))
+                .fill(.clear)
                 .frame(width: 38, height: 22)
-                .overlay(
-                    Capsule()
-                        .stroke(isOn ? Color.clear : Color.black.opacity(0.08), lineWidth: 1)
-                )
+                .hexGlass(in: Capsule(), tint: isOn ? TickColor.brand.opacity(0.35) : nil, interactive: true, style: .regular)
             Circle()
                 .fill(Color.white)
-                .frame(width: 18, height: 18)
-                .shadow(color: Color.black.opacity(0.18), radius: 2, x: 0, y: 1)
+                .frame(width: 17, height: 17)
+                .shadow(color: Color.black.opacity(0.22), radius: 2.5, x: 0, y: 1.5)
                 .offset(x: isOn ? 8 : -8)
         }
         .contentShape(Rectangle())
@@ -422,18 +436,19 @@ struct TickSlider: View {
             ZStack(alignment: .leading) {
                 // Track background
                 Capsule()
-                    .fill(Color(red: 0.886, green: 0.886, blue: 0.898))
-                    .frame(height: 4)
+                    .fill(Color.primary.opacity(0.10))
+                    .frame(height: 5)
                 // Active track
                 Capsule()
                     .fill(TickColor.brand)
-                    .frame(width: thumbX, height: 4)
+                    .frame(width: max(5, thumbX), height: 5)
                 // Thumb
                 Circle()
-                    .fill(TickColor.brand)
+                    .fill(Color.white)
+                    .overlay(Circle().fill(TickColor.brand.opacity(0.1)))
                     .frame(width: 16, height: 16)
-                    .shadow(color: TickColor.brand.opacity(0.35), radius: 4, x: 0, y: 2)
-                    .offset(x: thumbX - 8)
+                    .shadow(color: TickColor.brand.opacity(0.45), radius: 4, x: 0, y: 1.5)
+                    .offset(x: max(0, min(width - 16, thumbX - 8)))
             }
             .frame(height: 20)
             .contentShape(Rectangle().inset(by: -8))
@@ -498,7 +513,7 @@ struct TickSidebarItem: View {
             HStack(spacing: TickSpacing.s) {
                 Image(systemName: icon)
                     .font(TickFont.labelFunc(14, weight: isActive ? Font.Weight.semibold : Font.Weight.regular))
-                    .foregroundStyle(isActive ? TickColor.textPrimary : TickColor.textSecondary)
+                    .foregroundStyle(isActive ? TickColor.brand : TickColor.textSecondary)
                     .frame(width: 18)
                 Text(title)
                     .font(TickFont.labelFunc(14, weight: isActive ? .medium : .regular))
@@ -510,17 +525,16 @@ struct TickSidebarItem: View {
                         .foregroundStyle(TickColor.textOnBrand)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(TickColor.brand)
-                        )
+                        .hexGlass(cornerRadius: 4, tint: TickColor.brand, interactive: true, style: .prominent)
                 }
             }
             .padding(.horizontal, TickSpacing.m)
             .padding(.vertical, TickSpacing.s)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isActive ? TickColor.textPrimary.opacity(0.05) : (isHovered ? TickColor.textPrimary.opacity(0.025) : Color.clear))
+            .hexGlass(
+                cornerRadius: 8,
+                tint: isActive ? TickColor.brandSoft : nil,
+                interactive: true,
+                style: isActive ? .regular : .clear
             )
         }
         .buttonStyle(.plain)
@@ -542,10 +556,7 @@ struct TickIconButton: View {
                 .font(TickFont.labelFunc(13, weight: .medium))
                 .foregroundStyle(color)
                 .frame(width: 30, height: 30)
-                .background(
-                    Circle()
-                        .fill(isHovered ? TickColor.textPrimary.opacity(0.05) : Color.clear)
-                )
+                .hexGlass(in: Circle(), interactive: true, style: .regular)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -589,6 +600,7 @@ struct TickBrand: View {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(TickColor.brand)
                     .frame(width: 26, height: 26)
+                    .shadow(color: TickColor.brandGlow, radius: 4, x: 0, y: 1.5)
                 // Custom waveform glyph (3 vertical bars)
                 HStack(spacing: 2) {
                     Capsule().fill(Color.white).frame(width: 2.5, height: 6)
@@ -605,10 +617,7 @@ struct TickBrand: View {
                     .foregroundStyle(TickColor.textOnBrand)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(TickColor.brand)
-                    )
+                    .hexGlass(cornerRadius: 4, tint: TickColor.brand, interactive: true, style: .prominent)
             }
         }
     }
@@ -659,24 +668,29 @@ typealias HexSection = TickSection
 typealias HexRow = TickCard
 
 extension View {
+    /// Adaptive app chrome: true Liquid Glass on macOS 26+, system vibrancy
+    /// below it, and an opaque high-contrast fallback when transparency is off.
+    @ViewBuilder
+    func hexGlass(cornerRadius: CGFloat = TickRadius.card, tint: Color? = nil, interactive: Bool = false, style: HexGlassStyle = .clear) -> some View {
+        hexGlass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), tint: tint, interactive: interactive, style: style)
+    }
+
+    @ViewBuilder
+    func hexGlass<S: Shape>(in shape: S, tint: Color? = nil, interactive: Bool = false, style: HexGlassStyle = .clear) -> some View {
+        modifier(HexGlassModifier(shape: shape, tint: tint, interactive: interactive, style: style))
+    }
+
     func hexCard() -> some View {
         self
             .padding(TickSpacing.l)
-            .background(
-                RoundedRectangle(cornerRadius: TickRadius.card)
-                    .fill(TickColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: TickRadius.card)
-                            .stroke(TickColor.cardBorder, lineWidth: 1)
-                    )
-            )
+            .hexGlass(cornerRadius: TickRadius.card, style: .regular)
     }
 
     func hexRow(isFirst: Bool = false, isLast: Bool = false) -> some View {
         self
             .padding(.horizontal, TickSpacing.l)
             .padding(.vertical, TickSpacing.m)
-            .background(TickColor.surface)
+            .background(Color.clear)
             .overlay(alignment: .bottom) {
                 if !isLast {
                     Rectangle()
@@ -691,8 +705,8 @@ extension View {
 // MARK: - AppTheme (used by the home / dictionary / snippets views)
 
 enum AppTheme {
-    static let sidebarBackground = TickColor.canvas
-    static let detailBackground = TickColor.canvas
+    static let sidebarBackground = Color.primary.opacity(0.015)
+    static let detailBackground = Color.clear
     static let bannerBackground = TickColor.hero
     static let cardBackground = TickColor.surface
     static let statBackground = TickColor.stat
@@ -701,6 +715,87 @@ enum AppTheme {
     static let tertiaryText = TickColor.textTertiary
     static let brandColor = TickColor.brand
     static let border = TickColor.line
+}
+
+private struct HexGlassModifier<S: Shape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+    let interactive: Bool
+    let style: HexGlassStyle
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        if reduceTransparency || contrast == .increased {
+            content
+                .clipShape(shape)
+                .background(shape.fill(Color(nsColor: .controlBackgroundColor)))
+                .overlay(shape.stroke(Color.primary.opacity(0.15), lineWidth: 1))
+        } else if #available(macOS 26.0, *) {
+            let glass: Glass = switch style {
+            case .clear: .clear
+            case .regular: .regular
+            case .prominent: .regular
+            }
+
+            // Glossy optical substrate: delicate light gradient giving glossy liquid sheen
+            let substrateGradient = LinearGradient(
+                stops: [
+                    .init(color: colorScheme == .dark ? Color.white.opacity(style == .prominent ? 0.12 : (style == .regular ? 0.06 : 0.025)) : Color.white.opacity(style == .prominent ? 0.50 : (style == .regular ? 0.30 : 0.15)), location: 0.0),
+                    .init(color: colorScheme == .dark ? Color.white.opacity(style == .prominent ? 0.04 : (style == .regular ? 0.015 : 0.005)) : Color.white.opacity(style == .prominent ? 0.20 : (style == .regular ? 0.10 : 0.03)), location: 0.45),
+                    .init(color: colorScheme == .dark ? Color.black.opacity(style == .prominent ? 0.10 : (style == .regular ? 0.04 : 0.01)) : Color.black.opacity(0.02), location: 1.0)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            // Specular rim stroke gradient: luminous top-leading light source
+            let rimGradient = LinearGradient(
+                stops: [
+                    .init(color: colorScheme == .dark ? Color.white.opacity(0.35) : Color.white.opacity(0.65), location: 0.0),
+                    .init(color: colorScheme == .dark ? Color.white.opacity(0.12) : Color.white.opacity(0.25), location: 0.35),
+                    .init(color: colorScheme == .dark ? Color.white.opacity(0.04) : Color.white.opacity(0.08), location: 0.75),
+                    .init(color: colorScheme == .dark ? Color.white.opacity(0.18) : Color.white.opacity(0.35), location: 1.0)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            content
+                .background(shape.fill(substrateGradient))
+                .clipShape(shape)
+                .glassEffect(glass.tint(tint ?? .clear).interactive(interactive), in: shape)
+                .overlay(
+                    shape.stroke(rimGradient, lineWidth: 0.75)
+                )
+                .shadow(
+                    color: Color.black.opacity(colorScheme == .dark ? 0.15 : 0.04),
+                    radius: interactive ? 4 : 2,
+                    x: 0,
+                    y: 1
+                )
+        } else {
+            content
+                .clipShape(shape)
+                .background(shape.fill(.ultraThinMaterial))
+                .overlay(shape.fill(tint ?? .clear).clipShape(shape))
+                .overlay(
+                    shape.stroke(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.white.opacity(0.25), location: 0.0),
+                                .init(color: Color.white.opacity(0.06), location: 0.4),
+                                .init(color: Color.clear, location: 1.0)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.75
+                    )
+                )
+        }
+    }
 }
 
 // MARK: - Font Registration

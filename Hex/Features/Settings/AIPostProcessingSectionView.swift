@@ -66,14 +66,7 @@ struct AIPostProcessingSectionView: View {
 				}
 				.padding(.horizontal, TickSpacing.l)
 				.padding(.vertical, TickSpacing.m)
-				.background(
-					RoundedRectangle(cornerRadius: TickRadius.card)
-						.fill(TickColor.surface)
-						.overlay(
-							RoundedRectangle(cornerRadius: TickRadius.card)
-								.stroke(TickColor.cardBorder, lineWidth: 1)
-						)
-				)
+				.hexGlass(cornerRadius: TickRadius.card)
 			}
 		}
 		.animation(TickAnimation.ease, value: store.hexSettings.aiPostProcessingMode)
@@ -158,7 +151,7 @@ struct AIPostProcessingSectionView: View {
 	}()
 }
 
-// MARK: - Custom Text Field (cream background, subtle, no native chrome)
+// MARK: - Custom Text Field (Liquid Glass input capsule)
 
 struct CustomTextField: View {
 	let placeholder: String
@@ -178,14 +171,7 @@ struct CustomTextField: View {
 		.font(TickFont.body)
 		.padding(.horizontal, TickSpacing.m)
 		.padding(.vertical, TickSpacing.s + 2)
-		.background(
-			RoundedRectangle(cornerRadius: 10)
-				.fill(TickColor.canvas)
-				.overlay(
-					RoundedRectangle(cornerRadius: 10)
-						.stroke(isFocused ? TickColor.brand : (isHovered ? TickColor.lineStrong : TickColor.line), lineWidth: 1)
-				)
-		)
+		.hexGlass(cornerRadius: 10, tint: isFocused ? TickColor.brandSoft : nil, interactive: true, style: .regular)
 		.foregroundStyle(TickColor.textPrimary)
 		.focused($isFocused)
 		.onHover { isHovered = $0 }

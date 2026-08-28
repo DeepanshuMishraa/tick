@@ -123,14 +123,7 @@ struct HotKeySectionView: View {
             }
             .padding(.horizontal, TickSpacing.l)
             .padding(.vertical, TickSpacing.m)
-            .background(
-                RoundedRectangle(cornerRadius: TickRadius.card)
-                    .fill(TickColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: TickRadius.card)
-                            .stroke(TickColor.cardBorder, lineWidth: 1)
-                    )
-            )
+            .hexGlass(cornerRadius: TickRadius.card)
         }
         .enableInjection()
     }
@@ -200,14 +193,7 @@ private struct ModifierSideControls: View {
                 }
             }
             .padding(TickSpacing.l)
-            .background(
-                RoundedRectangle(cornerRadius: TickRadius.card)
-                    .fill(TickColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: TickRadius.card)
-                            .stroke(TickColor.cardBorder, lineWidth: 1)
-                    )
-            )
+            .hexGlass(cornerRadius: TickRadius.card)
         }
     }
 }
@@ -225,14 +211,7 @@ private struct ModifierSideChip: View {
                 .foregroundStyle(isSelected ? TickColor.brand : TickColor.textPrimary)
                 .padding(.horizontal, TickSpacing.m)
                 .padding(.vertical, TickSpacing.xs)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                       	.fill(isSelected ? TickColor.brandSoft : (isHovered ? TickColor.canvas : Color.clear))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(isSelected ? TickColor.brand : TickColor.line, lineWidth: 1)
-                        )
-                )
+                .hexGlass(cornerRadius: 8, interactive: true)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

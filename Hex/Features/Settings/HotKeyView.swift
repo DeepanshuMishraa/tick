@@ -41,14 +41,7 @@ struct HotKeyView: View {
           .transition(.blurReplace)
       }
     }
-    .background(
-      RoundedRectangle(cornerRadius: 14)
-        .fill(isActive ? TickColor.brandSoft : TickColor.surface)
-        .overlay(
-          RoundedRectangle(cornerRadius: 14)
-            .stroke(isActive ? TickColor.brand : TickColor.cardBorder, lineWidth: 1.5)
-        )
-    )
+    .hexGlass(cornerRadius: 14, tint: isActive ? TickColor.brandSoft : nil, interactive: true, style: .regular)
     .animation(TickAnimation.spring, value: key)
     .animation(TickAnimation.spring, value: modifiers)
     .animation(TickAnimation.spring, value: isActive)
@@ -65,15 +58,7 @@ struct KeyView: View {
       .font(TickFont.headingFunc(17, weight: .bold))
       .foregroundStyle(TickColor.textPrimary)
       .frame(width: 44, height: 44)
-      .background(
-        RoundedRectangle(cornerRadius: 8)
-          .fill(TickColor.canvas)
-          .overlay(
-            RoundedRectangle(cornerRadius: 8)
-              .stroke(TickColor.line, lineWidth: 1)
-          )
-          .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
-      )
+      .hexGlass(cornerRadius: 8, interactive: true, style: .regular)
       .enableInjection()
   }
 }

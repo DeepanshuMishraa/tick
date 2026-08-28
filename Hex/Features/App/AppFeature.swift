@@ -264,6 +264,8 @@ struct AppView: View {
   @Bindable var store: StoreOf<AppFeature>
   @State private var isSidebarVisible = true
   @State private var isPersonalisationWizardPresented = false
+  @Namespace private var transcriptHoverNamespace
+  @State private var hoveredTranscriptID: UUID? = nil
 
   // Cached stats to prevent expensive main-thread sorting and reductions on every body evaluation
   @State private var cachedWordCount: Int = 0
@@ -429,10 +431,11 @@ struct AppView: View {
             .frame(width: 220)
             .background(AppTheme.sidebarBackground)
             .transition(.move(edge: .leading))
-        }
 
-        Divider()
-          .background(Color.primary.opacity(0.1))
+          Rectangle()
+            .fill(TickColor.line)
+            .frame(width: 1)
+        }
 
         detailContent
           .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -470,44 +473,24 @@ struct AppView: View {
   @ViewBuilder
   private var sidebar: some View {
     VStack(alignment: .leading, spacing: 0) {
+      // Clean top breathing room below titlebar / traffic lights
       Spacer()
-        .frame(height: 24)
-
-      HStack(spacing: 6) {
-        HStack(alignment: .center, spacing: 3) {
-          RoundedRectangle(cornerRadius: 1.5)
-            .fill(Color.primary)
-            .frame(width: 3, height: 12)
-          RoundedRectangle(cornerRadius: 1.5)
-            .fill(Color.primary)
-            .frame(width: 3, height: 20)
-          RoundedRectangle(cornerRadius: 1.5)
-            .fill(Color.primary)
-            .frame(width: 3, height: 15)
-        }
-        
-        Text("Tick")
-          .font(TickFont.headingFunc(20, weight: .semibold))
-          .foregroundStyle(TickColor.textPrimary)
-      }
-      .padding(.horizontal, 20)
-      .padding(.top, 8)
-      .padding(.bottom, 16)
+        .frame(height: 52)
       
       VStack(alignment: .leading, spacing: 4) {
-        SidebarItem(icon: "square.grid.2x2", title: "Home", isActive: store.activeTab == .home) {
+        SidebarItem(icon: "house.fill", title: "Home", iconColor: Color(red: 0.20, green: 0.48, blue: 0.96), isActive: store.activeTab == .home) {
           store.send(.setActiveTab(.home))
         }
-        SidebarItem(icon: "chart.xyaxis.line", title: "Insights", isActive: store.activeTab == .insights) {
+        SidebarItem(icon: "chart.xyaxis.line", title: "Insights", iconColor: Color(red: 0.58, green: 0.28, blue: 0.94), isActive: store.activeTab == .insights) {
           store.send(.setActiveTab(.insights))
         }
-        SidebarItem(icon: "book", title: "Dictionary", isActive: store.activeTab == .dictionary) {
+        SidebarItem(icon: "book.closed.fill", title: "Dictionary", iconColor: Color(red: 0.12, green: 0.68, blue: 0.62), isActive: store.activeTab == .dictionary) {
           store.send(.setActiveTab(.dictionary))
         }
-        SidebarItem(icon: "scissors", title: "Snippets", isActive: store.activeTab == .snippets) {
+        SidebarItem(icon: "scissors", title: "Snippets", iconColor: Color(red: 0.96, green: 0.52, blue: 0.18), isActive: store.activeTab == .snippets) {
           store.send(.setActiveTab(.snippets))
         }
-        SidebarItem(icon: "slider.horizontal.3", title: "Style", isActive: store.activeTab == .style) {
+        SidebarItem(icon: "slider.horizontal.3", title: "Style", iconColor: Color(red: 0.92, green: 0.24, blue: 0.56), isActive: store.activeTab == .style) {
           store.send(.setActiveTab(.style))
         }
       }
@@ -516,10 +499,10 @@ struct AppView: View {
       Spacer()
       
       VStack(alignment: .leading, spacing: 4) {
-        SidebarItem(icon: "gearshape", title: "Settings", isActive: store.activeTab == .settings) {
+        SidebarItem(icon: "gearshape.fill", title: "Settings", iconColor: Color(red: 0.45, green: 0.48, blue: 0.54), isActive: store.activeTab == .settings) {
           store.send(.setActiveTab(.settings))
         }
-        SidebarItem(icon: "questionmark.circle", title: "Help", isActive: store.activeTab == .help) {
+        SidebarItem(icon: "questionmark.circle.fill", title: "Help", iconColor: Color(red: 0.35, green: 0.38, blue: 0.88), isActive: store.activeTab == .help) {
           store.send(.setActiveTab(.help))
         }
       }
@@ -536,9 +519,6 @@ struct AppView: View {
       } else {
         standardHeader
       }
-      
-      Divider()
-        .background(Color.primary.opacity(0.05))
       
       ScrollView {
         VStack(spacing: 0) {
@@ -614,6 +594,7 @@ struct AppView: View {
     .padding(.trailing, 24)
     .padding(.vertical, 16)
     .frame(height: 56)
+    .background(Color.clear)
   }
 
   private var homeGreeting: String {
@@ -643,6 +624,7 @@ struct AppView: View {
     .padding(.trailing, 24)
     .padding(.vertical, 16)
     .frame(height: 56)
+    .background(Color.clear)
   }
   
   private func tabTitle(_ tab: AppFeature.ActiveTab) -> String {
@@ -670,28 +652,28 @@ struct AppView: View {
       .padding(.top, 24)
       .padding(.bottom, 10)
       
-      LazyVStack(alignment: .leading, spacing: 0) {
+      LazyVStack(alignment: .leading, spacing: 2) {
         ForEach(displayTranscripts) { transcript in
           TranscriptRow(
             transcript: transcript,
             isPlaying: store.state.history.playingTranscriptID == transcript.id,
+            isHovered: hoveredTranscriptID == transcript.id,
+            hoverNamespace: transcriptHoverNamespace,
+            onHover: { isHovered in
+              withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                if isHovered {
+                  hoveredTranscriptID = transcript.id
+                } else if hoveredTranscriptID == transcript.id {
+                  hoveredTranscriptID = nil
+                }
+              }
+            },
             onPlay: { store.send(.history(.playTranscript(transcript.id))) },
             onCopy: { store.send(.history(.copyToClipboard(transcript.text))) },
             onDelete: { store.send(.history(.deleteTranscript(transcript.id))) }
           )
-          
-          if transcript.id != displayTranscripts.last?.id {
-            Divider()
-              .background(Color.primary.opacity(0.05))
-          }
         }
       }
-      .background(Color(nsColor: .controlBackgroundColor))
-      .cornerRadius(12)
-      .overlay(
-        RoundedRectangle(cornerRadius: 12)
-          .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-      )
       .padding(.horizontal, 24)
       .padding(.bottom, 24)
     }
@@ -703,31 +685,52 @@ struct AppView: View {
 struct SidebarItem: View {
   let icon: String
   let title: String
+  var iconColor: Color? = nil
   let isActive: Bool
   let action: () -> Void
   
   @State private var isHovered = false
+  @Environment(\.colorScheme) private var colorScheme
   
   var body: some View {
     Button(action: action) {
       HStack(spacing: 10) {
-        Image(systemName: icon)
-          .font(TickFont.labelFunc(13, weight: .medium))
-          .foregroundColor(isActive ? .primary : .secondary)
-          .frame(width: 16, height: 16)
+        if let iconColor {
+          ZStack {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+              .fill(iconColor.gradient)
+              .frame(width: 22, height: 22)
+            Image(systemName: icon)
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundColor(.white)
+          }
+        } else {
+          Image(systemName: icon)
+            .font(TickFont.labelFunc(13, weight: isActive ? .semibold : .medium))
+            .foregroundColor(isActive ? TickColor.brand : .secondary)
+            .frame(width: 16, height: 16)
+        }
         
         Text(title)
-          .font(TickFont.labelFunc(13, weight: isActive ? Font.Weight.medium : Font.Weight.regular))
-          .foregroundColor(isActive ? .primary : .secondary)
+          .font(TickFont.labelFunc(13, weight: isActive ? Font.Weight.semibold : Font.Weight.regular))
+          .foregroundColor(isActive ? TickColor.textPrimary : TickColor.textSecondary)
         
         Spacer()
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
-      .background(
-        RoundedRectangle(cornerRadius: 8)
-          .fill(isActive ? Color.primary.opacity(0.08) : (isHovered ? Color.primary.opacity(0.04) : Color.clear))
-      )
+      .padding(.horizontal, 10)
+      .padding(.vertical, 6)
+      .background {
+        if isActive || isHovered {
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(isActive ? (colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.06)) : Color.clear)
+            .hexGlass(
+              in: RoundedRectangle(cornerRadius: 8, style: .continuous),
+              tint: isActive ? TickColor.brandSoft : nil,
+              interactive: true,
+              style: isActive ? .regular : .clear
+            )
+        }
+      }
     }
     .buttonStyle(.plain)
     .onHover { isHovered = $0 }
@@ -743,40 +746,46 @@ struct StatPill: View {
       Text(emoji)
         .font(TickFont.captionFunc(13))
       Text(text)
-        .font(TickFont.labelFunc(12, weight: .medium))
+        .font(TickFont.labelFunc(12, weight: .semibold))
         .foregroundStyle(TickColor.textPrimary)
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 6)
-    .background(
-      Capsule()
-        .fill(TickColor.canvas)
-    )
+    .hexGlass(in: Capsule(), interactive: true, style: .regular)
   }
 }
 
 struct TranscriptRow: View {
   let transcript: Transcript
   let isPlaying: Bool
+  var isHovered: Bool = false
+  var hoverNamespace: Namespace.ID? = nil
+  var onHover: ((Bool) -> Void)? = nil
   let onPlay: () -> Void
   let onCopy: () -> Void
   let onDelete: () -> Void
   
   let isSilence: Bool
   
-  @State private var isHovered = false
+  @Environment(\.colorScheme) private var colorScheme
   @State private var showCopied = false
   @State private var copyTask: Task<Void, Error>?
   
   init(
     transcript: Transcript,
     isPlaying: Bool,
+    isHovered: Bool = false,
+    hoverNamespace: Namespace.ID? = nil,
+    onHover: ((Bool) -> Void)? = nil,
     onPlay: @escaping () -> Void,
     onCopy: @escaping () -> Void,
     onDelete: @escaping () -> Void
   ) {
     self.transcript = transcript
     self.isPlaying = isPlaying
+    self.isHovered = isHovered
+    self.hoverNamespace = hoverNamespace
+    self.onHover = onHover
     self.onPlay = onPlay
     self.onCopy = onCopy
     self.onDelete = onDelete
@@ -849,9 +858,24 @@ struct TranscriptRow: View {
     }
     .padding(.horizontal, 24)
     .padding(.vertical, 12)
-    .background(isHovered ? Color.primary.opacity(0.04) : Color.clear)
+    .background {
+      if isHovered {
+        if let hoverNamespace {
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.40))
+            .hexGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous), interactive: true, style: .regular)
+            .matchedGeometryEffect(id: "homeTranscriptHover", in: hoverNamespace)
+        } else {
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.40))
+            .hexGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous), interactive: true, style: .regular)
+        }
+      }
+    }
     .contentShape(Rectangle())
-    .onHover { isHovered = $0 }
+    .onHover { hovered in
+      onHover?(hovered)
+    }
     .onDisappear {
       copyTask?.cancel()
     }
@@ -956,7 +980,7 @@ struct StatisticsModal: View {
               .font(TickFont.labelFunc(12))
               .foregroundStyle(TickColor.textSecondary)
               .frame(width: 28, height: 28)
-              .background(Circle().fill(TickColor.canvas))
+              .hexGlass(in: Circle(), interactive: true)
           }
           .buttonStyle(.plain)
         }
@@ -988,12 +1012,7 @@ struct StatisticsModal: View {
         .padding(.bottom, 32)
       }
       .frame(width: 540)
-      .background(Color.white)
-      .cornerRadius(20)
-      .overlay(
-        RoundedRectangle(cornerRadius: 20)
-          .stroke(Color.black.opacity(0.08), lineWidth: 1)
-      )
+      .hexGlass(cornerRadius: 20, interactive: true)
       .shadow(color: Color.black.opacity(0.25), radius: 40, x: 0, y: 20)
     }
   }
@@ -1023,8 +1042,7 @@ struct StatCard: View {
     }
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(TickColor.stat)
-    .cornerRadius(12)
+    .hexGlass(cornerRadius: 12)
   }
 }
 
@@ -1049,7 +1067,7 @@ struct PersonalisationWizardModal: View {
               .font(TickFont.labelFunc(12))
               .foregroundStyle(TickColor.textSecondary)
               .frame(width: 28, height: 28)
-              .background(Circle().fill(TickColor.canvas))
+              .hexGlass(in: Circle(), interactive: true)
           }
           .buttonStyle(.plain)
         }
@@ -1130,55 +1148,24 @@ struct PersonalisationWizardModal: View {
         HStack {
           Spacer()
 
-          Button(action: onDismiss) {
-            Text("Back")
-              .font(TickFont.labelFunc(13, weight: .medium))
-              .foregroundStyle(TickColor.textPrimary)
-              .padding(.horizontal, 18)
-              .padding(.vertical, 9)
-              .background(
-                RoundedRectangle(cornerRadius: 8)
-                  .fill(TickColor.canvas)
-                  .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                      .stroke(TickColor.line, lineWidth: 1)
-                  )
-              )
+          TickSecondaryButton(title: "Back") {
+            onDismiss()
           }
-          .buttonStyle(.plain)
           .padding(.trailing, 8)
 
-          Button(action: {
+          TickPrimaryButton(title: currentStep < 3 ? "Next" : "Done") {
             if currentStep < 3 {
               currentStep += 1
             } else {
               onDismiss()
             }
-          }) {
-            Text("Next")
-              .font(TickFont.labelFunc(13))
-              .foregroundStyle(.white)
-              .padding(.horizontal, 18)
-              .padding(.vertical, 9)
-              .background(
-                RoundedRectangle(cornerRadius: 8)
-                  .fill(TickColor.textPrimary)
-              )
           }
-          .buttonStyle(.plain)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
       }
       .frame(width: 700)
-      .background(
-        RoundedRectangle(cornerRadius: 20)
-          .fill(Color.white)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 20)
-          .stroke(Color.black.opacity(0.08), lineWidth: 1)
-      )
+      .hexGlass(cornerRadius: 20, interactive: true)
       .shadow(color: Color.black.opacity(0.3), radius: 40, x: 0, y: 20)
     }
   }
@@ -1227,16 +1214,10 @@ struct WizardStyleCard: View {
       }
       .padding(18)
       .frame(width: 200, height: 250, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: 16)
-          .fill(Color.white)
-      )
+      .hexGlass(cornerRadius: 16, interactive: true)
       .overlay(
         RoundedRectangle(cornerRadius: 16)
-          .stroke(
-            isSelected ? TickColor.brand : (isHovered ? TickColor.lineStrong : TickColor.line),
-            lineWidth: isSelected ? 2 : 1
-          )
+              .stroke(Color.clear, lineWidth: 0)
       )
     }
     .buttonStyle(.plain)
@@ -1259,16 +1240,9 @@ struct DictionaryTabView: View {
           .font(TickFont.headingFunc(24, weight: .semibold))
           .foregroundStyle(TickColor.textPrimary)
         Spacer()
-        Button(action: { isAddingWord = true }) {
-          Text("Add new")
-            .font(TickFont.labelFunc(13, weight: .medium))
-            .foregroundColor(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            .background(TickColor.textPrimary)
-            .cornerRadius(8)
+        TickPrimaryButton(title: "Add new", icon: "plus") {
+          isAddingWord = true
         }
-        .buttonStyle(.plain)
       }
       .padding(.bottom, 16)
 
@@ -1283,11 +1257,10 @@ struct DictionaryTabView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(TickColor.canvas)
-        .cornerRadius(8)
+        .hexGlass(cornerRadius: 8)
         .overlay(
           RoundedRectangle(cornerRadius: 8)
-            .stroke(TickColor.line, lineWidth: 1)
+            .stroke(Color.clear, lineWidth: 0)
         )
 
         Spacer()
@@ -1302,8 +1275,6 @@ struct DictionaryTabView: View {
       }
       .padding(.bottom, 20)
       
-      Divider()
-        .padding(.bottom, 20)
       
       ScrollView {
         VStack(alignment: .leading, spacing: 20) {
@@ -1335,23 +1306,15 @@ struct DictionaryTabView: View {
               }
               .padding(.vertical, 8)
               
-              Button(action: { isAddingWord = true }) {
-                Text("Add new word")
-                  .font(TickFont.labelFunc(12))
-                  .foregroundColor(.white)
-                  .padding(.horizontal, 16)
-                  .padding(.vertical, 8)
-                  .background(Color.black)
-                  .cornerRadius(8)
+              TickPrimaryButton(title: "Add new word", icon: "plus") {
+                isAddingWord = true
               }
-              .buttonStyle(.plain)
             }
             .padding(24)
-            .background(AppTheme.bannerBackground)
-            .cornerRadius(16)
+            .hexGlass(cornerRadius: 16, interactive: true)
             .overlay(
               RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                .stroke(Color.clear, lineWidth: 0)
             )
             .padding(.bottom, 20)
           }
@@ -1418,15 +1381,13 @@ struct DictionaryTabView: View {
                 .padding(.vertical, 14)
                 .padding(.horizontal, 16)
                 
-                Divider()
               }
             }
           }
-          .background(Color(nsColor: .controlBackgroundColor))
-          .cornerRadius(12)
+          .hexGlass(cornerRadius: 12)
           .overlay(
             RoundedRectangle(cornerRadius: 12)
-              .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+              .stroke(Color.clear, lineWidth: 0)
           )
         }
       }
@@ -1492,11 +1453,10 @@ struct AddWordSheet: View {
           .focused($focusedField, equals: .original)
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
-          .background(TickColor.canvas)
-          .cornerRadius(10)
+          .hexGlass(cornerRadius: 10)
           .overlay(
             RoundedRectangle(cornerRadius: 10)
-              .stroke(focusedField == .original ? TickColor.brand : TickColor.line, lineWidth: focusedField == .original ? 1.5 : 1)
+              .stroke(Color.clear, lineWidth: 0)
               .animation(.easeOut(duration: 0.15), value: focusedField)
           )
       }
@@ -1512,11 +1472,10 @@ struct AddWordSheet: View {
           .focused($focusedField, equals: .replacement)
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
-          .background(TickColor.canvas)
-          .cornerRadius(10)
+          .hexGlass(cornerRadius: 10)
           .overlay(
             RoundedRectangle(cornerRadius: 10)
-              .stroke(focusedField == .replacement ? TickColor.brand : TickColor.line, lineWidth: focusedField == .replacement ? 1.5 : 1)
+              .stroke(Color.clear, lineWidth: 0)
               .animation(.easeOut(duration: 0.15), value: focusedField)
           )
       }
@@ -1525,25 +1484,11 @@ struct AddWordSheet: View {
       HStack(spacing: 12) {
         Spacer()
         
-        Button(action: {
+        TickSecondaryButton(title: "Cancel") {
           dismiss()
-        }) {
-          Text("Cancel")
-            .font(TickFont.labelFunc(13, weight: .semibold))
-            .foregroundStyle(TickColor.textPrimary)
-            .frame(width: 80, height: 36)
-            .background(
-              RoundedRectangle(cornerRadius: 10)
-                .fill(TickColor.canvas)
-                .overlay(
-                  RoundedRectangle(cornerRadius: 10)
-                    .stroke(TickColor.line, lineWidth: 1)
-                )
-            )
         }
-        .buttonStyle(.plain)
         
-        Button(action: {
+        TickPrimaryButton(title: "Save") {
           let trimmedOrig = originalWord.trimmingCharacters(in: .whitespacesAndNewlines)
           let trimmedRepl = replacementWord.trimmingCharacters(in: .whitespacesAndNewlines)
           if !trimmedOrig.isEmpty && !trimmedRepl.isEmpty {
@@ -1555,24 +1500,14 @@ struct AddWordSheet: View {
             }
             dismiss()
           }
-        }) {
-          Text("Save")
-            .font(TickFont.labelFunc(13, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 80, height: 36)
-            .background(
-              RoundedRectangle(cornerRadius: 10)
-                .fill(originalWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replacementWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? TickColor.brand.opacity(0.5) : TickColor.brand)
-            )
         }
-        .buttonStyle(.plain)
         .disabled(originalWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replacementWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
       .padding(.top, 8)
     }
     .padding(28)
     .frame(width: 440)
-    .background(TickColor.surface)
+    .hexGlass(cornerRadius: 16)
     .onAppear {
       focusedField = .original
     }
@@ -1586,11 +1521,10 @@ struct DictionaryPill: View {
       .font(TickFont.labelFunc(12, weight: .medium))
       .padding(.horizontal, 12)
       .padding(.vertical, 6)
-      .background(Color.primary.opacity(0.02))
-      .cornerRadius(8)
+      .hexGlass(cornerRadius: 8)
       .overlay(
         RoundedRectangle(cornerRadius: 8)
-          .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+          .stroke(Color.clear, lineWidth: 0)
       )
   }
 }
@@ -1610,16 +1544,9 @@ struct SnippetsTabView: View {
           .font(TickFont.headingFunc(24, weight: .semibold))
           .foregroundStyle(TickColor.textPrimary)
         Spacer()
-        Button(action: { isAddingSnippet = true }) {
-          Text("Add new")
-            .font(TickFont.labelFunc(13, weight: .medium))
-            .foregroundColor(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            .background(TickColor.textPrimary)
-            .cornerRadius(8)
+        TickPrimaryButton(title: "Add new", icon: "plus") {
+          isAddingSnippet = true
         }
-        .buttonStyle(.plain)
       }
       .padding(.bottom, 16)
 
@@ -1634,11 +1561,10 @@ struct SnippetsTabView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(TickColor.canvas)
-        .cornerRadius(8)
+      .hexGlass(cornerRadius: 8)
         .overlay(
           RoundedRectangle(cornerRadius: 8)
-            .stroke(TickColor.line, lineWidth: 1)
+            .stroke(Color.clear, lineWidth: 0)
         )
 
         Spacer()
@@ -1653,8 +1579,6 @@ struct SnippetsTabView: View {
       }
       .padding(.bottom, 20)
       
-      Divider()
-        .padding(.bottom, 20)
       
       ScrollView {
         VStack(alignment: .leading, spacing: 20) {
@@ -1684,23 +1608,15 @@ struct SnippetsTabView: View {
               }
               .padding(.vertical, 8)
               
-              Button(action: { isAddingSnippet = true }) {
-                Text("Add new snippet")
-                  .font(TickFont.labelFunc(12))
-                  .foregroundColor(.white)
-                  .padding(.horizontal, 16)
-                  .padding(.vertical, 8)
-                  .background(Color.black)
-                  .cornerRadius(8)
+              TickPrimaryButton(title: "Add new snippet", icon: "plus") {
+                isAddingSnippet = true
               }
-              .buttonStyle(.plain)
             }
             .padding(24)
-            .background(AppTheme.bannerBackground)
-            .cornerRadius(16)
+            .hexGlass(cornerRadius: 16, interactive: true)
             .overlay(
               RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                .stroke(Color.clear, lineWidth: 0)
             )
             .padding(.bottom, 20)
           }
@@ -1780,15 +1696,13 @@ struct SnippetsTabView: View {
                 .padding(.vertical, 14)
                 .padding(.horizontal, 16)
                 
-                Divider()
               }
             }
           }
-          .background(Color(nsColor: .controlBackgroundColor))
-          .cornerRadius(12)
+          .hexGlass(cornerRadius: 12)
           .overlay(
             RoundedRectangle(cornerRadius: 12)
-              .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+              .stroke(Color.clear, lineWidth: 0)
           )
         }
       }
@@ -1854,11 +1768,10 @@ struct AddSnippetSheet: View {
           .focused($focusedField, equals: .shortcut)
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
-          .background(TickColor.canvas)
-          .cornerRadius(10)
+          .hexGlass(cornerRadius: 10)
           .overlay(
             RoundedRectangle(cornerRadius: 10)
-              .stroke(focusedField == .shortcut ? TickColor.brand : TickColor.line, lineWidth: focusedField == .shortcut ? 1.5 : 1)
+              .stroke(Color.clear, lineWidth: 0)
               .animation(.easeOut(duration: 0.15), value: focusedField)
           )
       }
@@ -1875,11 +1788,10 @@ struct AddSnippetSheet: View {
           .focused($focusedField, equals: .expansion)
           .padding(8)
           .frame(height: 100)
-          .background(TickColor.canvas)
-          .cornerRadius(10)
+          .hexGlass(cornerRadius: 10)
           .overlay(
             RoundedRectangle(cornerRadius: 10)
-              .stroke(focusedField == .expansion ? TickColor.brand : TickColor.line, lineWidth: focusedField == .expansion ? 1.5 : 1)
+              .stroke(Color.clear, lineWidth: 0)
               .animation(.easeOut(duration: 0.15), value: focusedField)
           )
       }
@@ -1888,25 +1800,11 @@ struct AddSnippetSheet: View {
       HStack(spacing: 12) {
         Spacer()
         
-        Button(action: {
+        TickSecondaryButton(title: "Cancel") {
           dismiss()
-        }) {
-          Text("Cancel")
-            .font(TickFont.labelFunc(13, weight: .semibold))
-            .foregroundStyle(TickColor.textPrimary)
-            .frame(width: 80, height: 36)
-            .background(
-              RoundedRectangle(cornerRadius: 10)
-                .fill(TickColor.canvas)
-                .overlay(
-                  RoundedRectangle(cornerRadius: 10)
-                    .stroke(TickColor.line, lineWidth: 1)
-                )
-            )
         }
-        .buttonStyle(.plain)
         
-        Button(action: {
+        TickPrimaryButton(title: "Save") {
           let trimmedShort = shortcut.trimmingCharacters(in: .whitespacesAndNewlines)
           let trimmedExp = expansion.trimmingCharacters(in: .whitespacesAndNewlines)
           if !trimmedShort.isEmpty && !trimmedExp.isEmpty {
@@ -1918,24 +1816,14 @@ struct AddSnippetSheet: View {
             }
             dismiss()
           }
-        }) {
-          Text("Save")
-            .font(TickFont.labelFunc(13, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 80, height: 36)
-            .background(
-              RoundedRectangle(cornerRadius: 10)
-                .fill(shortcut.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? TickColor.brand.opacity(0.5) : TickColor.brand)
-            )
         }
-        .buttonStyle(.plain)
         .disabled(shortcut.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
       .padding(.top, 8)
     }
     .padding(28)
     .frame(width: 440)
-    .background(TickColor.surface)
+    .hexGlass(cornerRadius: 16)
     .onAppear {
       focusedField = .shortcut
     }
@@ -1953,11 +1841,10 @@ struct SnippetDiagramRow: View {
         .foregroundStyle(TickColor.textPrimary)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(TickColor.canvas)
-        .cornerRadius(8)
+        .hexGlass(cornerRadius: 8)
         .overlay(
           RoundedRectangle(cornerRadius: 8)
-            .stroke(TickColor.line, lineWidth: 1)
+          .stroke(Color.clear, lineWidth: 0)
         )
 
       Image(systemName: "arrow.right")
@@ -1969,11 +1856,10 @@ struct SnippetDiagramRow: View {
         .foregroundStyle(TickColor.textPrimary)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(TickColor.canvas)
-        .cornerRadius(8)
+        .hexGlass(cornerRadius: 8)
         .overlay(
           RoundedRectangle(cornerRadius: 8)
-            .stroke(TickColor.line, lineWidth: 1)
+          .stroke(Color.clear, lineWidth: 0)
         )
     }
   }
@@ -2002,8 +1888,6 @@ struct StyleTabView: View {
         .lineSpacing(4)
         .padding(.bottom, 24)
       
-      Divider()
-        .padding(.bottom, 24)
       
       ScrollView {
         VStack(alignment: .leading, spacing: 24) {
@@ -2051,6 +1935,7 @@ struct StylePreviewCard: View {
   let action: () -> Void
   
   @State private var isHovered = false
+  @Environment(\.colorScheme) private var colorScheme
   
   var body: some View {
     Button(action: action) {
@@ -2073,7 +1958,7 @@ struct StylePreviewCard: View {
           // Selection Indicator Ring
           ZStack {
             Circle()
-              .stroke(isSelected ? TickColor.brand : Color.primary.opacity(0.1), lineWidth: isSelected ? 2 : 1)
+              .stroke(Color.clear, lineWidth: 0)
               .frame(width: 20, height: 20)
             if isSelected {
               Circle()
@@ -2095,17 +1980,15 @@ struct StylePreviewCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 120, alignment: .topLeading)
-        .background(TickColor.canvas)
-        .cornerRadius(12)
+        .hexGlass(cornerRadius: 12)
         .padding(.horizontal, 12)
         .padding(.bottom, 16)
       }
       .frame(width: 220, height: 210)
-      .background(isSelected ? TickColor.brand.opacity(0.03) : Color(nsColor: .controlBackgroundColor))
-      .cornerRadius(16)
+      .hexGlass(cornerRadius: 16, interactive: true)
       .overlay(
         RoundedRectangle(cornerRadius: 16)
-          .stroke(isSelected ? TickColor.brand : (isHovered ? TickColor.lineStrong : TickColor.line), lineWidth: isSelected ? 2 : 1)
+          .stroke(Color.clear, lineWidth: 0)
       )
       .shadow(color: Color.black.opacity(isSelected ? 0.05 : (isHovered ? 0.04 : 0)), radius: 8, x: 0, y: 4)
       .offset(y: isHovered ? -4 : 0)
@@ -2156,7 +2039,7 @@ struct StylePreviewCard: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.04))
+        .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
         
         Text("Hey, are you free for lunch tomorrow? Let's do 12 if that works for you.")
           .font(TickFont.bodyFunc(10))
@@ -2165,22 +2048,22 @@ struct StylePreviewCard: View {
           .padding(.horizontal, 6)
           .padding(.bottom, 4)
       }
-      .background(Color.white)
+      .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.85))
       .cornerRadius(6)
       .overlay(
         RoundedRectangle(cornerRadius: 6)
-          .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+          .stroke(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06), lineWidth: 0.5)
       )
       
     case .casual:
       HStack(alignment: .top, spacing: 6) {
         Circle()
-          .fill(Color(red: 220/255, green: 240/255, blue: 225/255))
+          .fill(Color(red: 220/255, green: 240/255, blue: 225/255).opacity(colorScheme == .dark ? 0.35 : 1.0))
           .frame(width: 16, height: 16)
           .overlay(
             Text("A")
               .font(TickFont.captionFunc(9, weight: .bold))
-              .foregroundStyle(Color(red: 34/255, green: 112/255, blue: 63/255))
+              .foregroundStyle(colorScheme == .dark ? Color.white : Color(red: 34/255, green: 112/255, blue: 63/255))
           )
         
         VStack(alignment: .leading, spacing: 2) {
@@ -2200,11 +2083,11 @@ struct StylePreviewCard: View {
         }
       }
       .padding(6)
-      .background(Color.white)
+      .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.85))
       .cornerRadius(6)
       .overlay(
         RoundedRectangle(cornerRadius: 6)
-          .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+          .stroke(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06), lineWidth: 0.5)
       )
       
     case .veryCasual:
@@ -2293,11 +2176,10 @@ struct HelpTabView: View {
         FAQRow(question: "Where are my audio records cached?", answer: "Tick caches models inside your application support container. Legacy files may reside in your local cache directories.")
       }
       .padding(20)
-      .background(Color.primary.opacity(0.01))
-      .cornerRadius(16)
+      .hexGlass(cornerRadius: 16)
       .overlay(
         RoundedRectangle(cornerRadius: 16)
-          .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+          .stroke(Color.clear, lineWidth: 0)
       )
       
       VStack(alignment: .leading, spacing: 8) {
@@ -2312,11 +2194,10 @@ struct HelpTabView: View {
       }
       .padding(20)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(Color.primary.opacity(0.01))
-      .cornerRadius(16)
+      .hexGlass(cornerRadius: 16)
       .overlay(
         RoundedRectangle(cornerRadius: 16)
-          .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+          .stroke(Color.clear, lineWidth: 0)
       )
     }
   }
@@ -2350,8 +2231,6 @@ struct FAQRow: View {
           .transition(.opacity)
       }
       
-      Divider()
-        .padding(.top, 4)
     }
   }
 }

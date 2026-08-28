@@ -31,9 +31,10 @@ struct HexApp: App {
 			Button("Quit") {
 				NSApplication.shared.terminate(nil)
 			}.keyboardShortcut("q")
-		} label: {
+        } label: {
 			MenuBarRecordingIcon()
 		}
+		.menuBarExtraStyle(.menu)
 
 		WindowGroup {}.defaultLaunchBehavior(.suppressed)
 			.commands {

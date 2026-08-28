@@ -212,6 +212,8 @@ struct HistoryView: View {
 	let store: StoreOf<HistoryFeature>
 	@State private var showingDeleteConfirmation = false
 	@Shared(.hexSettings) var hexSettings: HexSettings
+	@Namespace private var historyHoverNamespace
+	@State private var hoveredHistoryID: UUID? = nil
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: TickSpacing.xl) {
@@ -250,25 +252,29 @@ struct HistoryView: View {
 						subtitle: "Your transcription history will appear here."
 					)
 				} else {
-					LazyVStack(spacing: 0) {
+					LazyVStack(spacing: 2) {
 						ForEach(store.transcriptionHistory.history) { transcript in
 							HistoryTranscriptRow(
 								transcript: transcript,
 								isPlaying: store.playingTranscriptID == transcript.id,
+								isHovered: hoveredHistoryID == transcript.id,
+								hoverNamespace: historyHoverNamespace,
+								onHover: { isHovered in
+									withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+										if isHovered {
+											hoveredHistoryID = transcript.id
+										} else if hoveredHistoryID == transcript.id {
+											hoveredHistoryID = nil
+										}
+									}
+								},
 								onPlay: { store.send(.playTranscript(transcript.id)) },
 								onCopy: { store.send(.copyToClipboard(transcript.text)) },
 								onDelete: { store.send(.deleteTranscript(transcript.id)) }
 							)
 						}
 					}
-					.background(
-						RoundedRectangle(cornerRadius: TickRadius.card)
-							.fill(TickColor.surface)
-							.overlay(
-								RoundedRectangle(cornerRadius: TickRadius.card)
-									.stroke(TickColor.cardBorder, lineWidth: 1)
-							)
-					)
+					.hexGlass(cornerRadius: TickRadius.card)
 				}
 			}
 		}
@@ -288,8 +294,9 @@ struct HistoryView: View {
 		VStack(spacing: TickSpacing.m) {
 			ZStack {
 				Circle()
-					.fill(TickColor.canvas)
+					.fill(.clear)
 					.frame(width: 64, height: 64)
+					.hexGlass(in: Circle())
 				Image(systemName: icon)
 					.font(TickFont.bodyFunc(24))
 					.foregroundStyle(TickColor.textTertiary)
@@ -303,14 +310,7 @@ struct HistoryView: View {
 				.multilineTextAlignment(.center)
 		}
 		.frame(maxWidth: .infinity, minHeight: 300)
-		.background(
-			RoundedRectangle(cornerRadius: TickRadius.card)
-				.fill(TickColor.surface)
-				.overlay(
-					RoundedRectangle(cornerRadius: TickRadius.card)
-						.stroke(TickColor.cardBorder, lineWidth: 1)
-				)
-		)
+		.hexGlass(cornerRadius: TickRadius.card)
 	}
 }
 
@@ -318,13 +318,16 @@ struct HistoryView: View {
 struct HistoryTranscriptRow: View {
 	let transcript: Transcript
 	let isPlaying: Bool
+	var isHovered: Bool = false
+	var hoverNamespace: Namespace.ID? = nil
+	var onHover: ((Bool) -> Void)? = nil
 	let onPlay: () -> Void
 	let onCopy: () -> Void
 	let onDelete: () -> Void
 
+	@Environment(\.colorScheme) private var colorScheme
 	@State private var showCopied = false
 	@State private var copyTask: Task<Void, Error>?
-	@State private var isHovered = false
 
 	var body: some View {
 		HStack(alignment: .center, spacing: TickSpacing.m) {
@@ -364,7 +367,7 @@ struct HistoryTranscriptRow: View {
 						.font(TickFont.labelFunc(12, weight: .medium))
 						.foregroundStyle(showCopied ? TickColor.success : TickColor.textTertiary)
 						.frame(width: 28, height: 28)
-						.background(Circle().fill(isHovered || showCopied ? TickColor.canvas : Color.clear))
+						.hexGlass(in: Circle(), interactive: true, style: .regular)
 				}
 				.buttonStyle(.plain)
 				.help("Copy to clipboard")
@@ -374,7 +377,7 @@ struct HistoryTranscriptRow: View {
 						.font(TickFont.labelFunc(12, weight: .medium))
 						.foregroundStyle(isPlaying ? TickColor.brand : TickColor.textTertiary)
 						.frame(width: 28, height: 28)
-						.background(Circle().fill(isHovered || isPlaying ? TickColor.canvas : Color.clear))
+						.hexGlass(in: Circle(), interactive: true, style: .regular)
 				}
 				.buttonStyle(.plain)
 				.help(isPlaying ? "Stop playback" : "Play audio")
@@ -384,7 +387,7 @@ struct HistoryTranscriptRow: View {
 						.font(TickFont.labelFunc(12, weight: .medium))
 						.foregroundStyle(TickColor.textTertiary)
 						.frame(width: 28, height: 28)
-						.background(Circle().fill(isHovered ? TickColor.canvas : Color.clear))
+						.hexGlass(in: Circle(), interactive: true, style: .regular)
 				}
 				.buttonStyle(.plain)
 				.help("Delete transcript")
@@ -392,16 +395,24 @@ struct HistoryTranscriptRow: View {
 		}
 		.padding(.horizontal, TickSpacing.l)
 		.padding(.vertical, TickSpacing.m)
-		.background(
-			isHovered ? TickColor.canvas.opacity(0.5) : Color.clear
-		)
-		.overlay(alignment: .bottom) {
-			Rectangle()
-				.fill(TickColor.line)
-				.frame(height: 1)
-				.padding(.horizontal, TickSpacing.l)
+		.background {
+			if isHovered {
+				if let hoverNamespace {
+					RoundedRectangle(cornerRadius: 10, style: .continuous)
+						.fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.40))
+						.hexGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous), interactive: true, style: .regular)
+						.matchedGeometryEffect(id: "historyTranscriptHover", in: hoverNamespace)
+				} else {
+					RoundedRectangle(cornerRadius: 10, style: .continuous)
+						.fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.40))
+						.hexGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous), interactive: true, style: .regular)
+				}
+			}
 		}
-		.onHover { isHovered = $0 }
+		.contentShape(Rectangle())
+		.onHover { hovered in
+			onHover?(hovered)
+		}
 		.onDisappear { copyTask?.cancel() }
 	}
 

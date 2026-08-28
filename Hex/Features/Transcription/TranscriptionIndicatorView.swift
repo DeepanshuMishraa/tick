@@ -56,6 +56,67 @@ private func getNotchGeometry() -> NotchGeometry {
   }
 }
 
+// MARK: - Liquid Notch Shape (Droppy / Dynamic Lake style)
+
+struct LiquidNotchShape: Shape {
+  var shoulderWidth: CGFloat = 14
+  var cornerRadius: CGFloat = 16
+
+  func path(in rect: CGRect) -> Path {
+    var path = Path()
+    let w = rect.width
+    let h = rect.height
+    guard w > 0, h > 0 else { return path }
+
+    let sw = min(shoulderWidth, w / 4, h)
+    let cr = min(cornerRadius, (w - 2 * sw) / 2, h)
+
+    // Top-left at (0, 0)
+    path.move(to: CGPoint(x: 0, y: 0))
+
+    // Smooth concave shoulder flare from (0,0) down to (sw, sw)
+    path.addCurve(
+      to: CGPoint(x: sw, y: sw),
+      control1: CGPoint(x: sw * 0.45, y: 0),
+      control2: CGPoint(x: sw, y: sw * 0.45)
+    )
+
+    // Left edge down to (sw, h - cr)
+    path.addLine(to: CGPoint(x: sw, y: h - cr))
+
+    // Bottom-left convex corner to (sw + cr, h)
+    path.addCurve(
+      to: CGPoint(x: sw + cr, y: h),
+      control1: CGPoint(x: sw, y: h - cr * 0.45),
+      control2: CGPoint(x: sw + cr * 0.45, y: h)
+    )
+
+    // Bottom edge to (w - sw - cr, h)
+    path.addLine(to: CGPoint(x: w - sw - cr, y: h))
+
+    // Bottom-right convex corner to (w - sw, h - cr)
+    path.addCurve(
+      to: CGPoint(x: w - sw, y: h - cr),
+      control1: CGPoint(x: w - sw - cr * 0.45, y: h),
+      control2: CGPoint(x: w - sw, y: h - cr * 0.45)
+    )
+
+    // Right edge up to (w - sw, sw)
+    path.addLine(to: CGPoint(x: w - sw, y: sw))
+
+    // Smooth concave shoulder flare from (w - sw, sw) up to (w, 0)
+    path.addCurve(
+      to: CGPoint(x: w, y: 0),
+      control1: CGPoint(x: w - sw, y: sw * 0.45),
+      control2: CGPoint(x: w - sw * 0.45, y: 0)
+    )
+
+    // Top edge back to start
+    path.closeSubpath()
+    return path
+  }
+}
+
 struct TranscriptionIndicatorView: View {
   @ObserveInjection var inject
 
@@ -87,35 +148,64 @@ struct TranscriptionIndicatorView: View {
   }
 
   // MARK: - Sizing
-  private let extensionWidth: CGFloat = 40
-  private let maxBarHeight: CGFloat = 14
-  private let minBarHeight: CGFloat = 3
+  private let extensionWidth: CGFloat = 52
+  private let maxBarHeight: CGFloat = 16
+  private let minBarHeight: CGFloat = 4
 
   @State private var geometry = NotchGeometry(hasNotch: false, notchWidth: 120, notchHeight: 32, menuBarHeight: 24)
   @State private var feedbackStartedAt = Date()
 
   var body: some View {
-    let targetHeight = isLocked ? (geometry.notchHeight + 30) : geometry.notchHeight
+    let baseNotchHeight = max(geometry.notchHeight + 14, 48)
+    let targetHeight = isLocked ? (baseNotchHeight + 32) : baseNotchHeight
+    let totalWidth = geometry.notchWidth + extensionWidth * 2
+
     ZStack(alignment: .top) {
-      // Black housing that blends with the notch's own black bezel.
-      // The height animates from 0 to target height for a premium slide-down effect.
-      UnevenRoundedRectangle(
-        topLeadingRadius: 0,
-        bottomLeadingRadius: 12,
-        bottomTrailingRadius: 12,
-        topTrailingRadius: 0
-      )
-      .fill(Color.black)
-      .frame(width: geometry.notchWidth + extensionWidth * 2, height: isActive ? targetHeight : 0)
+      let notchShape = LiquidNotchShape(shoulderWidth: 16, cornerRadius: 18)
+
+      if isActive {
+        // Downward-only blurred ambient shadow: masked so it NEVER casts above/into top corner flares
+        notchShape
+          .fill(Color.black.opacity(0.35))
+          .blur(radius: 12)
+          .offset(y: 6)
+          .mask(
+            Rectangle()
+              .padding(.top, 8)
+          )
+
+        // Solid/dark glass housing that blends seamlessly with the hardware notch
+        notchShape
+          .fill(Color.black.opacity(0.88))
+          .frame(width: totalWidth, height: targetHeight)
+          .hexGlass(in: notchShape, style: .regular)
+          .overlay(
+            notchShape
+              .stroke(
+                LinearGradient(
+                  stops: [
+                    .init(color: Color.white.opacity(0.38), location: 0.0),
+                    .init(color: Color.white.opacity(0.12), location: 0.35),
+                    .init(color: Color.white.opacity(0.28), location: 0.75),
+                    .init(color: Color.white.opacity(0.45), location: 1.0)
+                  ],
+                  startPoint: .topLeading,
+                  endPoint: .bottomTrailing
+                ),
+                lineWidth: 0.75
+              )
+          )
+      }
       
       if isActive {
         HStack(spacing: 0) {
+          // Left side: live audio waveform or idle dot
           Group {
             switch status {
             case .hidden:
               EmptyView()
             case .optionKeyPressed, .prewarming:
-              IdleDot(color: TickColor.brandMid.opacity(0.8))
+              IdleDot(color: Color.white.opacity(0.85))
             case .recording:
               NotchWaveform(meter: meter, color: .white)
             case .transcribing:
@@ -123,6 +213,7 @@ struct TranscriptionIndicatorView: View {
             }
           }
           .frame(width: extensionWidth, alignment: .center)
+          .padding(.leading, 8)
           
           Spacer() // Covers the notch width
           
@@ -132,26 +223,23 @@ struct TranscriptionIndicatorView: View {
               Image(nsImage: icon)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 18, height: 18)
-                .cornerRadius(4)
-                .overlay(
-                  RoundedRectangle(cornerRadius: 4)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.25), radius: 1.5, x: 0, y: 0.8)
+                .frame(width: 20, height: 20)
+                .cornerRadius(5)
+                .shadow(color: .black.opacity(0.40), radius: 2.5, x: 0, y: 1)
             } else {
               Image(systemName: "mic.fill")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.white)
-                .frame(width: 18, height: 18)
-                .background(TickColor.brandMid)
-                .cornerRadius(4)
-                .shadow(color: TickColor.brandMid.opacity(0.3), radius: 1.5, x: 0, y: 0.8)
+                .frame(width: 20, height: 20)
+                .background(Color.primary.opacity(0.25))
+                .cornerRadius(5)
+                .shadow(color: Color.black.opacity(0.3), radius: 2, x: 0, y: 1)
             }
           }
           .frame(width: extensionWidth, alignment: .center)
+          .padding(.trailing, 8)
         }
-        .frame(width: geometry.notchWidth + extensionWidth * 2, height: geometry.notchHeight)
+        .frame(width: totalWidth, height: baseNotchHeight)
         .padding(.top, 0)
         
         // Bottom row: centered app icon + app name (only shown in lock mode)
@@ -161,38 +249,36 @@ struct TranscriptionIndicatorView: View {
               Image(nsImage: icon)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 16, height: 16)
+                .frame(width: 15, height: 15)
                 .cornerRadius(3.5)
-                .overlay(
-                  RoundedRectangle(cornerRadius: 3.5)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
                 .shadow(color: .black.opacity(0.3), radius: 1.5, x: 0, y: 1)
             } else {
               Image(systemName: "mic.fill")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(.white)
-                .frame(width: 16, height: 16)
-                .background(TickColor.brandMid)
+                .frame(width: 15, height: 15)
+                .background(Color.primary.opacity(0.25))
                 .cornerRadius(3.5)
-                .shadow(color: TickColor.brandMid.opacity(0.3), radius: 1.5, x: 0, y: 1)
+                .shadow(color: Color.black.opacity(0.3), radius: 1.5, x: 0, y: 1)
             }
             
-            Text(sourceAppName ?? "Listening")
-              .font(TickFont.bodyFunc(10.5))
-              .foregroundColor(.white.opacity(0.9))
+            Text(sourceAppName ?? "Listening...")
+              .font(TickFont.bodyFunc(11, weight: .medium))
+              .foregroundColor(.white.opacity(0.95))
               .lineLimit(1)
           }
-          .frame(width: geometry.notchWidth + extensionWidth * 2, height: 30)
-          .padding(.top, geometry.notchHeight)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 4)
+          .hexGlass(in: Capsule(), style: .regular)
+          .frame(width: totalWidth, height: 32)
+          .padding(.top, baseNotchHeight)
           .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
       }
     }
-    .frame(width: geometry.notchWidth + extensionWidth * 2, height: targetHeight)
-    .clipped()
-    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isActive)
-    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isLocked)
+    .frame(width: totalWidth, height: targetHeight)
+    .animation(.spring(response: 0.32, dampingFraction: 0.78), value: isActive)
+    .animation(.spring(response: 0.35, dampingFraction: 0.78), value: isLocked)
     .onAppear {
       updateGeometry()
       updateFeedbackInteraction()
@@ -391,15 +477,17 @@ struct FloatingCopyPillView: View {
             ZStack {
               if isCopiedState {
                 Circle()
-                  .fill(Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.20))
+                  .fill(.clear)
                   .frame(width: 24, height: 24)
+                  .hexGlass(in: Circle())
                 Image(systemName: "checkmark")
                   .font(.system(size: 11, weight: .bold))
                   .foregroundStyle(Color(red: 0.20, green: 0.78, blue: 0.45))
               } else if isDictionaryState {
                 Circle()
-                  .fill(TickColor.brand.opacity(0.22))
+                  .fill(.clear)
                   .frame(width: 24, height: 24)
+                  .hexGlass(in: Circle())
                   .overlay(
                     Circle()
                       .strokeBorder(TickColor.brandMid.opacity(0.3), lineWidth: 0.5)
@@ -409,8 +497,9 @@ struct FloatingCopyPillView: View {
                   .foregroundStyle(TickColor.brandMid)
               } else {
                 Circle()
-                  .fill(Color.white.opacity(0.10))
+                  .fill(.clear)
                   .frame(width: 24, height: 24)
+                  .hexGlass(in: Circle())
                   .overlay(
                     Circle()
                       .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
@@ -452,10 +541,7 @@ struct FloatingCopyPillView: View {
               .foregroundStyle(Color(red: 0.20, green: 0.78, blue: 0.45))
               .padding(.horizontal, 9)
               .padding(.vertical, 4.5)
-              .background(
-                Capsule()
-                  .fill(Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.15))
-              )
+              .hexGlass(in: Capsule(), interactive: true)
               .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else if isDictionaryState {
               HStack(spacing: 4) {
@@ -467,14 +553,8 @@ struct FloatingCopyPillView: View {
               .foregroundStyle(TickColor.brandMid)
               .padding(.horizontal, 9)
               .padding(.vertical, 4.5)
-              .background(
-                Capsule()
-                  .fill(TickColor.brand.opacity(0.20))
-                  .overlay(
-                    Capsule()
-                      .strokeBorder(TickColor.brandMid.opacity(0.25), lineWidth: 0.5)
-                  )
-              )
+              .hexGlass(in: Capsule(), interactive: true)
+              .overlay(Capsule().strokeBorder(TickColor.brandMid.opacity(0.25), lineWidth: 0.5))
               .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else {
               HStack(spacing: 4.5) {
@@ -486,14 +566,8 @@ struct FloatingCopyPillView: View {
               .foregroundStyle(Color.white.opacity(isCopyHovered ? 1.0 : 0.90))
               .padding(.horizontal, 9)
               .padding(.vertical, 4.5)
-              .background(
-                Capsule()
-                  .fill(Color.white.opacity(isCopyHovered ? 0.20 : 0.12))
-                  .overlay(
-                    Capsule()
-                      .strokeBorder(Color.white.opacity(isCopyHovered ? 0.25 : 0.12), lineWidth: 0.5)
-                  )
-              )
+              .hexGlass(in: Capsule(), interactive: true)
+              .overlay(Capsule().strokeBorder(Color.white.opacity(isCopyHovered ? 0.25 : 0.12), lineWidth: 0.5))
               .onHover { hovered in
                 withAnimation(.easeOut(duration: 0.12)) {
                   isCopyHovered = hovered
@@ -534,26 +608,23 @@ struct FloatingCopyPillView: View {
           .padding(.bottom, 3)
         }
         .frame(width: FloatingCopyLayout.pillSize.width, height: FloatingCopyLayout.pillSize.height)
-        .background(
+        .hexGlass(in: Capsule(), tint: .clear, interactive: true)
+        .overlay(
           Capsule()
-            .fill(Color(red: 0.11, green: 0.11, blue: 0.13).opacity(0.94))
-            .overlay(
-              Capsule()
-                .strokeBorder(
-                  LinearGradient(
-                    stops: [
-                      .init(color: Color.white.opacity(0.24), location: 0.0),
-                      .init(color: Color.white.opacity(0.10), location: 0.4),
-                      .init(color: Color.white.opacity(0.04), location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                  ),
-                  lineWidth: 1
-                )
+            .strokeBorder(
+              LinearGradient(
+                stops: [
+                  .init(color: Color.white.opacity(0.24), location: 0.0),
+                  .init(color: Color.white.opacity(0.10), location: 0.4),
+                  .init(color: Color.white.opacity(0.04), location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+              ),
+              lineWidth: 0.5
             )
-            .shadow(color: Color.black.opacity(0.28), radius: 10, x: 0, y: 3)
         )
+        .shadow(color: Color.black.opacity(0.28), radius: 10, x: 0, y: 3)
         .contentShape(Capsule())
       }
       .buttonStyle(.plain)
@@ -629,20 +700,20 @@ struct NotchWaveform: View {
   // Specific multipliers for each of the 4 bars to form a natural vocal shape
   private let barMultipliers: [Double] = [0.5, 1.0, 0.8, 0.4]
 
-  // Spectrum colors for recording (vibrant Apple-Intelligence-style warmth)
+  // Spectrum colors for recording (vibrant modern liquid spectrum)
   private let recordingColors: [Color] = [
-    Color(red: 0.486, green: 0.227, blue: 0.929), // Brand violet (#7c3aed)
-    Color(red: 0.843, green: 0.176, blue: 0.612), // Magenta / purple
-    Color(red: 0.941, green: 0.302, blue: 0.302), // Vibrant coral / red
-    Color(red: 0.961, green: 0.565, blue: 0.239)  // Sunset orange
+    Color(red: 0.180, green: 0.800, blue: 0.700), // Luminous teal
+    Color(red: 0.200, green: 0.550, blue: 0.950), // Electric cyan-blue
+    Color(red: 0.380, green: 0.420, blue: 0.950), // Royal indigo
+    Color(red: 0.900, green: 0.920, blue: 1.000)  // Crisp crystal white
   ]
 
-  // Spectrum colors for transcribing (teal -> indigo -> violet cool spectrum)
+  // Spectrum colors for transcribing (teal -> cyan -> indigo -> ice)
   private let transcribingColors: [Color] = [
-    Color(red: 0.180, green: 0.620, blue: 0.620), // Teal (#2e9e9e)
-    Color(red: 0.141, green: 0.478, blue: 0.843), // Blue (#247ad7)
-    Color(red: 0.478, green: 0.298, blue: 0.898), // Indigo (#7a4ce5)
-    Color(red: 0.706, green: 0.557, blue: 0.969)  // Light violet (#b48ef7)
+    Color(red: 0.180, green: 0.700, blue: 0.700), // Teal
+    Color(red: 0.141, green: 0.500, blue: 0.900), // Blue
+    Color(red: 0.350, green: 0.450, blue: 0.950), // Indigo
+    Color(red: 0.700, green: 0.800, blue: 1.000)  // Ice blue
   ]
 
   private func barColor(for index: Int) -> Color {

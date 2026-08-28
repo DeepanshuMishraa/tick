@@ -34,7 +34,7 @@ public struct ModelDownloadView: View {
 				)
 				.overlay(
 					RoundedRectangle(cornerRadius: TickRadius.card)
-						.stroke(TickColor.brand, lineWidth: shouldFlash ? 2 : 0)
+						.stroke(Color.clear, lineWidth: 0)
 						.animation(.easeInOut(duration: 0.5).repeatCount(3, autoreverses: true), value: shouldFlash)
 				)
 			}
@@ -49,10 +49,7 @@ public struct ModelDownloadView: View {
 						.font(TickFont.caption)
 				}
 				.padding(TickSpacing.s)
-				.background(
-					RoundedRectangle(cornerRadius: 8)
-						.fill(TickColor.error.opacity(0.08))
-				)
+				.hexGlass(cornerRadius: 8)
 			}
 		}
 		.frame(maxWidth: 560)
@@ -126,13 +123,6 @@ struct InfoBanner: View {
 		}
 		.padding(TickSpacing.m)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.background(
-			RoundedRectangle(cornerRadius: 12)
-				.fill(background)
-				.overlay(
-					RoundedRectangle(cornerRadius: 12)
-						.stroke(accent.opacity(0.2), lineWidth: 1)
-				)
-		)
+		.hexGlass(cornerRadius: 12, interactive: true)
 	}
 }

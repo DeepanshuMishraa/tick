@@ -66,8 +66,9 @@ struct PermissionsSectionView: View {
 		HStack(alignment: .center, spacing: TickSpacing.m) {
 			ZStack {
 				RoundedRectangle(cornerRadius: 10)
-					.fill(status == .granted ? TickColor.brand.opacity(0.12) : TickColor.canvas)
+					.fill(.clear)
 					.frame(width: 36, height: 36)
+					.hexGlass(cornerRadius: 10, tint: status == .granted ? TickColor.brand.opacity(0.12) : nil)
 				Image(systemName: icon)
 					.font(TickFont.labelFunc(14, weight: .medium))
 					.foregroundStyle(status == .granted ? TickColor.brand : TickColor.textSecondary)
@@ -95,23 +96,13 @@ struct PermissionsSectionView: View {
 					.foregroundStyle(TickColor.success)
 					.padding(.horizontal, TickSpacing.m)
 					.padding(.vertical, TickSpacing.xs)
-					.background(
-						Capsule()
-							.fill(TickColor.success.opacity(0.12))
-					)
+					.hexGlass(in: Capsule(), tint: TickColor.success.opacity(0.12))
 			case .denied, .notDetermined:
 				TickPrimaryButton(title: "Grant", icon: nil, action: action)
 			}
 		}
 		.padding(TickSpacing.m)
-		.background(
-			RoundedRectangle(cornerRadius: 12)
-				.fill(TickColor.surface)
-				.overlay(
-					RoundedRectangle(cornerRadius: 12)
-						.stroke(TickColor.cardBorder, lineWidth: 1)
-				)
-		)
+		.hexGlass(cornerRadius: 12)
 	}
 
 	private var combinedAccessibilityStatus: PermissionStatus {

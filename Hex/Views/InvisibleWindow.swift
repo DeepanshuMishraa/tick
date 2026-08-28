@@ -168,6 +168,7 @@ class InvisibleWindow: NSPanel {
 private final class FeedbackButtonWindow: NSPanel {
   override var canBecomeKey: Bool { false }
   override var canBecomeMain: Bool { false }
+  private var hostingView: NSHostingView<AnyView>!
 
   init(
     frame: NSRect,
@@ -195,6 +196,23 @@ private final class FeedbackButtonWindow: NSPanel {
     isMovableByWindowBackground = false
     collectionBehavior = [.fullScreenAuxiliary, .canJoinAllSpaces, .stationary, .ignoresCycle]
 
+    let initialView = AnyView(
+      FloatingCopyPillView(
+        feedback: feedback,
+        startedAt: startedAt,
+        duration: duration,
+        onCopy: onCopy
+      ).id(startedAt)
+    )
+    hostingView = NSHostingView(rootView: initialView)
+    hostingView.frame = NSRect(origin: .zero, size: frame.size)
+    hostingView.autoresizingMask = [.width, .height]
+
+    // The pill owns its material in SwiftUI via `hexGlass`. Wrapping it in a
+    // second AppKit material double-composites the blur and makes Liquid Glass
+    // look like an opaque dark capsule.
+    contentView = hostingView
+
     update(
       frame: frame,
       feedback: feedback,
@@ -212,27 +230,14 @@ private final class FeedbackButtonWindow: NSPanel {
     onCopy: @escaping () -> Void
   ) {
     setFrame(frame, display: true)
-    if let hostingView = contentView as? NSHostingView<AnyView> {
-      hostingView.rootView = AnyView(
-        FloatingCopyPillView(
-          feedback: feedback,
-          startedAt: startedAt,
-          duration: duration,
-          onCopy: onCopy
-        ).id(startedAt)
-      )
-    } else {
-      contentView = NSHostingView(
-        rootView: AnyView(
-          FloatingCopyPillView(
-            feedback: feedback,
-            startedAt: startedAt,
-            duration: duration,
-            onCopy: onCopy
-          ).id(startedAt)
-        )
-      )
-    }
+    hostingView.rootView = AnyView(
+      FloatingCopyPillView(
+        feedback: feedback,
+        startedAt: startedAt,
+        duration: duration,
+        onCopy: onCopy
+      ).id(startedAt)
+    )
     orderFrontRegardless()
   }
 }

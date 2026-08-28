@@ -61,10 +61,7 @@ struct WordRemappingsView: View {
 								.padding(.horizontal, TickSpacing.m)
 								.padding(.vertical, TickSpacing.s + 2)
 								.frame(minHeight: 38)
-								.background(
-									RoundedRectangle(cornerRadius: 10)
-										.fill(TickColor.surface)
-								)
+								.hexGlass(cornerRadius: 10)
 						}
 					}
 				}
@@ -137,14 +134,7 @@ struct WordRemappingsView: View {
 			}
 		}
 		.padding(TickSpacing.l)
-		.background(
-			RoundedRectangle(cornerRadius: TickRadius.card)
-				.fill(TickColor.surface)
-				.overlay(
-					RoundedRectangle(cornerRadius: TickRadius.card)
-						.stroke(TickColor.cardBorder, lineWidth: 1)
-				)
-		)
+		.hexGlass(cornerRadius: TickRadius.card)
 	}
 
 	private var remappingsSection: some View {
@@ -177,14 +167,7 @@ struct WordRemappingsView: View {
 			}
 		}
 		.padding(TickSpacing.l)
-		.background(
-			RoundedRectangle(cornerRadius: TickRadius.card)
-				.fill(TickColor.surface)
-				.overlay(
-					RoundedRectangle(cornerRadius: TickRadius.card)
-						.stroke(TickColor.cardBorder, lineWidth: 1)
-				)
-		)
+		.hexGlass(cornerRadius: TickRadius.card)
 	}
 
 	private func removalBinding(for id: UUID) -> Binding<WordRemoval>? {
@@ -236,10 +219,7 @@ private struct RemovalRow: View {
 					.font(TickFont.captionFunc(13))
 					.foregroundStyle(TickColor.textTertiary)
 					.frame(width: 32, height: 32)
-					.background(
-						Circle()
-							.fill(TickColor.canvas)
-					)
+					.hexGlass(in: Circle())
 			}
 			.buttonStyle(.plain)
 		}
@@ -267,10 +247,7 @@ private struct RemappingRow: View {
 					.font(TickFont.captionFunc(13))
 					.foregroundStyle(TickColor.textTertiary)
 					.frame(width: 32, height: 32)
-					.background(
-						Circle()
-							.fill(TickColor.canvas)
-					)
+					.hexGlass(in: Circle())
 			}
 			.buttonStyle(.plain)
 		}

@@ -104,7 +104,7 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 
 		let settingsView = AppView(store: HexApp.appStore)
 			.frame(minWidth: 920, minHeight: 620)
-			.background(TickColor.canvas)
+			.background(Color.clear)
 
 		let settingsWindow = NSWindow(
 			contentRect: .init(x: 0, y: 0, width: 1100, height: 720),
@@ -115,14 +115,45 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 		settingsWindow.title = "Tick"
 		settingsWindow.titleVisibility = .hidden
 		settingsWindow.titlebarAppearsTransparent = true
-		settingsWindow.appearance = NSAppearance(named: .aqua)
-		settingsWindow.contentView = NSHostingView(rootView: settingsView)
+		settingsWindow.isOpaque = false
+		settingsWindow.backgroundColor = .clear
+		settingsWindow.hasShadow = true
+		settingsWindow.titlebarSeparatorStyle = .none
+		settingsWindow.isMovableByWindowBackground = true
+		settingsWindow.contentView = makeAdaptiveWindowContentView(rootView: settingsView, frame: settingsWindow.contentRect(forFrameRect: settingsWindow.frame))
 		settingsWindow.isReleasedWhenClosed = false
 		settingsWindow.center()
 		settingsWindow.toolbarStyle = .unified
 		settingsWindow.makeKeyAndOrderFront(nil)
 		NSApp.activate(ignoringOtherApps: true)
 		self.settingsWindow = settingsWindow
+	}
+
+	/// Hosts the full app surface in the platform's actual window material.
+	/// SwiftUI's `glassEffect` is for controls and content surfaces; it cannot
+	/// make an NSWindow reveal the desktop behind it by itself.
+	private func makeAdaptiveWindowContentView<Content: View>(rootView: Content, frame: NSRect) -> NSView {
+		let hostingView = NSHostingView(rootView: rootView)
+		hostingView.frame = NSRect(origin: .zero, size: frame.size)
+		hostingView.autoresizingMask = [.width, .height]
+
+		if #available(macOS 26.0, *) {
+			let glassView = NSGlassEffectView(frame: NSRect(origin: .zero, size: frame.size))
+			glassView.style = .regular
+			glassView.cornerRadius = 24
+			glassView.tintColor = .clear
+			glassView.autoresizingMask = [.width, .height]
+			glassView.contentView = hostingView
+			return glassView
+		}
+
+		let vibrancyView = NSVisualEffectView(frame: NSRect(origin: .zero, size: frame.size))
+		vibrancyView.material = .underWindowBackground
+		vibrancyView.blendingMode = .behindWindow
+		vibrancyView.state = .active
+		vibrancyView.autoresizingMask = [.width, .height]
+		vibrancyView.addSubview(hostingView)
+		return vibrancyView
 	}
 
 	@objc private func handleAppModeUpdate() {

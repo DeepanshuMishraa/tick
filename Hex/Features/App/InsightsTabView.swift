@@ -9,6 +9,9 @@ struct InsightsTabView: View {
   let uniqueAppsCount: Int
 
   @State private var heatmapPage = 0
+  @State private var cachedWordsByDay: [Date: Int] = [:]
+  @State private var cachedTranscriptsByDay: [Date: Int] = [:]
+  @State private var cachedTopApps: [(name: String, words: Int)] = []
   private let monthsPerPage = 3
 
   private var calendar: Calendar {
@@ -60,17 +63,11 @@ struct InsightsTabView: View {
   }
 
   private var wordsByDay: [Date: Int] {
-    transcripts.reduce(into: [:]) { result, transcript in
-      let day = calendar.startOfDay(for: transcript.timestamp)
-      result[day, default: 0] += transcript.text.split { $0.isWhitespace }.count
-    }
+    cachedWordsByDay
   }
 
   private var transcriptsByDay: [Date: Int] {
-    transcripts.reduce(into: [:]) { result, transcript in
-      let day = calendar.startOfDay(for: transcript.timestamp)
-      result[day, default: 0] += 1
-    }
+    cachedTranscriptsByDay
   }
 
   private var activeDays: Int { wordsByDay.count }
@@ -159,15 +156,7 @@ struct InsightsTabView: View {
   }
 
   private var topApps: [(name: String, words: Int)] {
-    let grouped = transcripts.reduce(into: [String: Int]()) { result, transcript in
-      let appName = transcript.sourceAppName?.isEmpty == false ? transcript.sourceAppName! : "Other apps"
-      result[appName, default: 0] += transcript.text.split { $0.isWhitespace }.count
-    }
-    var apps = grouped.map { (name: $0.key, words: $0.value) }
-    apps.sort { lhs, rhs in
-      lhs.words == rhs.words ? lhs.name < rhs.name : lhs.words > rhs.words
-    }
-    return Array(apps.prefix(4))
+    cachedTopApps
   }
 
   var body: some View {
@@ -180,6 +169,38 @@ struct InsightsTabView: View {
     .frame(maxWidth: .infinity, alignment: .topLeading)
     .onChange(of: transcripts) { _, _ in
       heatmapPage = min(heatmapPage, maxHeatmapPage)
+    }
+    .task(id: transcripts) {
+      let snapshot = await Task.detached(priority: .userInitiated) {
+        var calendar = Calendar.autoupdatingCurrent
+        calendar.firstWeekday = 1
+        var wordsByDay: [Date: Int] = [:]
+        var transcriptsByDay: [Date: Int] = [:]
+        var apps: [String: Int] = [:]
+
+        for transcript in transcripts {
+          let day = calendar.startOfDay(for: transcript.timestamp)
+          let words = transcript.text.split { $0.isWhitespace }.count
+          wordsByDay[day, default: 0] += words
+          transcriptsByDay[day, default: 0] += 1
+          let appName = transcript.sourceAppName?.isEmpty == false ? transcript.sourceAppName! : "Other apps"
+          apps[appName, default: 0] += words
+        }
+
+        let sortedApps: [(name: String, words: Int)] = apps.map { entry in
+          (name: entry.key, words: entry.value)
+        }
+        let topApps = sortedApps.sorted { lhs, rhs in
+            lhs.words == rhs.words ? lhs.name < rhs.name : lhs.words > rhs.words
+        }
+
+        return (wordsByDay, transcriptsByDay, Array(topApps.prefix(4)))
+      }.value
+
+      guard !Task.isCancelled else { return }
+      cachedWordsByDay = snapshot.0
+      cachedTranscriptsByDay = snapshot.1
+      cachedTopApps = snapshot.2
     }
   }
 
@@ -267,7 +288,6 @@ struct InsightsTabView: View {
         }
       }
 
-      Divider()
         .padding(.vertical, 18)
 
       HStack(alignment: .top, spacing: 10) {
@@ -323,7 +343,7 @@ struct InsightsTabView: View {
       .padding(.top, 18)
     }
     .padding(20)
-    .background(insightCardBackground)
+    .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 
   private var supportingDetails: some View {
@@ -368,7 +388,7 @@ struct InsightsTabView: View {
     }
     .padding(20)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(insightCardBackground)
+    .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 
   private var appsCard: some View {
@@ -429,16 +449,7 @@ struct InsightsTabView: View {
     }
     .padding(20)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(insightCardBackground)
-  }
-
-  private var insightCardBackground: some View {
-    RoundedRectangle(cornerRadius: TickRadius.card)
-      .fill(TickColor.surface)
-      .overlay(
-        RoundedRectangle(cornerRadius: TickRadius.card)
-          .stroke(TickColor.cardBorder, lineWidth: 1)
-      )
+    .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 
   private func monthLabel(for date: Date?) -> String {
@@ -467,10 +478,7 @@ struct InsightsTabView: View {
         .font(TickFont.captionFunc(11, weight: .semibold))
         .foregroundStyle(isDisabled ? TickColor.textTertiary.opacity(0.35) : TickColor.textSecondary)
         .frame(width: 24, height: 24)
-        .background(
-          RoundedRectangle(cornerRadius: 6)
-            .fill(isDisabled ? Color.clear : TickColor.canvas)
-        )
+        .hexGlass(cornerRadius: 6, interactive: true)
     }
     .buttonStyle(.plain)
     .disabled(isDisabled)
@@ -526,14 +534,7 @@ private struct InsightMetricCard: View {
     }
     .padding(16)
     .frame(maxWidth: .infinity, minHeight: 118, alignment: .leading)
-    .background(
-      RoundedRectangle(cornerRadius: TickRadius.card)
-        .fill(TickColor.stat)
-        .overlay(
-          RoundedRectangle(cornerRadius: TickRadius.card)
-            .stroke(TickColor.cardBorder, lineWidth: 1)
-        )
-    )
+    .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 }
 
@@ -566,7 +567,7 @@ private struct InsightHeatmapCell: View {
       .frame(width: 18, height: 18)
       .overlay(
         RoundedRectangle(cornerRadius: 4)
-          .stroke(isHovered ? TickColor.textPrimary.opacity(0.45) : Color.clear, lineWidth: 1)
+          .stroke(Color.clear, lineWidth: 0)
       )
       .contentShape(Rectangle())
       .onHover { isHovered = $0 }

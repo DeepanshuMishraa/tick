@@ -547,10 +547,10 @@ private actor LocalAIModelManager {
 			additionalContext: ["enable_thinking": false]
 		)
 		let preparedInput = try await container.prepare(input: input)
-		// Dictation snippets are usually short. A high minimum forces Qwen to
-		// keep decoding after the answer is complete, which is very noticeable
-		// when the user is waiting for the final paste.
-		let maxOutputTokens = min(128, max(24, normalizedInput.count / 4 + 20))
+		// Scale output capacity with the input so long dictation is never silently
+		// cut off by the old fixed 128-token ceiling.
+		let estimatedOutputTokens = normalizedInput.utf8.count / 3 + 128
+		let maxOutputTokens = min(8192, max(256, estimatedOutputTokens))
 		let generation = try await container.generate(
 			input: preparedInput,
 			parameters: GenerateParameters(
