@@ -113,7 +113,10 @@ struct TranscriptionFeature {
         return .merge(
           startMeteringEffect(),
           startHotKeyMonitoringEffect(),
-          warmUpRecorderEffect()
+          warmUpRecorderEffect(),
+          state.hexSettings.aiPostProcessingMode == .off
+            ? .none
+            : warmUpAIModelEffect()
         )
 
       // MARK: - Metering
@@ -421,6 +424,20 @@ private extension TranscriptionFeature {
     }
   }
 
+  /// Load the optional formatter while Hex is idle so the first dictation
+  /// does not pay the model-loading cost. Generation still happens only after
+  /// transcription has completed.
+  func warmUpAIModelEffect() -> Effect<Action> {
+    .run { [aiPostProcessing] _ in
+      guard await aiPostProcessing.isModelDownloaded() else { return }
+      do {
+        try await aiPostProcessing.warmModel()
+      } catch {
+        transcriptionFeatureLogger.error("On-device AI prewarm failed: \(error.localizedDescription)")
+      }
+    }
+  }
+
   func handleStopRecording(_ state: inout State) -> Effect<Action> {
     state.isRecording = false
     state.isLocked = false
@@ -572,6 +589,9 @@ private extension TranscriptionFeature {
     let shouldLearnDictionary = !isRemappingScratchpadFocused
 
     return .run { send in
+      // Formatting must finish before insertion so the target receives one
+      // clean final transcript. Keep all persistence and verification after
+      // insertion; they must never extend this critical path.
       var resultToUse = modifiedResult
 
       if useAI {
@@ -584,39 +604,33 @@ private extension TranscriptionFeature {
         }
       }
 
-      guard !resultToUse.isEmpty else {
-        return
+      let pasteResult = await pasteboard.paste(resultToUse)
+      if case .pasted = pasteResult {
+        soundEffect.play(.pasteTranscript)
       }
 
-      do {
-        let pasteResult = try await finalizeRecordingAndStoreTranscript(
-          result: resultToUse,
-          duration: duration,
-          sourceAppBundleID: sourceAppBundleID,
-          sourceAppName: sourceAppName,
-          audioURL: audioURL,
-          transcriptionHistory: transcriptionHistory
-        )
+      persistTranscriptInBackground(
+        result: resultToUse,
+        duration: duration,
+        sourceAppBundleID: sourceAppBundleID,
+        sourceAppName: sourceAppName,
+        audioURL: audioURL,
+        transcriptionHistory: transcriptionHistory
+      )
 
-        switch pasteResult {
-        case let .pasted(beforeText, afterText) where shouldLearnDictionary:
-          // Some apps report a successful paste before Accessibility exposes
-          // the updated value. Start monitoring immediately so a correction
-          // made during that race is still learned.
-          await send(.beginCorrectionMonitoring(
-            beforeText: beforeText,
-            baseline: afterText,
-            insertedText: resultToUse
-          ))
-        case .noFocusedInput:
-          await send(.pasteUnavailable(resultToUse, reason: .noFocusedInput))
-        case .failed:
-          await send(.pasteUnavailable(resultToUse, reason: .insertionRejected))
-        case .pasted:
-          break
-        }
-      } catch {
-        await send(.transcriptionError(error, audioURL))
+      switch pasteResult {
+      case let .pasted(beforeText, afterText) where shouldLearnDictionary:
+        await send(.beginCorrectionMonitoring(
+          beforeText: beforeText,
+          baseline: afterText,
+          insertedText: resultToUse
+        ))
+      case .noFocusedInput:
+        await send(.pasteUnavailable(resultToUse, reason: .noFocusedInput))
+      case .failed:
+        await send(.pasteUnavailable(resultToUse, reason: .insertionRejected))
+      case .pasted:
+        break
       }
     }
     .cancellable(id: CancelID.transcription)
@@ -640,48 +654,49 @@ private extension TranscriptionFeature {
     return .none
   }
 
-  /// Move file to permanent location, create a transcript record, paste text, and play sound.
-  func finalizeRecordingAndStoreTranscript(
+  /// Persist the audio and history without delaying text insertion.
+  func persistTranscriptInBackground(
     result: String,
     duration: TimeInterval,
     sourceAppBundleID: String?,
     sourceAppName: String?,
     audioURL: URL,
     transcriptionHistory: Shared<TranscriptionHistory>
-  ) async throws -> PasteboardPasteResult {
+  ) {
     @Shared(.hexSettings) var hexSettings: HexSettings
+    let shouldSaveHistory = hexSettings.saveTranscriptionHistory
+    let maxHistoryEntries = hexSettings.maxHistoryEntries
+    if shouldSaveHistory {
+      Task { [transcriptPersistence, transcriptionHistory] in
+        do {
+          let transcript = try await transcriptPersistence.save(
+            result,
+            audioURL,
+            duration,
+            sourceAppBundleID,
+            sourceAppName
+          )
 
-    if hexSettings.saveTranscriptionHistory {
-      let transcript = try await transcriptPersistence.save(
-        result,
-        audioURL,
-        duration,
-        sourceAppBundleID,
-        sourceAppName
-      )
+          transcriptionHistory.withLock { history in
+            history.history.insert(transcript, at: 0)
 
-      transcriptionHistory.withLock { history in
-        history.history.insert(transcript, at: 0)
-
-        if let maxEntries = hexSettings.maxHistoryEntries, maxEntries > 0 {
-          while history.history.count > maxEntries {
-            if let removedTranscript = history.history.popLast() {
-              Task {
-                 try? await transcriptPersistence.deleteAudio(removedTranscript)
+            if let maxEntries = maxHistoryEntries, maxEntries > 0 {
+              while history.history.count > maxEntries {
+                if let removedTranscript = history.history.popLast() {
+                  Task {
+                    try? await transcriptPersistence.deleteAudio(removedTranscript)
+                  }
+                }
               }
             }
           }
+        } catch {
+          transcriptionFeatureLogger.error("Failed to save transcript history: \(error.localizedDescription)")
         }
       }
     } else {
       try? FileManager.default.removeItem(at: audioURL)
     }
-
-    let pasteResult = await pasteboard.paste(result)
-    if case .pasted = pasteResult {
-      soundEffect.play(.pasteTranscript)
-    }
-    return pasteResult
   }
 }
 

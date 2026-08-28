@@ -68,6 +68,84 @@ private struct LocalTokenizerLoader: MLXLMCommon.TokenizerLoader {
 		return LocalTokenizerBridge(tokenizer)
 	}
 }
+
+private final class IncrementalDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+	private let destination: URL
+	private let onProgress: @Sendable (Int64) -> Void
+	private var continuation: CheckedContinuation<HTTPURLResponse, Error>?
+	private var downloadTask: URLSessionDownloadTask?
+	private var session: URLSession?
+	private var bytesReported: Int64 = 0
+	private var moveError: Error?
+
+	init(destination: URL, onProgress: @escaping @Sendable (Int64) -> Void) {
+		self.destination = destination
+		self.onProgress = onProgress
+	}
+
+	func download(request: URLRequest) async throws -> HTTPURLResponse {
+		try await withTaskCancellationHandler(operation: {
+			try await withCheckedThrowingContinuation { continuation in
+				self.continuation = continuation
+				let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
+				self.session = session
+				let task = session.downloadTask(with: request)
+				self.downloadTask = task
+				task.resume()
+			}
+		}, onCancel: {
+			self.downloadTask?.cancel()
+		})
+	}
+
+	func urlSession(
+		_ session: URLSession,
+		downloadTask: URLSessionDownloadTask,
+		didWriteData bytesWritten: Int64,
+		totalBytesWritten: Int64,
+		totalBytesExpectedToWrite: Int64
+	) {
+		let delta = totalBytesWritten - bytesReported
+		bytesReported = totalBytesWritten
+		if delta > 0 {
+			onProgress(delta)
+		}
+	}
+
+	func urlSession(
+		_ session: URLSession,
+		downloadTask: URLSessionDownloadTask,
+		didFinishDownloadingTo location: URL
+	) {
+		do {
+			let fileManager = FileManager.default
+			if fileManager.fileExists(atPath: destination.path) {
+				try fileManager.removeItem(at: destination)
+			}
+			try fileManager.moveItem(at: location, to: destination)
+		} catch {
+			moveError = error
+		}
+	}
+
+	func urlSession(
+		_ session: URLSession,
+		task: URLSessionTask,
+		didCompleteWithError error: Error?
+	) {
+		if let error {
+			continuation?.resume(throwing: error)
+		} else if let moveError {
+			continuation?.resume(throwing: moveError)
+		} else if let response = task.response as? HTTPURLResponse {
+			continuation?.resume(returning: response)
+		} else {
+			continuation?.resume(throwing: AIPostProcessingError.remoteDownloadFailed)
+		}
+		continuation = nil
+		session.finishTasksAndInvalidate()
+	}
+}
 #endif
 
 @DependencyClient
@@ -118,6 +196,9 @@ private actor LocalAIModelManager {
 	private var modelContainer: ModelContainer?
 
 	private let modelDirectoryName = "Qwen3-1.7B-MLX-4bit"
+	private let parallelDownloadThreshold: Int64 = 64 * 1024 * 1024
+	private let downloadChunkSize: Int64 = 64 * 1024 * 1024
+	private let maxConcurrentDownloads = 6
 
 	private var modelDirectory: URL {
 		get throws {
@@ -166,32 +247,261 @@ private actor LocalAIModelManager {
 
 		let totalBytes = OnDeviceAIModel.files.reduce(Int64(0)) { $0 + $1.size }
 		let progress = Progress(totalUnitCount: totalBytes)
-		progressHandler(progress)
+		let progressReporter = DownloadProgressReporter(progress: progress, handler: progressHandler)
+		progressReporter.notify()
 		aiLogger.notice("Starting on-device AI model download from R2")
+		let stagingDirectory = try URL.hexAIModelsDirectory.appendingPathComponent(".download-\(modelDirectoryName)", isDirectory: true)
+		try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
 
 		for file in OnDeviceAIModel.files {
 			try Task.checkCancellation()
-			let source = OnDeviceAIModel.remoteBaseURL.appendingPathComponent(file.name)
-			let (temporaryURL, response) = try await URLSession.shared.download(from: source)
-			guard let httpResponse = response as? HTTPURLResponse,
-				(200..<300).contains(httpResponse.statusCode)
-			else {
-				throw AIPostProcessingError.remoteDownloadFailed
+			let localURL = destination.appendingPathComponent(file.name)
+			if fileManager.fileExists(atPath: localURL.path),
+				let values = try? localURL.resourceValues(forKeys: [.fileSizeKey]),
+				Int64(values.fileSize ?? 0) == file.size {
+				progressReporter.add(file.size)
+				continue
 			}
 
-			let localURL = destination.appendingPathComponent(file.name)
-			if fileManager.fileExists(atPath: localURL.path) {
-				try fileManager.removeItem(at: localURL)
+			let source = OnDeviceAIModel.remoteBaseURL.appendingPathComponent(file.name)
+			let fileProgressStart = progressReporter.completedUnitCount
+			if file.size >= parallelDownloadThreshold {
+				do {
+					try await downloadInParallel(
+						source: source,
+						expectedSize: file.size,
+						destination: localURL,
+						stagingDirectory: stagingDirectory,
+						progress: progressReporter
+					)
+				} catch AIPostProcessingError.rangeDownloadsUnavailable {
+					progressReporter.setCompleted(fileProgressStart)
+					try await downloadSingle(
+						source: source,
+						expectedSize: file.size,
+						destination: localURL,
+						stagingDirectory: stagingDirectory,
+						progress: progressReporter
+					)
+				}
+			} else {
+				try await downloadSingle(
+					source: source,
+					expectedSize: file.size,
+					destination: localURL,
+					stagingDirectory: stagingDirectory,
+					progress: progressReporter
+				)
 			}
-			try fileManager.moveItem(at: temporaryURL, to: localURL)
-			progress.completedUnitCount += file.size
-			progressHandler(progress)
+			progressReporter.notify()
 		}
 
 		guard isModelDownloaded() else {
 			throw AIPostProcessingError.incompleteModel
 		}
+		try? fileManager.removeItem(at: stagingDirectory)
 		aiLogger.notice("On-device AI model download completed")
+	}
+
+	private struct DownloadedChunk: Sendable {
+		let index: Int
+		let url: URL
+	}
+
+	private final class DownloadProgressReporter: @unchecked Sendable {
+		private let progress: Progress
+		private let handler: @Sendable (Progress) -> Void
+		private let lock = NSLock()
+		private let notificationInterval: TimeInterval = 0.1
+		private let notificationByteInterval: Int64 = 512 * 1024
+		private var lastNotifiedBytes: Int64 = 0
+		private var lastNotificationUptime: TimeInterval = 0
+
+		init(progress: Progress, handler: @escaping @Sendable (Progress) -> Void) {
+			self.progress = progress
+			self.handler = handler
+		}
+
+		var completedUnitCount: Int64 {
+			lock.lock()
+			defer { lock.unlock() }
+			return progress.completedUnitCount
+		}
+
+		func add(_ bytes: Int64) {
+			guard bytes > 0 else { return }
+			lock.lock()
+			progress.completedUnitCount += bytes
+			let now = ProcessInfo.processInfo.systemUptime
+			let shouldNotify = progress.completedUnitCount - lastNotifiedBytes >= notificationByteInterval
+				|| now - lastNotificationUptime >= notificationInterval
+			if shouldNotify {
+				lastNotifiedBytes = progress.completedUnitCount
+				lastNotificationUptime = now
+			}
+			lock.unlock()
+			if shouldNotify {
+				handler(progress)
+			}
+		}
+
+		func setCompleted(_ value: Int64) {
+			lock.lock()
+			progress.completedUnitCount = value
+			lastNotifiedBytes = value
+			lastNotificationUptime = ProcessInfo.processInfo.systemUptime
+			lock.unlock()
+			handler(progress)
+		}
+
+		func notify() {
+			lock.lock()
+			lastNotifiedBytes = progress.completedUnitCount
+			lastNotificationUptime = ProcessInfo.processInfo.systemUptime
+			lock.unlock()
+			handler(progress)
+		}
+	}
+
+	private func downloadSingle(
+		source: URL,
+		expectedSize: Int64,
+		destination: URL,
+		stagingDirectory: URL,
+		progress: DownloadProgressReporter
+	) async throws {
+		let temporaryURL = stagingDirectory.appendingPathComponent("single-\(UUID().uuidString).download")
+		let delegate = IncrementalDownloadDelegate(destination: temporaryURL) { bytes in
+			progress.add(bytes)
+		}
+		let response = try await delegate.download(request: URLRequest(url: source))
+		guard (200..<300).contains(response.statusCode)
+		else {
+			throw AIPostProcessingError.remoteDownloadFailed
+		}
+		guard response.expectedContentLength == -1 || response.expectedContentLength == expectedSize else {
+			throw AIPostProcessingError.incompleteModel
+		}
+
+		let fileManager = FileManager.default
+		if fileManager.fileExists(atPath: destination.path) {
+			try fileManager.removeItem(at: destination)
+		}
+		try fileManager.moveItem(at: temporaryURL, to: destination)
+		let values = try destination.resourceValues(forKeys: [.fileSizeKey])
+		guard Int64(values.fileSize ?? 0) == expectedSize else {
+			try? fileManager.removeItem(at: destination)
+			throw AIPostProcessingError.incompleteModel
+		}
+	}
+
+	private func downloadInParallel(
+		source: URL,
+		expectedSize: Int64,
+		destination: URL,
+		stagingDirectory: URL,
+		progress: DownloadProgressReporter
+	) async throws {
+		let chunkCount = Int((expectedSize + downloadChunkSize - 1) / downloadChunkSize)
+		let fileManager = FileManager.default
+		var chunkURLs = Array<URL?>(repeating: nil, count: chunkCount)
+		for index in 0..<chunkCount {
+			let lowerBound = Int64(index) * downloadChunkSize
+			let upperBound = min(lowerBound + downloadChunkSize, expectedSize)
+			let chunkURL = stagingDirectory.appendingPathComponent("chunk-\(index).part")
+			if fileManager.fileExists(atPath: chunkURL.path),
+				let values = try? chunkURL.resourceValues(forKeys: [.fileSizeKey]),
+				Int64(values.fileSize ?? 0) == upperBound - lowerBound {
+				chunkURLs[index] = chunkURL
+				progress.add(upperBound - lowerBound)
+			}
+		}
+		var nextChunk = 0
+
+		try await withThrowingTaskGroup(of: DownloadedChunk.self) { group in
+			func addNextChunk() {
+				while nextChunk < chunkCount, chunkURLs[nextChunk] != nil {
+					nextChunk += 1
+				}
+				guard nextChunk < chunkCount else { return }
+				let index = nextChunk
+				nextChunk += 1
+				let lowerBound = Int64(index) * downloadChunkSize
+				let upperBound = min(lowerBound + downloadChunkSize, expectedSize)
+				group.addTask {
+					try await self.downloadChunk(
+						source: source,
+						lowerBound: lowerBound,
+						upperBound: upperBound,
+						index: index,
+						stagingDirectory: stagingDirectory,
+						progress: progress
+					)
+				}
+			}
+
+			for _ in 0..<min(maxConcurrentDownloads, chunkCount) {
+				addNextChunk()
+			}
+
+			while let chunk = try await group.next() {
+				chunkURLs[chunk.index] = chunk.url
+				addNextChunk()
+			}
+		}
+
+		if fileManager.fileExists(atPath: destination.path) {
+			try fileManager.removeItem(at: destination)
+		}
+		fileManager.createFile(atPath: destination.path, contents: nil)
+		let output = try FileHandle(forWritingTo: destination)
+		defer { try? output.close() }
+
+		for chunkURL in chunkURLs {
+			guard let chunkURL else { throw AIPostProcessingError.incompleteModel }
+			let input = try FileHandle(forReadingFrom: chunkURL)
+			defer { try? input.close() }
+			while let data = try input.read(upToCount: 8 * 1024 * 1024), !data.isEmpty {
+				try output.write(contentsOf: data)
+			}
+		}
+
+		let values = try destination.resourceValues(forKeys: [.fileSizeKey])
+		guard Int64(values.fileSize ?? 0) == expectedSize else {
+			try? fileManager.removeItem(at: destination)
+			throw AIPostProcessingError.incompleteModel
+		}
+	}
+
+	private func downloadChunk(
+		source: URL,
+		lowerBound: Int64,
+		upperBound: Int64,
+		index: Int,
+		stagingDirectory: URL,
+		progress: DownloadProgressReporter
+	) async throws -> DownloadedChunk {
+		var request = URLRequest(url: source)
+		request.setValue("bytes=\(lowerBound)-\(upperBound - 1)", forHTTPHeaderField: "Range")
+		let chunkURL = stagingDirectory.appendingPathComponent("chunk-\(index).part")
+		let delegate = IncrementalDownloadDelegate(destination: chunkURL) { bytes in
+			progress.add(bytes)
+		}
+		let response = try await delegate.download(request: request)
+		guard response.statusCode == 206
+		else {
+			throw AIPostProcessingError.rangeDownloadsUnavailable
+		}
+
+		let expectedSize = upperBound - lowerBound
+		guard response.expectedContentLength == -1 || response.expectedContentLength == expectedSize else {
+			throw AIPostProcessingError.incompleteModel
+		}
+		let values = try chunkURL.resourceValues(forKeys: [.fileSizeKey])
+		guard Int64(values.fileSize ?? 0) == expectedSize else {
+			throw AIPostProcessingError.incompleteModel
+		}
+		return DownloadedChunk(index: index, url: chunkURL)
 	}
 
 	func warmModel() async throws {
@@ -209,9 +519,14 @@ private actor LocalAIModelManager {
 		if fileManager.fileExists(atPath: destination.path) {
 			try fileManager.removeItem(at: destination)
 		}
+		let stagingDirectory = try URL.hexAIModelsDirectory.appendingPathComponent(".download-\(modelDirectoryName)", isDirectory: true)
+		if fileManager.fileExists(atPath: stagingDirectory.path) {
+			try fileManager.removeItem(at: stagingDirectory)
+		}
 	}
 
 	func postProcess(text: String, mode: AIPostProcessingMode, appContext: AppContext?) async throws -> String {
+		let startedAt = ProcessInfo.processInfo.systemUptime
 		guard mode != .off else { return text }
 		guard isModelDownloaded() else {
 			aiLogger.warning("On-device AI is enabled but its model is unavailable")
@@ -220,20 +535,29 @@ private actor LocalAIModelManager {
 
 		let prompt = mode.systemPrompt(appContext: appContext, selectedStyleIndex: currentStyleIndex())
 		guard !prompt.isEmpty else { return text }
+		let normalizedInput = AIPostProcessingInputNormalizer.normalized(text)
 
 		#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
 		let container = try await loadLocalModel()
 		let input = UserInput(
 			chat: [
 				.system(prompt),
-				.user(text)
+				.user(normalizedInput)
 			],
 			additionalContext: ["enable_thinking": false]
 		)
 		let preparedInput = try await container.prepare(input: input)
+		// Dictation snippets are usually short. A high minimum forces Qwen to
+		// keep decoding after the answer is complete, which is very noticeable
+		// when the user is waiting for the final paste.
+		let maxOutputTokens = min(128, max(24, normalizedInput.count / 4 + 20))
 		let generation = try await container.generate(
 			input: preparedInput,
-			parameters: GenerateParameters(maxTokens: 256, temperature: 0, prefillStepSize: 512)
+			parameters: GenerateParameters(
+				maxTokens: maxOutputTokens,
+				temperature: 0,
+				prefillStepSize: 512
+			)
 		)
 
 		var output = ""
@@ -244,10 +568,19 @@ private actor LocalAIModelManager {
 			}
 		}
 
-		guard let validated = AIPostProcessingOutputValidator.validated(output) else {
-			aiLogger.warning("Rejected invalid on-device AI output")
+		guard let validated = AIPostProcessingOutputValidator.validated(output, sourceText: text) else {
+			let containsReasoning = output.range(of: "<think>", options: .caseInsensitive) != nil
+				|| output.range(of: "<reasoning>", options: .caseInsensitive) != nil
+			let containsWrapper = output.lowercased().hasPrefix("output:")
+				|| output.lowercased().hasPrefix("corrected text:")
+			aiLogger.warning(
+				"Rejected invalid on-device AI output chars=\(output.count, privacy: .public) reasoning=\(containsReasoning, privacy: .public) wrapper=\(containsWrapper, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)"
+			)
 			throw AIPostProcessingError.invalidOutput
 		}
+		aiLogger.info(
+			"Accepted on-device AI output chars=\(validated.count, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)"
+		)
 		return validated
 		#else
 		throw AIPostProcessingError.mlXUnavailable
@@ -288,6 +621,7 @@ private actor LocalAIModelManager {
 enum AIPostProcessingError: Error, LocalizedError {
 	case invalidModelIdentifier
 	case incompleteModel
+	case rangeDownloadsUnavailable
 	case remoteDownloadFailed
 	case modelUnavailable
 	case invalidOutput
@@ -299,6 +633,8 @@ enum AIPostProcessingError: Error, LocalizedError {
 			return "The on-device AI model identifier is invalid."
 		case .incompleteModel:
 			return "The on-device AI model download is incomplete."
+		case .rangeDownloadsUnavailable:
+			return "The model server does not support parallel downloads."
 		case .remoteDownloadFailed:
 			return "The on-device AI model could not be downloaded from the model server."
 		case .modelUnavailable:

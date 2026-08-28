@@ -103,7 +103,7 @@ struct PasteboardClientLive {
             pasteboardLogger.notice("Paste: no frontmost application")
         }
 
-        let foundFocus = await waitUntilFocusedInputAvailable(timeout: 0.4)
+        let foundFocus = await waitUntilFocusedInputAvailable(timeout: 0.08)
 
         if !foundFocus {
             // Some apps (notably Chromium/Electron UIs — Helium, Slack, web
@@ -118,25 +118,28 @@ struct PasteboardClientLive {
                 pasteboardLogger.notice("No AX focus reported; falling back to blind clipboard paste")
                 return await pasteWithRestoredClipboard(text, beforeText: nil)
             }
-            pasteboardLogger.notice("Paste skipped because no focused text input was found (after 0.4s of retries)")
+            pasteboardLogger.notice("Paste skipped because no focused text input was found (after 0.08s of retries)")
             return .noFocusedInput
         }
         let beforeText = Self.focusedText()
 
-        var afterText: String?
+        // Ghostty can report a successful AX write while its terminal buffer
+        // ignores the mutation. Use its native clipboard paste path directly;
+        // the clipboard must remain populated long enough for Ghostty's async
+        // event handling to consume it.
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.mitchellh.ghostty" {
+            pasteboardLogger.notice("Using Ghostty clipboard paste transport")
+            return await pasteWithRestoredClipboard(text, beforeText: beforeText)
+        }
+
         do {
             // Prefer direct Accessibility insertion. It preserves the user's
             // clipboard and replaces the current selection atomically.
             try Self.insertTextAtCursor(text)
-            // Verify the target app actually reflected the edit. Some apps
-            // (e.g. Ghostty and other GPU-accelerated terminals) report AX
-            // success but silently ignore external value mutations — without
-            // this check we would report a paste that never appeared.
-            afterText = await Self.focusedTextAfterInsertion(previous: beforeText)
-            if let afterText {
-                return .pasted(beforeText: beforeText, afterText: afterText)
-            }
-            pasteboardLogger.notice("AX insertion not reflected by the target app; falling back to clipboard paste")
+            // AX writes are synchronous. Capture the baseline immediately so
+            // background formatting can safely replace this exact insertion.
+            let afterText = Self.focusedText()
+            return .pasted(beforeText: beforeText, afterText: afterText)
         } catch {
             // Web views and several Electron editors expose focus through AX
             // but reject direct value mutation. Use the system paste command
@@ -348,16 +351,18 @@ struct PasteboardClientLive {
         }
 
         // Let the pasteboard server commit the temporary item before posting
-        // Cmd-V, then poll for the target app to reflect the insertion. A
-        // single fixed read is too early for several web and terminal apps,
-        // which makes dictionary monitoring miss otherwise successful pastes.
-        try? await Task.sleep(for: .milliseconds(30))
+        // Cmd-V. Do not wait for an Accessibility read-back; web editors often
+        // do not expose one and the correction monitor can observe it later.
+        let isGhostty = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.mitchellh.ghostty"
+        try? await Task.sleep(for: isGhostty ? .milliseconds(150) : .milliseconds(20))
         let didPostPaste = postCommandV()
-        let afterText = await Self.focusedTextAfterInsertion(previous: beforeText)
         snapshot.restore(to: pasteboard)
 
         guard didPostPaste else { return .failed }
-        return .pasted(beforeText: beforeText, afterText: afterText)
+        pasteboardLogger.notice(
+            "Clipboard paste command posted app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public) restoreDelayMs=\(isGhostty ? 150 : 20, privacy: .public)"
+        )
+        return .pasted(beforeText: beforeText, afterText: nil)
     }
 
     @MainActor
@@ -445,26 +450,4 @@ struct PasteboardClientLive {
         return supportsText || supportsSelectedText
     }
 
-    @MainActor
-    private static func focusedTextAfterInsertion(previous: String?) async -> String? {
-        // Fast read-back loop: most apps reflect the edit within one or two
-        // frames, so poll aggressively rather than waiting out a long window —
-        // this keeps the happy path snappy while still catching silent-rejector
-        // apps like Ghostty.
-        for _ in 0..<20 {
-            try? await Task.sleep(for: .milliseconds(40))
-            guard let current = focusedText() else { continue }
-            // The target may normalize whitespace, punctuation, casing, or
-            // otherwise represent the inserted value differently. The
-            // important signal is that the focused value changed from the
-            // pre-paste snapshot. This gives the correction monitor a reliable
-            // baseline while still rejecting silent AX insertion failures.
-            if current != previous {
-                return current
-            }
-        }
-        // Returning nil tells callers to use the clipboard transport when the
-        // target never exposed a changed value through Accessibility.
-        return nil
-    }
 }

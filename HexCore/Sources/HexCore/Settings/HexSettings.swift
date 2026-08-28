@@ -72,47 +72,54 @@ SELECTED WRITING STYLE: VERY CASUAL
 
 	private static func genericPrompt(styleIndex: Int) -> String {
 		let basePrompt = """
-You are Tick's fast, local dictation formatter. You receive imperfect speech-to-text and return the exact text the user intended to type.
+You are Tick's fast local dictation formatter. Return only the final text the speaker intended to type.
 
-Your job:
-- Infer whether the input is prose, a message, an email, a note, a list, a command, code, or a short fragment.
-- Remove speech fillers such as "um", "uh", "you know", and meaningless "like".
-- Fix spelling, grammar, capitalization, punctuation, and obvious transcription homophones.
-- Resolve self-corrections: in "Tuesday, sorry, Wednesday", output only "Wednesday". Recognize "I mean", "no wait", "actually", and "sorry" as correction cues.
-- Preserve the speaker's words, intent, language, and personality. Do not invent facts or expand content.
+Rules:
+- Remove fillers (um, uh, you know, meaningless like), fix spelling, grammar, capitalization, punctuation, and obvious transcription errors.
+- Resolve corrections before formatting. In "meet me at 3pm, no sorry 4pm", output "meet me at 4pm" only. Treat "no wait", "actually", and "I mean" the same way.
+- Convert spoken "new line", "next line", "new paragraph", "comma", "period", "question mark", and "colon" to formatting.
+- Treat "first thing is ...", "second thing is ...", "third thing is ...", and similar item markers as hard boundaries between ordered list items. Keep any introduction as prose, then put each item on its own line.
+- A request for a "list" alone is an unordered list: one `- ` bullet per item. Use `1.`, `2.`, `3.` only for explicit numbering/order or ordinal cues such as "first" and "second". Number items consecutively in ordered lists, even if a spoken ordinal is wrong. For example, first/second/fourth becomes 1/2/3. Never turn ordinary prose into a list.
+- Preserve meaning, language, personality, code, commands, URLs, email addresses, numbers, and identifiers. Do not invent content or use markdown fences.
+- Use blank lines between paragraphs and return EMPTY for empty input.
 
-Formatting rules:
-- Convert spoken formatting cues into formatting: "new line"/"next line" means a line break, "new paragraph" means a blank line, and spoken "comma", "period", "question mark", or "colon" means the corresponding punctuation.
-- Detect list intent. Use one item per line. Use `1.`, `2.`, `3.` for an explicitly ordered sequence ("first", "second", "step one"), and `- ` for an unordered list ("bullet points", "items", or a series of things). Never turn ordinary prose into a list.
-- Use blank lines between distinct paragraphs. Keep headings only when the speaker clearly dictates a heading or the destination context calls for one.
-- Keep code, shell commands, URLs, email addresses, numbers, and identifiers syntactically valid. Never wrap code or commands in fences.
-- Output in the same language as the transcription unless the transcription explicitly asks for translation.
+Output only the final answer. No reasoning, labels, explanations, or correction summary.
 
-Output rules:
-- Return ONLY the final text, with no explanation, preamble, labels, or markdown fences.
-- If the transcription is empty, return exactly: EMPTY.
-- Never output reasoning, analysis, or a correction summary.
-- When style conflicts with code/command syntax or required email/URL casing, preserve the syntax.
+Examples:
+Input: meet me at 3pm, no sorry 4pm
+Output: meet me at 4pm
+Input: give me a list of three things: how to be nice, how to be fair, and how to be great
+Output:
+- how to be nice
+- how to be fair
+- how to be great
+Input: give me a list of three things. First, how to be nice. Second, how to be fair. Fourth, how to be great.
+Output:
+1. How to be nice
+2. How to be fair
+3. How to be great
+Input: The first thing is hello everyone. Second thing is hello, how are you? And third thing is how are you doing, mate.
+Output:
+1. Hello everyone.
+2. Hello, how are you?
+3. How are you doing, mate.
 """
 		return basePrompt + styleInstructions(for: styleIndex)
 	}
 
 	private static func appAwarePrompt(appContext: AppContext?, styleIndex: Int) -> String {
 		let basePrompt = """
-You are Tick's fast, local dictation formatter. You receive imperfect speech-to-text and return only the final text intended for the target application.
+You are Tick's fast local dictation formatter. Return only the final text intended for the target application.
 
-General rules:
-- Remove filler words (um, uh, you know, like, er) when they do not carry meaning.
-- Fix spelling, grammar, punctuation, and obvious speech-recognition errors.
-- Resolve self-corrections by keeping the corrected phrase only.
-- Translate spoken formatting cues into line breaks, paragraphs, punctuation, and lists.
-- For list intent, put each item on its own line: number ordered items and use bullets for unordered items.
-- Preserve language, meaning, code syntax, identifiers, URLs, and email addresses.
+Rules:
+- Remove fillers and fix spelling, grammar, punctuation, capitalization, and obvious speech-recognition errors.
+- Resolve corrections before formatting: "meet me at 3pm, no sorry 4pm" becomes "meet me at 4pm" only.
+- Convert spoken line breaks, paragraphs, and punctuation into real formatting.
+- Treat "first thing is", "second thing is", "third thing is", and similar markers as hard boundaries between ordered list items.
+- A "list" alone uses one `- ` bullet per item. Explicit numbering/order or ordinal cues use consecutive `1.`, `2.`, `3.` numbering, even when the spoken ordinal is wrong.
+- Preserve meaning, language, code, commands, URLs, email addresses, numbers, and identifiers. Never use fences or add content unless the email context below requires standard email structure.
 
-Output rules:
-- Return ONLY the final text. Do not include explanations, labels, reasoning, or markdown fences.
-- If the transcription is empty, return exactly: EMPTY.
-- Do not add content that was not spoken, except the standard email structure explicitly required by email context below.
+Output only the final answer. No reasoning, labels, or explanations. Empty input becomes EMPTY.
 """
 		let category = appContext?.category ?? .other
 		let categoryContext = category.systemPromptContext
@@ -188,11 +195,128 @@ public enum OnDeviceAIModel {
 	]
 }
 
+/// Removes only high-confidence spoken correction cues before the local model
+/// formats the transcription. This keeps common corrections reliable even when
+/// the compact model spends its output budget on formatting.
+public enum AIPostProcessingInputNormalizer {
+	private static let correctionCues = [
+		"no, sorry",
+		"no sorry",
+		"no, wait",
+		"no wait",
+		"i mean"
+	]
+
+	public static func normalized(_ text: String) -> String {
+		var value = text
+		for _ in 0..<3 {
+			guard let cue = earliestCue(in: value) else { break }
+			let replacement = String(value[cue.range.upperBound...])
+				.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",;:")))
+			guard !replacement.isEmpty else { break }
+
+			let prefix = String(value[..<cue.range.lowerBound])
+			guard let correctedPrefix = replacingAbandonedPhrase(in: prefix) else { break }
+			value = correctedPrefix + " " + replacement
+		}
+		value = normalizedSpokenOrderedList(value)
+		return value
+			.replacingOccurrences(of: #"[^\S\r\n]+"#, with: " ", options: .regularExpression)
+			.trimmingCharacters(in: .whitespacesAndNewlines)
+	}
+
+	private static func earliestCue(in text: String) -> (range: Range<String.Index>, cue: String)? {
+		correctionCues
+			.compactMap { cue in
+				guard let range = text.range(of: cue, options: .caseInsensitive) else { return nil }
+				return (range, cue)
+			}
+			.min { $0.range.lowerBound < $1.range.lowerBound }
+	}
+
+	private static func replacingAbandonedPhrase(in prefix: String) -> String? {
+		var phrase = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+		while let last = phrase.last, [",", ";", ":"].contains(last) {
+			phrase.removeLast()
+			phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+		}
+
+		// If the abandoned phrase is a complete sentence, preserve earlier
+		// sentences and discard only the sentence being corrected.
+		if let last = phrase.last, [".", "!", "?"].contains(last) {
+			phrase.removeLast()
+			phrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+		}
+		if let boundary = phrase.lastIndex(where: { ".!?\n".contains($0) }) {
+			let preserved = String(phrase[...boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
+			if !preserved.isEmpty {
+				return preserved
+			}
+		}
+
+		var words = phrase.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+		guard !words.isEmpty else { return nil }
+
+		let anchors = Set(["at", "on", "to", "for", "from", "in", "with", "as"])
+		if let anchorIndex = words.lastIndex(where: { anchors.contains($0.lowercased().trimmingCharacters(in: .punctuationCharacters)) }) {
+			words = Array(words.prefix(anchorIndex + 1))
+		} else {
+			words.removeLast()
+		}
+		return words.joined(separator: " ")
+	}
+
+	private static func normalizedSpokenOrderedList(_ text: String) -> String {
+		let pattern = #"\b(?:the\s+)?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+(?:thing|item|point|step)\s+(?:is|:)\s*"#
+		guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+			return text
+		}
+		let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+		let matches = regex.matches(in: text, range: fullRange)
+		guard matches.count >= 2 else { return text }
+
+		let firstMatch = matches[0]
+		guard let firstMarkerRange = Range(firstMatch.range, in: text) else { return text }
+		var prefix = String(text[..<firstMarkerRange.lowerBound])
+		prefix = prefix.replacingOccurrences(
+			of: #"\bthe\s*$"#,
+			with: "",
+			options: [.caseInsensitive, .regularExpression]
+		).trimmingCharacters(in: .whitespacesAndNewlines)
+
+		var items: [String] = []
+		for (index, match) in matches.enumerated() {
+			guard let markerRange = Range(match.range, in: text) else { continue }
+			let contentEnd = index + 1 < matches.count
+				? Range(matches[index + 1].range, in: text)?.lowerBound ?? text.endIndex
+				: text.endIndex
+			var content = String(text[markerRange.upperBound..<contentEnd])
+			content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+			content = content.replacingOccurrences(
+				of: #"\s+(?:and|then)\s*$"#,
+				with: "",
+				options: [.caseInsensitive, .regularExpression]
+			).trimmingCharacters(in: .whitespacesAndNewlines)
+			if !content.isEmpty {
+				items.append(content)
+			}
+		}
+		guard items.count >= 2 else { return text }
+
+		let numberedItems = items.enumerated().map { "\($0.offset + 1). \($0.element)" }
+		if prefix.isEmpty {
+			return numberedItems.joined(separator: "\n")
+		}
+		return prefix + "\n" + numberedItems.joined(separator: "\n")
+	}
+}
+
 /// Defensive validation for local model output. A bad completion must never
 /// replace a good raw transcription.
 public enum AIPostProcessingOutputValidator {
-	public static func validated(_ output: String) -> String? {
-		let value = output.trimmingCharacters(in: .whitespacesAndNewlines)
+	public static func validated(_ output: String, sourceText: String? = nil) -> String? {
+		guard var value = removingModelArtifacts(from: output) else { return nil }
+		value = removingKnownWrapperPrefix(from: value)
 		guard !value.isEmpty, value.caseInsensitiveCompare("EMPTY") != .orderedSame else {
 			return nil
 		}
@@ -215,7 +339,94 @@ public enum AIPostProcessingOutputValidator {
 			return nil
 		}
 
+		guard let sourceText else { return value }
+		// Apply the same high-confidence cleanup to a near-verbatim model
+		// completion. This guarantees corrections and spoken item markers are
+		// handled even when the small local model copies the input structure.
+		return normalizedListFormatting(AIPostProcessingInputNormalizer.normalized(value), sourceText: sourceText)
+	}
+
+	private static func removingModelArtifacts(from output: String) -> String? {
+		var value = output.trimmingCharacters(in: .whitespacesAndNewlines)
+		let reasoningBlocks = [
+			("<think>", "</think>"),
+			("<reasoning>", "</reasoning>"),
+			("<analysis>", "</analysis>")
+		]
+
+		for (opening, closing) in reasoningBlocks {
+			while let start = value.range(of: opening, options: .caseInsensitive) {
+				guard let end = value.range(
+					of: closing,
+					options: .caseInsensitive,
+					range: start.upperBound..<value.endIndex
+				) else {
+					return nil
+				}
+				value.removeSubrange(start.lowerBound..<end.upperBound)
+			}
+		}
+
+		for marker in ["<|im_start|>", "<|im_end|>", "<|endoftext|>"] {
+			value = value.replacingOccurrences(of: marker, with: "", options: .caseInsensitive)
+		}
+		return value.trimmingCharacters(in: .whitespacesAndNewlines)
+	}
+
+	private static func removingKnownWrapperPrefix(from output: String) -> String {
+		let prefixes = [
+			"corrected transcription:", "corrected text:", "final answer:",
+			"here is the corrected text:", "here's the corrected text:", "output:"
+		]
+		var value = output
+		let lowercased = value.lowercased()
+		if let prefix = prefixes.first(where: { lowercased.hasPrefix($0) }) {
+			value = String(value.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+		}
 		return value
+	}
+
+	private static func normalizedListFormatting(_ output: String, sourceText: String) -> String {
+		let source = sourceText.lowercased()
+		let hasListCue = source.contains("list")
+		let hasOrderedCue = [
+			"first", "second", "third", "fourth", "step", "numbered", "in order", "number one"
+		].contains(where: source.contains)
+		guard hasListCue || hasOrderedCue else { return output }
+
+		var lines = output.components(separatedBy: .newlines)
+		var numberedLineCount = 0
+		for line in lines where numberedContent(in: line) != nil {
+			numberedLineCount += 1
+		}
+		guard numberedLineCount >= 2 else { return output }
+
+		var itemNumber = 0
+		for index in lines.indices {
+			guard let content = numberedContent(in: lines[index]) else { continue }
+			itemNumber += 1
+			if hasOrderedCue {
+				lines[index] = "\(itemNumber). \(content)"
+			} else {
+				lines[index] = "- \(content)"
+			}
+		}
+		return lines.joined(separator: "\n")
+	}
+
+	private static func numberedContent(in line: String) -> String? {
+		let trimmed = line.trimmingCharacters(in: .whitespaces)
+		var end = trimmed.startIndex
+		while end < trimmed.endIndex, trimmed[end].isNumber {
+			end = trimmed.index(after: end)
+		}
+		guard end > trimmed.startIndex, end < trimmed.endIndex,
+			trimmed[end] == "." || trimmed[end] == ")"
+		else { return nil }
+
+		let contentStart = trimmed.index(after: end)
+		let content = String(trimmed[contentStart...]).trimmingCharacters(in: .whitespaces)
+		return content.isEmpty ? nil : content
 	}
 }
 

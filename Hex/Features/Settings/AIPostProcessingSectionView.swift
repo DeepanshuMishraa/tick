@@ -113,7 +113,7 @@ struct AIPostProcessingSectionView: View {
 			if store.isDownloadingAIModel {
 				ProgressView(value: store.aiModelDownloadProgress)
 					.tint(TickColor.brand)
-				Text("Downloading… \(Int(store.aiModelDownloadProgress * 100))%")
+				Text("Downloading… \(store.aiModelDownloadProgress * 100, specifier: "%.1f")%")
 					.font(TickFont.caption)
 					.foregroundStyle(TickColor.textSecondary)
 			} else if store.aiModelIsDownloaded {
