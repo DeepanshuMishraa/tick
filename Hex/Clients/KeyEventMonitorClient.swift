@@ -128,7 +128,6 @@ class KeyEventMonitorClientLive {
   private var inputMonitoringTrusted = false
   private var trustMonitorTask: Task<Void, Never>?
   private var isFnPressed = false
-  private var hasPromptedForAccessibilityTrust = false
   @Shared(.hotkeyPermissionState) private var hotkeyPermissionState: HotkeyPermissionState
 
   private let trustCheckIntervalNanoseconds: UInt64 = 100_000_000 // 100ms
@@ -213,7 +212,10 @@ class KeyEventMonitorClientLive {
   func startMonitoring() {
     setMonitoringIntent(true)
     startTrustMonitorIfNeeded()
-    refreshTrustedFlag(promptIfUntrusted: true)
+    // Never prompt here: this runs at app launch when hotkey/paste handlers
+    // register. The AX trust prompt must only appear when the user explicitly
+    // clicks a permission Grant button (see PermissionClient.requestAccessibility).
+    refreshTrustedFlag()
     Task { [weak self] in
       await self?.refreshMonitoringState(reason: "startMonitoring")
     }
@@ -509,14 +511,8 @@ extension KeyEventMonitorClientLive {
     isFnPressed = cgEvent.flags.contains(.maskSecondaryFn)
   }
 
-  private func refreshTrustedFlag(promptIfUntrusted: Bool) {
-    var accessibilityTrusted = currentAccessibilityTrust()
-    if !accessibilityTrusted && promptIfUntrusted && !hasPromptedForAccessibilityTrust {
-      accessibilityTrusted = requestAccessibilityTrustPrompt()
-      hasPromptedForAccessibilityTrust = true
-      logger.notice("Prompted for accessibility trust")
-    }
-
+  private func refreshTrustedFlag() {
+    let accessibilityTrusted = currentAccessibilityTrust()
     let inputMonitoringTrusted = currentInputMonitoringTrust()
     setPermissionFlags(accessibility: accessibilityTrusted, input: inputMonitoringTrusted)
   }
@@ -524,11 +520,6 @@ extension KeyEventMonitorClientLive {
   private func currentAccessibilityTrust() -> Bool {
     let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
     return AXIsProcessTrustedWithOptions([promptKey: false] as CFDictionary)
-  }
-
-  private func requestAccessibilityTrustPrompt() -> Bool {
-    let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-    return AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
   }
 
   private func currentInputMonitoringTrust() -> Bool {
