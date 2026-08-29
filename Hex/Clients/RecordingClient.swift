@@ -144,7 +144,11 @@ actor RecordingClientLive {
       }
       
       if hasInput, let deviceName = name {
-        inputDevices.append(AudioInputDevice(id: String(device), name: deviceName))
+        // AudioDeviceID values are runtime identifiers and can change after a
+        // reconnect or reboot. Persist the Core Audio UID instead so a user's
+        // microphone choice survives the device being recreated.
+        let stableID = getDeviceUID(deviceID: device) ?? String(device)
+        inputDevices.append(AudioInputDevice(id: stableID, name: deviceName))
       }
     }
     
@@ -408,10 +412,17 @@ actor RecordingClientLive {
     return deviceIDs
   }
   
-  /// Get device name for the given device ID
-  private func getDeviceName(deviceID: AudioDeviceID) -> String? {
-    var address = audioPropertyAddress(kAudioDevicePropertyDeviceNameCFString)
-    
+  private func getDeviceUID(deviceID: AudioDeviceID) -> String? {
+    getDeviceStringProperty(deviceID: deviceID, selector: kAudioDevicePropertyDeviceUID)
+  }
+
+  /// Get a string property exposed by an audio device.
+  private func getDeviceStringProperty(
+    deviceID: AudioDeviceID,
+    selector: AudioObjectPropertySelector
+  ) -> String? {
+    var address = audioPropertyAddress(selector)
+
     var deviceName: CFString? = nil
     var size = UInt32(MemoryLayout<CFString?>.size)
     let deviceNamePtr: UnsafeMutableRawPointer = .allocate(byteCount: Int(size), alignment: MemoryLayout<CFString?>.alignment)
@@ -438,6 +449,11 @@ actor RecordingClientLive {
     return deviceName as String?
   }
   
+  /// Get device name for the given device ID
+  private func getDeviceName(deviceID: AudioDeviceID) -> String? {
+    getDeviceStringProperty(deviceID: deviceID, selector: kAudioDevicePropertyDeviceNameCFString)
+  }
+
   /// Check if device has input capabilities
   private func deviceHasInput(deviceID: AudioDeviceID) -> Bool {
     var address = audioPropertyAddress(kAudioDevicePropertyStreamConfiguration, scope: kAudioDevicePropertyScopeInput)
@@ -558,18 +574,24 @@ actor RecordingClientLive {
   }
 
   private func resolvePreferredInputDevice() -> AudioDeviceID? {
-    if let selectedDeviceIDString = hexSettings.selectedMicrophoneID,
-       let selectedDeviceID = AudioDeviceID(selectedDeviceIDString) {
-      let devices = getAllAudioDevices()
-      if devices.contains(selectedDeviceID), deviceHasInput(deviceID: selectedDeviceID) {
-        return selectedDeviceID
-      }
+    let builtInDevice = getBuiltInInputDevice()
 
-      recordingLogger.notice("Selected device \(selectedDeviceID) missing; using built-in microphone default")
-      return getBuiltInInputDevice() ?? getDefaultInputDevice()
+    guard let selectedID = hexSettings.selectedMicrophoneID else {
+      // Hex intentionally defaults to the Mac's built-in microphone rather than
+      // inheriting an external device that another app may have selected.
+      return builtInDevice ?? getDefaultInputDevice()
     }
 
-    return getBuiltInInputDevice() ?? getDefaultInputDevice()
+    let devices = getAllAudioDevices()
+    if let selectedDevice = devices.first(where: { device in
+      deviceHasInput(deviceID: device)
+        && (getDeviceUID(deviceID: device) == selectedID || String(device) == selectedID)
+    }) {
+      return selectedDevice
+    }
+
+    recordingLogger.notice("Selected microphone \(selectedID) is unavailable; using built-in microphone")
+    return builtInDevice ?? getDefaultInputDevice()
   }
 
   private func formatDuration(_ duration: TimeInterval?) -> String {
@@ -697,9 +719,8 @@ actor RecordingClientLive {
     // Check the selected device if specified, otherwise the default
     var deviceIDsToCheck: [AudioDeviceID] = []
 
-    if let selectedIDString = hexSettings.selectedMicrophoneID,
-       let selectedID = AudioDeviceID(selectedIDString) {
-      deviceIDsToCheck.append(selectedID)
+    if let preferredID = resolvePreferredInputDevice() {
+      deviceIDsToCheck.append(preferredID)
     }
 
     if let defaultID = getDefaultInputDevice() {
