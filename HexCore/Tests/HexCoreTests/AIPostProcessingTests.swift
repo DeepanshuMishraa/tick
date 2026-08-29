@@ -62,6 +62,26 @@ final class AIPostProcessingTests: XCTestCase {
 		XCTAssertEqual(AIPostProcessingOutputValidator.validated(output), output)
 	}
 
+	func testChunkerSplitsLongIndependentProse() {
+		let input = "George Russell is a very fast driver for Mercedes. He has shown strong pace throughout the season. His qualifying performances have been especially impressive. The team expects him to keep improving over the next few races."
+		let chunks = AIPostProcessingChunker.chunks(for: input)
+
+		XCTAssertGreaterThan(chunks.count, 1)
+		XCTAssertEqual(chunks.joined(separator: " "), input)
+	}
+
+	func testChunkerKeepsStructuredDictationWhole() {
+		let input = "Write an email to George about tomorrow's meeting. New paragraph. Ask him to bring the report and confirm the time."
+
+		XCTAssertEqual(AIPostProcessingChunker.chunks(for: input), [input])
+	}
+
+	func testChunkerKeepsShortTextWhole() {
+		let input = "Please send the report tomorrow."
+
+		XCTAssertEqual(AIPostProcessingChunker.chunks(for: input), [input])
+	}
+
 	func testInputNormalizerKeepsOnlySelfCorrectionReplacement() {
 		XCTAssertEqual(
 			AIPostProcessingInputNormalizer.normalized("meet me at 3pm, no sorry 4pm"),

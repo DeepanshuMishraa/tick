@@ -8,6 +8,8 @@ actor ParakeetClient {
   private var asr: AsrManager?
   private var models: AsrModels?
   private var currentVariant: ParakeetModel?
+  private var loadTask: Task<Void, Error>?
+  private var loadingVariant: ParakeetModel?
   private let logger = HexLog.parakeet
   private let vendorDirs = [
     // Our app-specific cache path convention (under XDG or com.dipxsy.Tick/cache)
@@ -53,6 +55,31 @@ actor ParakeetClient {
       )
     }
     if currentVariant == variant, asr != nil { return }
+    if let loadTask, loadingVariant == variant {
+      logger.debug("Joining in-flight Parakeet load variant=\(variant.identifier)")
+      try await loadTask.value
+      return
+    }
+    if let loadTask {
+      try await loadTask.value
+      if currentVariant == variant, asr != nil { return }
+    }
+
+    let task = Task { try await self.load(variant: variant, progress: progress) }
+    loadTask = task
+    loadingVariant = variant
+    do {
+      try await task.value
+      loadTask = nil
+      loadingVariant = nil
+    } catch {
+      loadTask = nil
+      loadingVariant = nil
+      throw error
+    }
+  }
+
+  private func load(variant: ParakeetModel, progress: @escaping (Progress) -> Void) async throws {
     if currentVariant != variant {
       asr = nil
       models = nil

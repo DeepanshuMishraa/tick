@@ -124,7 +124,7 @@ Intelligent Content & App Adaptation:
 - Chat / Messaging Intent: If the content is a direct conversational message (or the active app/site is Slack, Discord, Messages, Teams, WhatsApp), format as a concise, natural, fluid chat message without formal email headers or sign-offs.
 - Notes / Documents / Code: If the content is structured notes, bullet points, or code/technical commands, preserve exact technical identifiers, syntax, numbers, URLs, and email addresses.
 
-Output only the final text. No reasoning, explanations, markdown code fences, or labels. Return EMPTY for empty input.
+Output only the final text. No reasoning, explanations, markdown code fences, or labels. The source input is always non-empty, so the output must also be non-empty.
 """
 
 		var contextDetails = ""
@@ -220,10 +220,54 @@ public enum OnDeviceAIModel: String, CaseIterable, Codable, Equatable, Hashable,
 			return [
 				("config.json", 988), ("merges.txt", 1_671_853),
 				("model.safetensors.index.json", 49_731), ("tokenizer.json", 11_422_654),
-				("tokenizer_config.json", 8_311), ("vocab.json", 2_776_833),
+				("tokenizer_config.json", 9_689), ("vocab.json", 2_776_833),
 				("model.safetensors", 316_825_742)
 			]
 		}
+	}
+}
+
+/// Splits ordinary prose into independent formatting units so the local model
+/// can process them concurrently. Structured content stays whole because its
+/// formatting depends on global context.
+public enum AIPostProcessingChunker {
+	public static func chunks(for text: String, maximumCount: Int = 4) -> [String] {
+		guard maximumCount > 1, text.count >= 160, isIndependentProse(text) else { return [text] }
+
+		var sentences: [String] = []
+		text.enumerateSubstrings(
+			in: text.startIndex..<text.endIndex,
+			options: [.bySentences, .substringNotRequired]
+		) { _, range, _, _ in
+			let sentence = text[range].trimmingCharacters(in: .whitespacesAndNewlines)
+			if !sentence.isEmpty { sentences.append(sentence) }
+		}
+		guard sentences.count > 1 else { return [text] }
+
+		let targetCount = min(maximumCount, sentences.count)
+		let targetLength = max(1, text.count / targetCount)
+		var chunks: [String] = []
+		var current = ""
+		for sentence in sentences {
+			if !current.isEmpty, current.count >= targetLength, chunks.count < targetCount - 1 {
+				chunks.append(current)
+				current = sentence
+			} else {
+				current += current.isEmpty ? sentence : " " + sentence
+			}
+		}
+		if !current.isEmpty { chunks.append(current) }
+		return chunks.count > 1 ? chunks : [text]
+	}
+
+	private static func isIndependentProse(_ text: String) -> Bool {
+		let lower = text.lowercased()
+		let structuredCues = [
+			"new line", "new paragraph", "bullet point", "first thing", "second thing",
+			"write an email", "write a letter", "email to", "subject line"
+		]
+		guard !text.contains("\n"), !structuredCues.contains(where: lower.contains) else { return false }
+		return true
 	}
 }
 

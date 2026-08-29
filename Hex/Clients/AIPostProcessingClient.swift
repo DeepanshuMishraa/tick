@@ -87,7 +87,10 @@ private final class IncrementalDownloadDelegate: NSObject, URLSessionDownloadDel
 		try await withTaskCancellationHandler(operation: {
 			try await withCheckedThrowingContinuation { continuation in
 				self.continuation = continuation
-				let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
+				let configuration = URLSessionConfiguration.ephemeral
+				configuration.httpMaximumConnectionsPerHost = 12
+				configuration.waitsForConnectivity = false
+				let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
 				self.session = session
 				let task = session.downloadTask(with: request)
 				self.downloadTask = task
@@ -200,9 +203,12 @@ private actor LocalAIModelManager {
 	private var warmTask: Task<Void, Error>?
 	@Shared(.hexSettings) private var hexSettings: HexSettings
 
-	private let parallelDownloadThreshold: Int64 = 64 * 1024 * 1024
-	private let downloadChunkSize: Int64 = 64 * 1024 * 1024
-	private let maxConcurrentDownloads = 6
+	private let parallelDownloadThreshold: Int64 = 32 * 1024 * 1024
+	// R2 supports byte ranges. More, smaller chunks saturate fast connections
+	// better than six 64 MB requests, especially when one edge connection is
+	// slow or flow-controlled.
+	private let downloadChunkSize: Int64 = 32 * 1024 * 1024
+	private let maxConcurrentDownloads = 12
 
 	private var selectedModel: OnDeviceAIModel {
 		hexSettings.selectedAIModel
@@ -550,10 +556,6 @@ private actor LocalAIModelManager {
 
 	private func performModelWarmup() async throws {
 		let container = try await loadLocalModel()
-
-		// Loading the weights alone does not compile MLX's Metal kernels. Run a
-		// one-token, non-thinking completion while Hex is idle so the first real
-		// dictation does not pay that compilation cost.
 		let input = UserInput(
 			chat: [
 				.system("Return only transformed text."),
@@ -602,71 +604,121 @@ private actor LocalAIModelManager {
 			throw AIPostProcessingError.modelUnavailable
 		}
 
-		let prompt = mode.systemPrompt(appContext: appContext, selectedStyleIndex: currentStyleIndex())
-		guard !prompt.isEmpty else { return text }
 		let normalizedInput = AIPostProcessingInputNormalizer.normalized(text)
+		let effectiveContext = Self.effectiveAppContext(appContext, for: normalizedInput)
+		let prompt = mode.systemPrompt(appContext: effectiveContext, selectedStyleIndex: currentStyleIndex())
+		guard !prompt.isEmpty else { return text }
+		guard !normalizedInput.isEmpty else {
+			aiLogger.warning("Qwen rejected empty normalized input")
+			throw AIPostProcessingError.invalidOutput
+		}
 
 		#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
 		let modelLoadStartedAt = ProcessInfo.processInfo.systemUptime
 		try await ensureModelWarmed()
 		let container = try await loadLocalModel()
-		aiLogger.info("Qwen model access elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - modelLoadStartedAt) * 1000), privacy: .public)")
-		let input = UserInput(
-			chat: [
-				.system(prompt),
-				.user(normalizedInput)
-			],
-			additionalContext: ["enable_thinking": false]
-		)
-		let prepareStartedAt = ProcessInfo.processInfo.systemUptime
-		let preparedInput = try await container.prepare(input: input)
-		aiLogger.info("Qwen prompt preparation elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - prepareStartedAt) * 1000), privacy: .public) inputChars=\(normalizedInput.count, privacy: .public)")
-		// Keep the generation budget proportional to the dictation. A large
-		// fixed budget makes the local model spend time exploring completions
-		// that cannot fit a short voice command, while still allowing longer
-		// dictation to be formatted without truncation.
-		let estimatedOutputTokens = normalizedInput.utf8.count / 4 + 16
-		// Ordinary dictation rarely needs more output than its input. A smaller
-		// floor avoids making Qwen search through a large completion budget for
-		// short utterances, while the proportional cap still accommodates long
-		// paragraphs without truncating them.
-		let maxOutputTokens = min(2048, max(48, estimatedOutputTokens))
-		let generationStartedAt = ProcessInfo.processInfo.systemUptime
-		let generation = try await container.generate(
-			input: preparedInput,
-			parameters: GenerateParameters(
-				maxTokens: maxOutputTokens,
-				temperature: 0,
-				prefillStepSize: 512
-			)
-		)
-
-		var output = ""
-		for await event in generation {
-			try Task.checkCancellation()
-			if case let .chunk(chunk) = event {
-				output.append(chunk)
+		aiLogger.info("Qwen model=\(self.selectedModel.rawValue, privacy: .public) access elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - modelLoadStartedAt) * 1000), privacy: .public)")
+		let chunks = AIPostProcessingChunker.chunks(for: normalizedInput)
+		let modelName = self.selectedModel.rawValue
+		if chunks.count > 1 {
+			aiLogger.info("Qwen parallel pipeline chunks=\(chunks.count, privacy: .public) inputChars=\(normalizedInput.count, privacy: .public)")
+			let results = try await withThrowingTaskGroup(of: (Int, String).self) { group in
+				for (index, chunk) in chunks.enumerated() {
+					group.addTask {
+						let output = try await Self.generateValidated(
+							container: container,
+							prompt: prompt,
+							sourceText: chunk,
+							modelName: modelName,
+							chunkIndex: index
+						)
+						return (index, output)
+					}
+				}
+				var ordered = Array(repeating: "", count: chunks.count)
+				for try await (index, output) in group { ordered[index] = output }
+				return ordered
 			}
+			let output = results.joined(separator: " ")
+			guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+				throw AIPostProcessingError.invalidOutput
+			}
+			aiLogger.info("Accepted parallel on-device AI output chars=\(output.count, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
+			return output
 		}
 
-		aiLogger.info("Qwen generation elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - generationStartedAt) * 1000), privacy: .public) outputChars=\(output.count, privacy: .public)")
-		guard let validated = AIPostProcessingOutputValidator.validated(output, sourceText: text) else {
-			let containsReasoning = output.range(of: "<think>", options: .caseInsensitive) != nil
-				|| output.range(of: "<reasoning>", options: .caseInsensitive) != nil
-			let containsWrapper = output.lowercased().hasPrefix("output:")
-				|| output.lowercased().hasPrefix("corrected text:")
-			aiLogger.warning(
-				"Rejected invalid on-device AI output chars=\(output.count, privacy: .public) reasoning=\(containsReasoning, privacy: .public) wrapper=\(containsWrapper, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)"
-			)
-			throw AIPostProcessingError.invalidOutput
-		}
-		aiLogger.info(
-			"Accepted on-device AI output chars=\(validated.count, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)"
+		let output = try await Self.generateValidated(
+			container: container,
+			prompt: prompt,
+			sourceText: normalizedInput,
+			modelName: modelName,
+			chunkIndex: nil
 		)
-		return validated
+		aiLogger.info("Accepted on-device AI output chars=\(output.count, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
+		return output
 		#else
 		throw AIPostProcessingError.mlXUnavailable
 		#endif
+	}
+
+	private static func effectiveAppContext(_ context: AppContext?, for text: String) -> AppContext? {
+		guard context?.category == .terminal else { return context }
+		let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+		let commandPrefixes = [
+			"git ", "cd ", "ls", "pwd", "mkdir ", "rm ", "cp ", "mv ", "cat ",
+			"grep ", "rg ", "find ", "curl ", "ssh ", "docker ", "brew ", "bun ",
+			"npm ", "pnpm ", "yarn ", "swift ", "xcodebuild ", "create directory ",
+			"list files", "run command ", "execute "
+		]
+		guard commandPrefixes.contains(where: lower.hasPrefix) || text.contains("\n") else {
+			aiLogger.debug("Ignoring terminal app context for ordinary prose")
+			return nil
+		}
+		return context
+	}
+
+	private static func generateValidated(
+		container: ModelContainer,
+		prompt: String,
+		sourceText: String,
+		modelName: String,
+		chunkIndex: Int?
+	) async throws -> String {
+		let maxOutputTokens = min(2048, max(32, sourceText.utf8.count / 4 + 12))
+		for attempt in 0..<2 {
+			let effectivePrompt = attempt == 0
+				? prompt
+				: prompt + "\nReturn the transformed source text now. Never return EMPTY or a blank response."
+			let input = UserInput(
+				chat: [.system(effectivePrompt), .user(sourceText)],
+				additionalContext: ["enable_thinking": false]
+			)
+			let prepareStartedAt = ProcessInfo.processInfo.systemUptime
+			let preparedInput = try await container.prepare(input: input)
+			let prepareElapsedMs = Int((ProcessInfo.processInfo.systemUptime - prepareStartedAt) * 1000)
+			let generationStartedAt = ProcessInfo.processInfo.systemUptime
+			let generation = try await container.generate(
+				input: preparedInput,
+				parameters: GenerateParameters(
+					maxTokens: maxOutputTokens,
+					temperature: 0,
+					prefillStepSize: 512
+				)
+			)
+			var output = ""
+			for await event in generation {
+				try Task.checkCancellation()
+				if case let .chunk(chunk) = event { output.append(chunk) }
+			}
+			let generationElapsedMs = Int((ProcessInfo.processInfo.systemUptime - generationStartedAt) * 1000)
+			aiLogger.info("Qwen model=\(modelName, privacy: .public) chunk=\(chunkIndex ?? -1, privacy: .public) attempt=\(attempt + 1, privacy: .public) prepareMs=\(prepareElapsedMs, privacy: .public) generationMs=\(generationElapsedMs, privacy: .public) outputChars=\(output.count, privacy: .public)")
+			if let validated = AIPostProcessingOutputValidator.validated(output, sourceText: sourceText),
+				!validated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+				return validated
+			}
+			aiLogger.warning("Rejected invalid Qwen output chunk=\(chunkIndex ?? -1, privacy: .public) attempt=\(attempt + 1, privacy: .public)")
+		}
+		throw AIPostProcessingError.invalidOutput
 	}
 
 	private func currentStyleIndex() -> Int {

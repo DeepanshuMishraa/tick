@@ -27,6 +27,9 @@ struct TranscriptionClient {
   /// Ensures a model is downloaded (if missing) and loaded into memory, reporting progress via `progressCallback`.
   var downloadModel: @Sendable (String, @escaping (Progress) -> Void) async throws -> Void
 
+  /// Loads an already-downloaded speech model while Hex is idle.
+  var warmModel: @Sendable (String) async throws -> Void
+
   /// Deletes a model from disk if it exists
   var deleteModel: @Sendable (String) async throws -> Void
 
@@ -46,6 +49,7 @@ extension TranscriptionClient: DependencyKey {
     return Self(
       transcribe: { try await live.transcribe(url: $0, model: $1, options: $2, progressCallback: $3) },
       downloadModel: { try await live.downloadAndLoadModel(variant: $0, progressCallback: $1) },
+      warmModel: { try await live.warmModel(variant: $0) },
       deleteModel: { try await live.deleteModel(variant: $0) },
       isModelDownloaded: { await live.isModelDownloaded($0) },
       getRecommendedModels: { await live.getRecommendedModels() },
@@ -136,6 +140,21 @@ actor TranscriptionClientLive {
     // Final progress update
     overallProgress.completedUnitCount = 100
     progressCallback(overallProgress)
+  }
+
+  /// Loads an installed model before recording so release-to-transcript latency
+  /// contains inference only, never model compilation or initialization.
+  func warmModel(variant: String) async throws {
+    guard await isModelDownloaded(variant) else { return }
+    if isParakeet(variant) {
+      guard currentModelName != variant else { return }
+      try await parakeet.ensureLoaded(modelName: variant) { _ in }
+      currentModelName = variant
+      parakeetLogger.notice("Parakeet prewarmed variant=\(variant, privacy: .public)")
+      return
+    }
+    guard currentModelName != variant else { return }
+    try await loadWhisperKitModel(variant) { _ in }
   }
 
   /// Deletes a model from disk if it exists

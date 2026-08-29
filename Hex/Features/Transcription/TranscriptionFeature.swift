@@ -116,9 +116,10 @@ struct TranscriptionFeature {
           startMeteringEffect(),
           startHotKeyMonitoringEffect(),
           warmUpRecorderEffect(),
-          state.hexSettings.aiPostProcessingMode == .off
-            ? .none
-            : warmUpAIModelEffect()
+          warmUpModelsEffect(
+            speechModel: state.hexSettings.selectedModel,
+            aiEnabled: state.hexSettings.aiPostProcessingMode != .off
+          )
         )
 
       // MARK: - Metering
@@ -434,12 +435,18 @@ private extension TranscriptionFeature {
     }
   }
 
-  /// Load the optional formatter while Hex is idle so the first dictation
-  /// does not pay the model-loading cost. Generation still happens only after
-  /// transcription has completed.
-  func warmUpAIModelEffect() -> Effect<Action> {
-    .run { [aiPostProcessing] _ in
-      guard await aiPostProcessing.isModelDownloaded() else { return }
+  /// Warm Core ML before MLX. Compiling both backends concurrently causes
+  /// severe resource contention on first launch and can stretch a sub-second
+  /// Parakeet load into several seconds.
+  func warmUpModelsEffect(speechModel: String, aiEnabled: Bool) -> Effect<Action> {
+    .run { [transcription, aiPostProcessing] _ in
+      do {
+        try await transcription.warmModel(speechModel)
+      } catch {
+        transcriptionFeatureLogger.error("Speech model prewarm failed: \(error.localizedDescription)")
+      }
+
+      guard aiEnabled, await aiPostProcessing.isModelDownloaded() else { return }
       do {
         try await aiPostProcessing.warmModel()
       } catch {
@@ -625,9 +632,18 @@ private extension TranscriptionFeature {
           resultToUse = try await aiPostProcessing.postProcess(modifiedResult, aiMode, appContext)
           transcriptionFeatureLogger.info("AI post-processing completed with mode: \(aiMode.displayName), app: \(appContext?.appName ?? "unknown"), elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - aiStartedAt) * 1000), privacy: .public)")
         } catch {
-          transcriptionFeatureLogger.error("AI post-processing failed: \(error.localizedDescription), using raw result")
-          resultToUse = modifiedResult
+          // Never insert an empty or unvalidated AI result. The post-processor
+          // retries invalid generations; if both attempts fail, stop this
+          // insertion visibly instead of silently pasting raw or empty text.
+          transcriptionFeatureLogger.error("AI post-processing failed: \(error.localizedDescription); refusing unsafe insertion")
+          await send(.transcriptionError(error, audioURL))
+          return
         }
+      }
+
+      guard !resultToUse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        await send(.transcriptionError(AIPostProcessingError.invalidOutput, audioURL))
+        return
       }
 
       let pasteStartedAt = ProcessInfo.processInfo.systemUptime
