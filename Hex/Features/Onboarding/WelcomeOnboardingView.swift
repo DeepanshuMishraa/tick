@@ -14,9 +14,8 @@ public struct WelcomeOnboardingView: View {
   @State private var accessibilityPermission: PermissionStatus = .notDetermined
   @State private var inputMonitoringPermission: PermissionStatus = .notDetermined
 
-  // Entrance & breathing animation phases
-  @State private var isVisible: Bool = false
-  @State private var wavePhase: Double = 0.0
+  // Entrance choreography states (Emil Kowalski style staggered physics)
+  @State private var isAppeared: Bool = false
   @State private var timerTask: Task<Void, Never>? = nil
 
   public init() {}
@@ -39,41 +38,40 @@ public struct WelcomeOnboardingView: View {
       ambientBackdrop
 
       VStack(spacing: 0) {
-        // Step progress header
+        // Step progress dashes
         stepIndicator
-          .padding(.top, 28)
-          .padding(.bottom, 16)
+          .padding(.top, 36)
+          .padding(.bottom, 24)
 
-        // Main animated presentation
+        // Main animated presentation with clean transition
         if currentStep == 0 {
           welcomeStepView
             .transition(.asymmetric(
-              insertion: .opacity.combined(with: .scale(scale: 0.97)),
+              insertion: .opacity.combined(with: .scale(scale: 0.96)),
               removal: .opacity.combined(with: .move(edge: .leading))
             ))
         } else {
           permissionsStepView
             .transition(.asymmetric(
               insertion: .opacity.combined(with: .move(edge: .trailing)),
-              removal: .opacity.combined(with: .scale(scale: 0.97))
+              removal: .opacity.combined(with: .scale(scale: 0.96))
             ))
         }
 
-        Spacer(minLength: 12)
+        Spacer(minLength: 20)
 
-        // Bottom action bar
+        // Bottom action bar with elevated buttons
         bottomActionBar
-          .padding(.horizontal, 48)
-          .padding(.bottom, 32)
+          .padding(.horizontal, 44)
+          .padding(.bottom, 36)
       }
-      .frame(maxWidth: 740, maxHeight: 600)
+      .frame(maxWidth: 760, maxHeight: 600)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .onAppear {
-      withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-        isVisible = true
+      withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+        isAppeared = true
       }
-      startWaveAnimation()
       refreshPermissions()
       startPermissionMonitoring()
     }
@@ -88,18 +86,17 @@ public struct WelcomeOnboardingView: View {
     ZStack {
       WindowThemeBackground()
 
-      // Multi-layer organic ambient chromatic glow
       RadialGradient(
         colors: [
-          TickColor.brand.opacity(0.18),
-          TickColor.brand.opacity(0.05),
+          TickColor.brand.opacity(0.16),
+          TickColor.brand.opacity(0.04),
           Color.clear
         ],
         center: .center,
-        startRadius: 20,
-        endRadius: 400
+        startRadius: 40,
+        endRadius: 420
       )
-      .blur(radius: 50)
+      .blur(radius: 60)
       .ignoresSafeArea()
     }
   }
@@ -114,194 +111,106 @@ public struct WelcomeOnboardingView: View {
             index == currentStep
               ? AnyShapeStyle(
                   LinearGradient(
-                    colors: [TickColor.brand, TickColor.brand.opacity(0.8)],
+                    colors: [TickColor.brand, TickColor.brand.opacity(0.80)],
                     startPoint: .leading,
                     endPoint: .trailing
                   )
                 )
-              : AnyShapeStyle(Color.primary.opacity(0.10))
+              : AnyShapeStyle(Color.primary.opacity(0.12))
           )
-          .frame(width: index == currentStep ? 32 : 14, height: 4)
-          .animation(.spring(response: 0.35, dampingFraction: 0.75), value: currentStep)
+          .frame(width: index == currentStep ? 36 : 14, height: 4)
+          .animation(.spring(response: 0.32, dampingFraction: 0.76), value: currentStep)
       }
     }
   }
 
-  // MARK: - Step 0: Welcome Masterpiece View
+  // MARK: - Step 0: Welcome View
 
   private var welcomeStepView: some View {
-    VStack(spacing: 20) {
-      // Acoustic Core / Waveform Centerpiece
-      acousticCenterpiece
-        .frame(height: 96)
-        .opacity(isVisible ? 1 : 0)
-        .scaleEffect(isVisible ? 1 : 0.88)
-        .animation(.spring(response: 0.55, dampingFraction: 0.75), value: isVisible)
-
-      // Hero Typography
-      VStack(spacing: 6) {
-        Text("Tick")
-          .font(.system(size: 32, weight: .bold, design: .default))
-          .foregroundStyle(TickColor.textPrimary)
-
-        Text("Voice to text, designed for focus.")
-          .font(.system(size: 14, weight: .medium, design: .default))
-          .foregroundStyle(TickColor.textSecondary)
-      }
-      .opacity(isVisible ? 1 : 0)
-      .offset(y: isVisible ? 0 : 8)
-      .animation(.spring(response: 0.55, dampingFraction: 0.78).delay(0.06), value: isVisible)
-
-      // 3 Spatial Feature Pillar Cards
-      HStack(spacing: 14) {
-        pillarCard(
-          icon: "lock.shield.fill",
-          title: "100% Private",
-          subtitle: "On-Device Neural Engine",
-          detail: "Zero audio or keystrokes ever touch the cloud."
-        )
-
-        pillarCard(
-          icon: "command.square.fill",
-          title: "Global Hotkey",
-          subtitle: "⌥ Option Anywhere",
-          detail: "Hold to dictate instantly across any macOS application."
-        )
-
-        pillarCard(
-          icon: "sparkles",
-          title: "Intelligent Polish",
-          subtitle: "Smart Real-Time AI",
-          detail: "Cleans filler words, self-corrections, and punctuation."
-        )
-      }
-      .padding(.horizontal, 36)
-      .opacity(isVisible ? 1 : 0)
-      .offset(y: isVisible ? 0 : 12)
-      .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.12), value: isVisible)
-    }
-  }
-
-  private var acousticCenterpiece: some View {
-    ZStack {
-      // Dynamic breathing rings
-      Circle()
-        .stroke(TickColor.brand.opacity(0.12 + sin(wavePhase) * 0.06), lineWidth: 1.5)
-        .frame(width: 92, height: 92)
-        .scaleEffect(1.0 + sin(wavePhase) * 0.05)
-
-      Circle()
-        .stroke(TickColor.brand.opacity(0.20 + cos(wavePhase) * 0.08), lineWidth: 1.5)
-        .frame(width: 76, height: 76)
-
-      // Glass core disk with specular top bevel
-      Circle()
-        .fill(.ultraThinMaterial)
-        .frame(width: 62, height: 62)
-        .hexGlass(in: Circle(), tint: TickColor.brand.opacity(0.20))
-        .overlay(
-          Circle()
-            .stroke(
-              LinearGradient(
-                colors: [Color.white.opacity(0.50), TickColor.brand.opacity(0.40)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-              ),
-              lineWidth: 1.0
-            )
-        )
-        .shadow(color: TickColor.brand.opacity(0.25), radius: 12, x: 0, y: 4)
-
-      // Animated multi-frequency waveform bars
-      HStack(spacing: 3.5) {
-        ForEach(0..<5) { bar in
-          let height: CGFloat = 8.0 + CGFloat(sin(wavePhase + Double(bar) * 0.75) * 0.5 + 0.5) * 16.0
-          RoundedRectangle(cornerRadius: 1.5)
-            .fill(
-              LinearGradient(
-                colors: [TickColor.brand, TickColor.brand.opacity(0.70)],
-                startPoint: .top,
-                endPoint: .bottom
-              )
-            )
-            .frame(width: 3, height: height)
+    VStack(spacing: 28) {
+      // Clean, confident editorial typography (No Tick logo icon)
+      VStack(spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text("Welcome to")
+            .font(TickFont.display(34, weight: .regular))
+            .foregroundStyle(TickColor.textPrimary)
+          Text("Tick.")
+            .font(TickFont.displayItalic(34))
+            .foregroundStyle(TickColor.brand)
         }
-      }
-    }
-  }
 
-  private func pillarCard(icon: String, title: String, subtitle: String, detail: String) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 8)
-          .fill(TickColor.brand.opacity(0.12))
-          .frame(width: 32, height: 32)
-          .overlay(
-            RoundedRectangle(cornerRadius: 8)
-              .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
-          )
-
-        Image(systemName: icon)
-          .font(.system(size: 14, weight: .semibold))
-          .foregroundStyle(TickColor.brand)
-      }
-
-      VStack(alignment: .leading, spacing: 3) {
-        Text(title)
-          .font(.system(size: 13, weight: .semibold, design: .default))
-          .foregroundStyle(TickColor.textPrimary)
-
-        Text(subtitle)
-          .font(.system(size: 11, weight: .medium, design: .default))
-          .foregroundStyle(TickColor.brand)
-
-        Text(detail)
-          .font(.system(size: 11, weight: .regular, design: .default))
+        Text("Super-fast, 100% on-device voice dictation for macOS.")
+          .font(TickFont.bodyFunc(14, weight: .regular))
           .foregroundStyle(TickColor.textSecondary)
-          .lineSpacing(2)
-          .padding(.top, 2)
       }
+      .opacity(isAppeared ? 1 : 0)
+      .offset(y: isAppeared ? 0 : 10)
+      .animation(.spring(response: 0.40, dampingFraction: 0.80), value: isAppeared)
 
-      Spacer(minLength: 0)
-    }
-    .padding(14)
-    .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
-    .hexGlass(cornerRadius: 14, style: .regular)
-    .overlay(
-      RoundedRectangle(cornerRadius: 14)
-        .stroke(
-          LinearGradient(
-            colors: [Color.white.opacity(0.20), Color.white.opacity(0.04)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-          ),
-          lineWidth: 0.75
+      // 3 Elevated Spatial Feature Cards with staggered Emil Kowalski entrance physics
+      HStack(spacing: 16) {
+        ElevatedFeatureCard(
+          icon: "lock.shield.fill",
+          badge: "PRIVACY",
+          title: "100% Private",
+          detail: "Runs entirely on your Apple Silicon Neural Engine. Zero audio or keystrokes ever leave your Mac.",
+          index: 0,
+          isAppeared: isAppeared
         )
-    )
+
+        ElevatedFeatureCard(
+          icon: "command.square.fill",
+          badge: "GLOBAL",
+          title: "Instant Hotkey",
+          detail: "Hold ⌥ Option anywhere to dictate directly into code editors, emails, notes, and messengers.",
+          index: 1,
+          isAppeared: isAppeared
+        )
+
+        ElevatedFeatureCard(
+          icon: "sparkles",
+          badge: "INTELLIGENCE",
+          title: "Smart Polish",
+          detail: "Automatically eliminates verbal filler words, fixes self-corrections, and formats punctuation.",
+          index: 2,
+          isAppeared: isAppeared
+        )
+      }
+      .padding(.horizontal, 32)
+    }
   }
 
-  // MARK: - Step 1: Permissions Masterpiece View
+  // MARK: - Step 1: Permissions View
 
   private var permissionsStepView: some View {
-    VStack(spacing: 20) {
-      VStack(spacing: 6) {
-        Text("Required Permissions")
-          .font(.system(size: 26, weight: .bold, design: .default))
-          .foregroundStyle(TickColor.textPrimary)
+    VStack(spacing: 24) {
+      VStack(spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text("Required")
+            .font(TickFont.display(30, weight: .regular))
+            .foregroundStyle(TickColor.textPrimary)
+          Text("Permissions.")
+            .font(TickFont.displayItalic(30))
+            .foregroundStyle(TickColor.brand)
+        }
 
-        Text("Tick requires Microphone and Accessibility access to capture your speech and insert transcriptions into active apps.")
-          .font(.system(size: 13, weight: .regular, design: .default))
+        Text("Tick requires Microphone and Accessibility access to capture voice and type for you.")
+          .font(TickFont.bodyFunc(13, weight: .regular))
           .foregroundStyle(TickColor.textSecondary)
           .multilineTextAlignment(.center)
-          .padding(.horizontal, 36)
+          .padding(.horizontal, 32)
       }
+      .opacity(isAppeared ? 1 : 0)
+      .offset(y: isAppeared ? 0 : 8)
+      .animation(.spring(response: 0.38, dampingFraction: 0.80), value: isAppeared)
 
-      VStack(spacing: 12) {
+      VStack(spacing: 14) {
         // Microphone Card
-        permissionCard(
+        ElevatedPermissionCard(
           icon: "mic.fill",
+          eyebrow: "AUDIO CAPTURE",
           title: "Microphone Access",
-          subtitle: "Required for capturing audio while you hold the dictation hotkey.",
+          subtitle: "Allows audio recording while you hold your dictation hotkey.",
           isGranted: isMicrophoneGranted,
           buttonTitle: microphonePermission == .denied ? "Open Settings" : "Enable Microphone",
           action: {
@@ -317,10 +226,11 @@ public struct WelcomeOnboardingView: View {
         )
 
         // Accessibility Card
-        permissionCard(
+        ElevatedPermissionCard(
           icon: "accessibility",
+          eyebrow: "INPUT & AUTOMATION",
           title: "Accessibility & Input Monitoring",
-          subtitle: "Required to detect your global shortcut and insert transcribed text directly into your active apps.",
+          subtitle: "Required to detect your hotkey and insert transcriptions into active apps.",
           isGranted: isAccessibilityGranted,
           buttonTitle: (accessibilityPermission == .denied || inputMonitoringPermission == .denied) ? "Open Settings" : "Enable Accessibility",
           action: {
@@ -332,97 +242,20 @@ public struct WelcomeOnboardingView: View {
           }
         )
       }
-      .padding(.horizontal, 36)
+      .padding(.horizontal, 32)
 
-      // Privacy assurance footer note
+      // Privacy guarantee note
       HStack(spacing: 6) {
         Image(systemName: "lock.fill")
           .font(.system(size: 10))
           .foregroundStyle(TickColor.textTertiary)
 
-        Text("Tick never transmits or stores keystrokes or audio outside your local Mac.")
-          .font(.system(size: 11, weight: .regular, design: .default))
+        Text("All processing stays strictly local to your Mac.")
+          .font(TickFont.captionFunc(11, weight: .regular))
           .foregroundStyle(TickColor.textTertiary)
       }
       .padding(.top, 2)
     }
-  }
-
-  private func permissionCard(
-    icon: String,
-    title: String,
-    subtitle: String,
-    isGranted: Bool,
-    buttonTitle: String,
-    action: @escaping () -> Void
-  ) -> some View {
-    HStack(alignment: .center, spacing: 16) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 10)
-          .fill(isGranted ? TickColor.success.opacity(0.14) : TickColor.brand.opacity(0.12))
-          .frame(width: 40, height: 40)
-          .overlay(
-            RoundedRectangle(cornerRadius: 10)
-              .stroke(isGranted ? TickColor.success.opacity(0.3) : Color.white.opacity(0.15), lineWidth: 0.75)
-          )
-
-        Image(systemName: icon)
-          .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(isGranted ? TickColor.success : TickColor.brand)
-      }
-
-      VStack(alignment: .leading, spacing: 3) {
-        Text(title)
-          .font(.system(size: 14, weight: .semibold, design: .default))
-          .foregroundStyle(TickColor.textPrimary)
-
-        Text(subtitle)
-          .font(.system(size: 12, weight: .regular, design: .default))
-          .foregroundStyle(TickColor.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-
-      Spacer(minLength: 8)
-
-      if isGranted {
-        HStack(spacing: 5) {
-          Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 12, weight: .semibold))
-          Text("Ready")
-            .font(.system(size: 12, weight: .semibold, design: .default))
-        }
-        .foregroundStyle(TickColor.success)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(TickColor.success.opacity(0.12))
-        .clipShape(Capsule())
-        .overlay(
-          Capsule()
-            .stroke(TickColor.success.opacity(0.35), lineWidth: 0.75)
-        )
-      } else {
-        ElevatedActionButton(
-          title: buttonTitle,
-          icon: "arrow.up.right",
-          action: action
-        )
-      }
-    }
-    .padding(16)
-    .hexGlass(cornerRadius: 14, style: .regular)
-    .overlay(
-      RoundedRectangle(cornerRadius: 14)
-        .stroke(
-          LinearGradient(
-            colors: isGranted
-              ? [Color.white.opacity(0.18), Color.white.opacity(0.06)]
-              : [TickColor.brand.opacity(0.40), Color.white.opacity(0.08)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-          ),
-          lineWidth: 0.75
-        )
-    )
   }
 
   // MARK: - Bottom Action Bar with Elevated Buttons
@@ -431,20 +264,20 @@ public struct WelcomeOnboardingView: View {
     HStack {
       if currentStep == 1 {
         Button(action: {
-          withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+          withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
             currentStep = 0
           }
         }) {
           HStack(spacing: 6) {
             Image(systemName: "arrow.left")
-              .font(.system(size: 12, weight: .semibold))
+              .font(.system(size: 11, weight: .semibold))
             Text("Back")
-              .font(.system(size: 13, weight: .medium, design: .default))
+              .font(TickFont.labelFunc(13, weight: .medium))
           }
           .foregroundStyle(TickColor.textSecondary)
           .padding(.horizontal, 16)
-          .padding(.vertical, 8)
-          .hexGlass(cornerRadius: 8, interactive: true)
+          .padding(.vertical, 9)
+          .hexGlass(cornerRadius: 10, interactive: true)
         }
         .buttonStyle(.plain)
       }
@@ -452,24 +285,25 @@ public struct WelcomeOnboardingView: View {
       Spacer()
 
       if currentStep == 0 {
-        ElevatedPrimaryButton(
-          title: "Get Started",
+        ElevatedTactileButton(
+          title: "Continue",
           icon: "arrow.right",
+          isEnabled: true,
           action: {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
               currentStep = 1
             }
           }
         )
       } else {
         VStack(alignment: .trailing, spacing: 6) {
-          ElevatedPrimaryButton(
+          ElevatedTactileButton(
             title: "Enter Tick",
             icon: "checkmark.circle.fill",
             isEnabled: canProceedFromPermissions,
             action: {
               guard canProceedFromPermissions else { return }
-              withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+              withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
                 $hexSettings.withLock {
                   $0.hasCompletedWelcomeOnboarding = true
                 }
@@ -478,8 +312,8 @@ public struct WelcomeOnboardingView: View {
           )
 
           if !canProceedFromPermissions {
-            Text("Grant required permissions to continue")
-              .font(.system(size: 11, weight: .regular, design: .default))
+            Text("Grant both permissions above to proceed")
+              .font(TickFont.captionFunc(11, weight: .regular))
               .foregroundStyle(TickColor.textTertiary)
           }
         }
@@ -488,12 +322,6 @@ public struct WelcomeOnboardingView: View {
   }
 
   // MARK: - Helpers & Polling
-
-  private func startWaveAnimation() {
-    withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
-      wavePhase = .pi * 2
-    }
-  }
 
   private func refreshPermissions() {
     Task { @MainActor in
@@ -522,11 +350,284 @@ public struct WelcomeOnboardingView: View {
   }
 }
 
-// MARK: - Slightly Elevated 3D Glass Buttons
+// MARK: - Elevated Spatial Feature Card (Emil Kowalski Physics & Lighting)
 
-private struct ElevatedPrimaryButton: View {
+private struct ElevatedFeatureCard: View {
+  let icon: String
+  let badge: String
+  let title: String
+  let detail: String
+  let index: Int
+  let isAppeared: Bool
+
+  @State private var isHovered = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      // Top icon badge & category tag
+      HStack {
+        ZStack {
+          RoundedRectangle(cornerRadius: 9)
+            .fill(
+              LinearGradient(
+                colors: [
+                  TickColor.brand.opacity(isHovered ? 0.24 : 0.14),
+                  TickColor.brand.opacity(0.08)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+              )
+            )
+            .frame(width: 34, height: 34)
+            .overlay(
+              RoundedRectangle(cornerRadius: 9)
+                .stroke(
+                  LinearGradient(
+                    colors: [Color.white.opacity(0.35), TickColor.brand.opacity(0.20)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                  ),
+                  lineWidth: 0.75
+                )
+            )
+
+          Image(systemName: icon)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(TickColor.brand)
+        }
+
+        Spacer()
+
+        Text(badge)
+          .font(TickFont.mono(9, weight: .medium))
+          .tracking(0.6)
+          .foregroundStyle(isHovered ? TickColor.brand : TickColor.textTertiary)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2.5)
+          .background(TickColor.brand.opacity(isHovered ? 0.12 : 0.06))
+          .cornerRadius(4)
+      }
+
+      // Title & Description
+      VStack(alignment: .leading, spacing: 4) {
+        Text(title)
+          .font(TickFont.headingFunc(15, weight: .semibold))
+          .foregroundStyle(TickColor.textPrimary)
+
+        Text(detail)
+          .font(TickFont.bodyFunc(12, weight: .regular))
+          .foregroundStyle(TickColor.textSecondary)
+          .lineSpacing(3)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
+    .background(
+      ZStack {
+        // Deep liquid glass base
+        RoundedRectangle(cornerRadius: 16)
+          .fill(
+            LinearGradient(
+              colors: [
+                Color.white.opacity(isHovered ? 0.09 : 0.05),
+                Color.black.opacity(0.18)
+              ],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+
+        // Top edge specular reflection highlight
+        VStack {
+          LinearGradient(
+            colors: [Color.white.opacity(isHovered ? 0.45 : 0.25), Color.clear],
+            startPoint: .top,
+            endPoint: .bottom
+          )
+          .frame(height: 1.5)
+          Spacer()
+        }
+      }
+    )
+    .clipShape(RoundedRectangle(cornerRadius: 16))
+    .overlay(
+      RoundedRectangle(cornerRadius: 16)
+        .stroke(
+          LinearGradient(
+            colors: isHovered
+              ? [TickColor.brand.opacity(0.60), Color.white.opacity(0.20), TickColor.brand.opacity(0.25)]
+              : [Color.white.opacity(0.25), Color.white.opacity(0.06)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          ),
+          lineWidth: isHovered ? 1.0 : 0.75
+        )
+    )
+    .hexGlass(cornerRadius: 16, style: .regular)
+    // Tactile multi-layer elevation shadows
+    .shadow(color: Color.black.opacity(0.30), radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 6 : 3)
+    .shadow(color: isHovered ? TickColor.brand.opacity(0.20) : Color.clear, radius: 14, x: 0, y: 4)
+    // Smooth physical hover lift and scale
+    .offset(y: isAppeared ? (isHovered ? -3 : 0) : 18)
+    .scaleEffect(isAppeared ? (isHovered ? 1.015 : 1.0) : 0.94)
+    .opacity(isAppeared ? 1 : 0)
+    .animation(
+      .spring(response: 0.38, dampingFraction: 0.76).delay(0.06 + Double(index) * 0.06),
+      value: isAppeared
+    )
+    .animation(.spring(response: 0.28, dampingFraction: 0.74), value: isHovered)
+    .onHover { isHovered = $0 }
+  }
+}
+
+// MARK: - Elevated Permission Card
+
+private struct ElevatedPermissionCard: View {
+  let icon: String
+  let eyebrow: String
+  let title: String
+  let subtitle: String
+  let isGranted: Bool
+  let buttonTitle: String
+  let action: () -> Void
+
+  @State private var isHovered = false
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 16) {
+      ZStack {
+        RoundedRectangle(cornerRadius: 11)
+          .fill(
+            LinearGradient(
+              colors: [
+                isGranted ? TickColor.success.opacity(0.20) : TickColor.brand.opacity(0.16),
+                isGranted ? TickColor.success.opacity(0.08) : TickColor.brand.opacity(0.06)
+              ],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+          .frame(width: 42, height: 42)
+          .overlay(
+            RoundedRectangle(cornerRadius: 11)
+              .stroke(
+                LinearGradient(
+                  colors: [Color.white.opacity(0.35), (isGranted ? TickColor.success : TickColor.brand).opacity(0.30)],
+                  startPoint: .topLeading,
+                  endPoint: .bottomTrailing
+                ),
+                lineWidth: 0.75
+              )
+          )
+
+        Image(systemName: icon)
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(isGranted ? TickColor.success : TickColor.brand)
+      }
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(eyebrow)
+          .font(TickFont.mono(9, weight: .medium))
+          .tracking(0.6)
+          .foregroundStyle(TickColor.textTertiary)
+
+        Text(title)
+          .font(TickFont.headingFunc(14, weight: .semibold))
+          .foregroundStyle(TickColor.textPrimary)
+
+        Text(subtitle)
+          .font(TickFont.bodyFunc(12, weight: .regular))
+          .foregroundStyle(TickColor.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      Spacer(minLength: 12)
+
+      if isGranted {
+        HStack(spacing: 5) {
+          Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 12, weight: .semibold))
+          Text("Ready")
+            .font(TickFont.labelFunc(12, weight: .semibold))
+        }
+        .foregroundStyle(TickColor.success)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(TickColor.success.opacity(0.12))
+        .clipShape(Capsule())
+        .overlay(
+          Capsule()
+            .stroke(TickColor.success.opacity(0.35), lineWidth: 0.75)
+        )
+      } else {
+        ElevatedTactileButton(
+          title: buttonTitle,
+          icon: "arrow.up.right",
+          isCompact: true,
+          isEnabled: true,
+          action: action
+        )
+      }
+    }
+    .padding(16)
+    .background(
+      ZStack {
+        RoundedRectangle(cornerRadius: 16)
+          .fill(
+            LinearGradient(
+              colors: [
+                Color.white.opacity(isHovered ? 0.08 : 0.04),
+                Color.black.opacity(0.16)
+              ],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+
+        VStack {
+          LinearGradient(
+            colors: [Color.white.opacity(isHovered ? 0.40 : 0.22), Color.clear],
+            startPoint: .top,
+            endPoint: .bottom
+          )
+          .frame(height: 1.5)
+          Spacer()
+        }
+      }
+    )
+    .clipShape(RoundedRectangle(cornerRadius: 16))
+    .overlay(
+      RoundedRectangle(cornerRadius: 16)
+        .stroke(
+          LinearGradient(
+            colors: isGranted
+              ? [Color.white.opacity(0.20), Color.white.opacity(0.06)]
+              : (isHovered
+                  ? [TickColor.brand.opacity(0.55), Color.white.opacity(0.18)]
+                  : [Color.white.opacity(0.22), Color.white.opacity(0.05)]),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          ),
+          lineWidth: 0.75
+        )
+    )
+    .hexGlass(cornerRadius: 16, style: .regular)
+    .shadow(color: Color.black.opacity(0.25), radius: isHovered ? 8 : 4, x: 0, y: isHovered ? 4 : 2)
+    .offset(y: isHovered ? -1.5 : 0)
+    .animation(.spring(response: 0.26, dampingFraction: 0.75), value: isHovered)
+    .onHover { isHovered = $0 }
+  }
+}
+
+// MARK: - Elevated Tactile 3D Glass Button
+
+private struct ElevatedTactileButton: View {
   let title: String
   let icon: String?
+  var isCompact: Bool = false
   var isEnabled: Bool = true
   let action: () -> Void
 
@@ -535,22 +636,22 @@ private struct ElevatedPrimaryButton: View {
 
   var body: some View {
     Button(action: action) {
-      HStack(spacing: 8) {
+      HStack(spacing: isCompact ? 5 : 8) {
         Text(title)
-          .font(.system(size: 14, weight: .semibold, design: .default))
+          .font(TickFont.labelFunc(isCompact ? 12 : 14, weight: .semibold))
 
         if let icon {
           Image(systemName: icon)
-            .font(.system(size: 12, weight: .bold))
+            .font(.system(size: isCompact ? 10 : 12, weight: .bold))
         }
       }
       .foregroundStyle(isEnabled ? Color.white : TickColor.textTertiary)
-      .padding(.horizontal, 24)
-      .padding(.vertical, 10)
+      .padding(.horizontal, isCompact ? 14 : 24)
+      .padding(.vertical, isCompact ? 7 : 10)
       .background(
         ZStack {
           if isEnabled {
-            // Elevated gradient background
+            // Elevated physical gradient
             LinearGradient(
               colors: [
                 TickColor.brand.opacity(isHovered ? 1.0 : 0.92),
@@ -560,10 +661,10 @@ private struct ElevatedPrimaryButton: View {
               endPoint: .bottom
             )
 
-            // Top specular highlight bevel line
+            // Top specular bevel line
             VStack {
               LinearGradient(
-                colors: [Color.white.opacity(0.40), Color.white.opacity(0.0)],
+                colors: [Color.white.opacity(0.48), Color.white.opacity(0.0)],
                 startPoint: .top,
                 endPoint: .bottom
               )
@@ -579,13 +680,13 @@ private struct ElevatedPrimaryButton: View {
           }
         }
       )
-      .clipShape(RoundedRectangle(cornerRadius: 10))
+      .clipShape(RoundedRectangle(cornerRadius: isCompact ? 8 : 10))
       .overlay(
-        RoundedRectangle(cornerRadius: 10)
+        RoundedRectangle(cornerRadius: isCompact ? 8 : 10)
           .stroke(
             isEnabled
               ? LinearGradient(
-                  colors: [Color.white.opacity(0.50), TickColor.brand.opacity(0.40)],
+                  colors: [Color.white.opacity(0.55), TickColor.brand.opacity(0.35)],
                   startPoint: .top,
                   endPoint: .bottom
                 )
@@ -597,9 +698,9 @@ private struct ElevatedPrimaryButton: View {
             lineWidth: 1.0
           )
       )
-      // Elevated dual drop shadow
+      // Dual-layer elevated drop shadows
       .shadow(
-        color: isEnabled ? Color.black.opacity(0.20) : Color.clear,
+        color: isEnabled ? Color.black.opacity(0.25) : Color.clear,
         radius: isHovered ? 4 : 2,
         x: 0,
         y: isHovered ? 3 : 1.5
@@ -608,79 +709,15 @@ private struct ElevatedPrimaryButton: View {
         color: isEnabled ? TickColor.brand.opacity(isHovered ? 0.45 : 0.28) : Color.clear,
         radius: isHovered ? 12 : 6,
         x: 0,
-        y: isHovered ? 6 : 3
+        y: isHovered ? 5 : 3
       )
-      .scaleEffect(isPressed ? 0.98 : (isHovered && isEnabled ? 1.02 : 1.0))
-      .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
-      .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isPressed)
+      .scaleEffect(isPressed ? 0.975 : (isHovered && isEnabled ? 1.02 : 1.0))
+      .offset(y: isPressed ? 1.0 : (isHovered && isEnabled ? -1.0 : 0))
+      .animation(.spring(response: 0.24, dampingFraction: 0.74), value: isHovered)
+      .animation(.spring(response: 0.18, dampingFraction: 0.82), value: isPressed)
     }
     .buttonStyle(.plain)
     .disabled(!isEnabled)
-    .onHover { isHovered = $0 }
-  }
-}
-
-private struct ElevatedActionButton: View {
-  let title: String
-  let icon: String?
-  let action: () -> Void
-
-  @State private var isHovered = false
-
-  var body: some View {
-    Button(action: action) {
-      HStack(spacing: 6) {
-        Text(title)
-          .font(.system(size: 12, weight: .semibold, design: .default))
-
-        if let icon {
-          Image(systemName: icon)
-            .font(.system(size: 10, weight: .bold))
-        }
-      }
-      .foregroundStyle(Color.white)
-      .padding(.horizontal, 14)
-      .padding(.vertical, 7)
-      .background(
-        ZStack {
-          LinearGradient(
-            colors: [
-              TickColor.brand.opacity(isHovered ? 1.0 : 0.90),
-              TickColor.brand.opacity(0.78)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-          )
-
-          VStack {
-            LinearGradient(
-              colors: [Color.white.opacity(0.40), Color.clear],
-              startPoint: .top,
-              endPoint: .bottom
-            )
-            .frame(height: 1.2)
-            Spacer()
-          }
-        }
-      )
-      .clipShape(RoundedRectangle(cornerRadius: 8))
-      .overlay(
-        RoundedRectangle(cornerRadius: 8)
-          .stroke(
-            LinearGradient(
-              colors: [Color.white.opacity(0.50), TickColor.brand.opacity(0.30)],
-              startPoint: .top,
-              endPoint: .bottom
-            ),
-            lineWidth: 0.75
-          )
-      )
-      .shadow(color: Color.black.opacity(0.18), radius: 2, x: 0, y: 1.5)
-      .shadow(color: TickColor.brand.opacity(isHovered ? 0.35 : 0.20), radius: 6, x: 0, y: 3)
-      .scaleEffect(isHovered ? 1.02 : 1.0)
-      .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
-    }
-    .buttonStyle(.plain)
     .onHover { isHovered = $0 }
   }
 }
