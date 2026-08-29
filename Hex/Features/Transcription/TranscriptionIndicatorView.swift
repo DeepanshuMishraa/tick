@@ -1,3 +1,4 @@
+import ComposableArchitecture
 import HexCore
 import Inject
 import SwiftUI
@@ -179,6 +180,7 @@ struct LiquidNotchOutlineShape: Shape {
 
 struct TranscriptionIndicatorView: View {
   @ObserveInjection var inject
+  @Shared(.hexSettings) private var hexSettings: HexSettings
 
   enum Status {
     case hidden
@@ -223,17 +225,52 @@ struct TranscriptionIndicatorView: View {
     ZStack(alignment: .top) {
       let notchShape = LiquidNotchShape(shoulderWidth: 16, cornerRadius: 18)
       let outlineShape = LiquidNotchOutlineShape(shoulderWidth: 16, cornerRadius: 18)
+      let theme = hexSettings.themeColor
 
       if isActive {
-        // Pure Dark Liquid Glass body
+        // Pure Dark Liquid Glass body with dynamic theme reflection
         ZStack {
           if #available(macOS 26.0, *) {
-            notchShape
-              .fill(Color.black.opacity(0.65))
-              .glassEffect(.regular, in: notchShape)
+            switch theme {
+            case .monochrome:
+              notchShape
+                .fill(Color.black.opacity(0.65))
+                .glassEffect(.regular, in: notchShape)
+            case .multicolor:
+              notchShape
+                .fill(
+                  LinearGradient(
+                    colors: [
+                      Color.black.opacity(0.65),
+                      Color.cyan.opacity(0.14),
+                      Color.purple.opacity(0.12),
+                      Color.pink.opacity(0.10),
+                      Color.black.opacity(0.65)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                  )
+                )
+                .glassEffect(.regular.tint(Color.cyan.opacity(0.06)), in: notchShape)
+            default:
+              notchShape
+                .fill(
+                  LinearGradient(
+                    colors: [
+                      Color.black.opacity(0.65),
+                      theme.swatchColor.opacity(0.18),
+                      Color.black.opacity(0.70)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                  )
+                )
+                .glassEffect(.regular.tint(theme.swatchColor.opacity(0.08)), in: notchShape)
+            }
           } else {
+            let fallbackFill: Color = theme == .monochrome ? Color.black.opacity(0.75) : theme.swatchColor.opacity(0.15)
             notchShape
-              .fill(Color.black.opacity(0.75))
+              .fill(fallbackFill)
               .background(notchShape.fill(.ultraThinMaterial))
           }
         }
@@ -242,12 +279,31 @@ struct TranscriptionIndicatorView: View {
           outlineShape
             .stroke(
               LinearGradient(
-                stops: [
-                  .init(color: Color.white.opacity(0.24), location: 0.0),
-                  .init(color: Color.white.opacity(0.08), location: 0.35),
-                  .init(color: Color.white.opacity(0.18), location: 0.75),
-                  .init(color: Color.white.opacity(0.28), location: 1.0)
-                ],
+                stops: {
+                  switch theme {
+                  case .monochrome:
+                    return [
+                      .init(color: Color.white.opacity(0.24), location: 0.0),
+                      .init(color: Color.white.opacity(0.08), location: 0.35),
+                      .init(color: Color.white.opacity(0.18), location: 0.75),
+                      .init(color: Color.white.opacity(0.28), location: 1.0)
+                    ]
+                  case .multicolor:
+                    return [
+                      .init(color: Color.white.opacity(0.40), location: 0.0),
+                      .init(color: Color.cyan.opacity(0.40), location: 0.25),
+                      .init(color: Color.purple.opacity(0.35), location: 0.60),
+                      .init(color: Color.pink.opacity(0.35), location: 1.0)
+                    ]
+                  default:
+                    return [
+                      .init(color: Color.white.opacity(0.35), location: 0.0),
+                      .init(color: theme.swatchColor.opacity(0.45), location: 0.25),
+                      .init(color: Color.white.opacity(0.08), location: 0.60),
+                      .init(color: theme.swatchColor.opacity(0.35), location: 1.0)
+                    ]
+                  }
+                }(),
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
               ),
@@ -653,9 +709,7 @@ struct FloatingCopyPillView: View {
                   LinearGradient(
                     colors: isCopiedState
                       ? [Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.90), Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.45)]
-                      : (isDictionaryState
-                          ? [TickColor.brandMid.opacity(0.95), TickColor.brand.opacity(0.70)]
-                          : [TickColor.brandMid.opacity(0.90), TickColor.brand.opacity(0.60)]),
+                      : [TickColor.brand.opacity(0.95), TickColor.brand.opacity(0.50)],
                     startPoint: .leading,
                     endPoint: .trailing
                   )
@@ -669,22 +723,7 @@ struct FloatingCopyPillView: View {
           .padding(.bottom, 3)
         }
         .frame(width: FloatingCopyLayout.pillSize.width, height: FloatingCopyLayout.pillSize.height)
-        .hexGlass(in: Capsule(), tint: .clear, interactive: true)
-        .overlay(
-          Capsule()
-            .strokeBorder(
-              LinearGradient(
-                stops: [
-                  .init(color: Color.white.opacity(0.24), location: 0.0),
-                  .init(color: Color.white.opacity(0.10), location: 0.4),
-                  .init(color: Color.white.opacity(0.04), location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-              ),
-              lineWidth: 0.5
-            )
-        )
+        .hexGlass(in: Capsule(), interactive: true)
         .shadow(color: Color.black.opacity(0.28), radius: 10, x: 0, y: 3)
         .contentShape(Capsule())
       }
@@ -748,6 +787,7 @@ struct ThreeDotsIndicator: View {
 // meter rather than a flat/static display.
 
 struct NotchWaveform: View {
+  @Shared(.hexSettings) private var hexSettings: HexSettings
   let meter: Meter
   let color: Color
   var isTranscribing: Bool = false
@@ -778,7 +818,27 @@ struct NotchWaveform: View {
   ]
 
   private func barColor(for index: Int) -> Color {
-    let colors = isTranscribing ? transcribingColors : recordingColors
+    let theme = hexSettings.themeColor
+    if theme == .monochrome {
+      let colors: [Color] = [
+        Color.white.opacity(0.85),
+        Color.white.opacity(1.0),
+        Color.white.opacity(0.90),
+        Color.white.opacity(0.75)
+      ]
+      return colors[index % colors.count]
+    }
+    if theme == .multicolor {
+      let colors = isTranscribing ? transcribingColors : recordingColors
+      return colors[index % colors.count]
+    }
+    let accent = theme.swatchColor
+    let colors: [Color] = [
+      accent.opacity(0.85),
+      Color.white.opacity(0.95),
+      accent.opacity(1.0),
+      accent.opacity(0.70)
+    ]
     return colors[index % colors.count]
   }
   

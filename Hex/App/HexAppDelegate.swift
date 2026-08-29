@@ -140,7 +140,6 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 		if #available(macOS 26.0, *) {
 			let glassView = NSGlassEffectView(frame: NSRect(origin: .zero, size: frame.size))
 			glassView.style = .regular
-			glassView.cornerRadius = 24
 			glassView.tintColor = .clear
 			glassView.autoresizingMask = [.width, .height]
 			glassView.contentView = hostingView

@@ -69,6 +69,20 @@ final class AIPostProcessingTests: XCTestCase {
 		)
 	}
 
+	func testInputNormalizerRemovesStandaloneThinkingFillers() {
+		XCTAssertEqual(
+			AIPostProcessingInputNormalizer.normalized("um uh ahh I need to, erm, send this"),
+			"I need to send this"
+		)
+	}
+
+	func testInputNormalizerPreservesWordsInsideIdentifiers() {
+		XCTAssertEqual(
+			AIPostProcessingInputNormalizer.normalized("use the umber variable, uh oh"),
+			"use the umber variable, oh"
+		)
+	}
+
 	func testInputNormalizerFormatsSpokenOrderedItems() {
 		let input = "The first thing is hello everyone. Second thing is hello, how are you? And third thing is how are you doing, mate."
 

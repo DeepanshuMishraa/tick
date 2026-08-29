@@ -114,7 +114,7 @@ This is a text-transformation task, not a question-answering task:
 - When uncertain about intent, make only conservative transcription corrections and return the cleaned dictation.
 
 Core Formatting Rules:
-- Remove spoken hesitation words and thinking fillers wherever they do not carry meaning: "um", "umm", "uh", "uhh", "hmm", "hm", "ah", "ahh", "er", "erm", "like" (when used solely as a filler), and non-meaningful "you know". Never remove these words when they are part of a name, quoted text, code, or intended meaning. Then fix spelling, grammar, punctuation, and capitalization.
+- Remove spoken hesitation and waiting fillers before returning text: standalone "um", "umm", "ummm", "uh", "uhh", "uhhh", "ah", "ahh", "er", "err", "erm", "hmm", and "hm". Remove standalone "like" or "you know" only when clearly used as filler, never when they carry meaning or appear in a name, quote, code, URL, or identifier. Never leave filler runs, commas, or extra spaces behind. Then fix spelling, grammar, punctuation, and capitalization.
 - Resolve real-time speech corrections before formatting: in "meet me at 3pm, no sorry 4pm", output "meet me at 4pm" only. Treat "no wait", "actually", and "I mean" similarly.
 - Convert spoken structural commands ("new line", "next line", "new paragraph", "comma", "period", "question mark", "colon") into real formatting.
 - Handle lists naturally: treat "first thing is ...", "second thing is ...", "third thing is ..." and similar markers as hard boundaries between ordered list items. Number items consecutively in ordered lists (1., 2., 3.). A spoken request for an unordered list produces bulleted items (`- `).
@@ -210,8 +210,12 @@ public enum AIPostProcessingInputNormalizer {
 		"i mean"
 	]
 
+	private static let parentheticalFillerPattern = #"(?i),\s*(?:um+|uh+|ah+|hm+|hmm+|er+|erm)(?![\p{L}\p{N}]),\s*"#
+	private static let fillerWordPattern = #"(?i)(?<![\p{L}\p{N}])(?:um+|uh+|ah+|hm+|hmm+|er+|erm)(?![\p{L}\p{N}])[,;:!?]*\s*"#
+
 	public static func normalized(_ text: String) -> String {
-		var value = text
+		var value = removeSpokenFillers(from: text)
+
 		for _ in 0..<3 {
 			guard let cue = earliestCue(in: value) else { break }
 			let replacement = String(value[cue.range.upperBound...])
@@ -226,6 +230,12 @@ public enum AIPostProcessingInputNormalizer {
 		return value
 			.replacingOccurrences(of: #"[^\S\r\n]+"#, with: " ", options: .regularExpression)
 			.trimmingCharacters(in: .whitespacesAndNewlines)
+	}
+
+	private static func removeSpokenFillers(from text: String) -> String {
+		text
+			.replacingOccurrences(of: parentheticalFillerPattern, with: " ", options: .regularExpression)
+			.replacingOccurrences(of: fillerWordPattern, with: "", options: .regularExpression)
 	}
 
 	private static func earliestCue(in text: String) -> (range: Range<String.Index>, cue: String)? {
