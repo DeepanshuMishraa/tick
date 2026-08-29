@@ -25,6 +25,7 @@ struct TranscriptionFeature {
     var isLocked: Bool = false
     var error: String?
     var recordingStartTime: Date?
+    var transcriptionRequestStartUptime: TimeInterval?
     var meter: Meter = .init(averagePower: 0, peakPower: 0)
     var sourceAppBundleID: String?
     var sourceAppName: String?
@@ -170,6 +171,7 @@ struct TranscriptionFeature {
         // has accepted the final text, including any optional AI formatting.
         state.isTranscribing = false
         state.isPrewarming = false
+        state.transcriptionRequestStartUptime = nil
         return .none
 
       case let .beginCorrectionMonitoring(beforeText, baseline, insertedText):
@@ -484,10 +486,13 @@ private extension TranscriptionFeature {
     // Otherwise, proceed to transcription
     state.isTranscribing = true
     state.error = nil
+    state.transcriptionRequestStartUptime = ProcessInfo.processInfo.systemUptime
     let model = state.hexSettings.selectedModel
     let language = state.hexSettings.outputLanguage
 
     state.isPrewarming = true
+
+    let stateTranscriptionStartUptime = state.transcriptionRequestStartUptime
 
     return .run { [sleepManagement] send in
       // Allow system to sleep again
@@ -498,6 +503,9 @@ private extension TranscriptionFeature {
         soundEffect.play(.stopRecording)
         let capturedURL = await recording.stopRecording()
         audioURL = capturedURL
+        transcriptionFeatureLogger.info(
+          "Release-to-recording-stop elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - (stateTranscriptionStartUptime ?? ProcessInfo.processInfo.systemUptime)) * 1000), privacy: .public)"
+        )
 
         // Create transcription options with the selected language
         // Note: cap concurrency to avoid audio I/O overloads on some Macs
@@ -532,6 +540,9 @@ private extension TranscriptionFeature {
     // post-processing and paste are running so the notch reflects the actual
     // end-to-end operation.
     state.isPrewarming = false
+    let requestStartUptime = state.transcriptionRequestStartUptime ?? ProcessInfo.processInfo.systemUptime
+    let transcriptionElapsedMs = Int((ProcessInfo.processInfo.systemUptime - requestStartUptime) * 1000)
+    transcriptionFeatureLogger.info("Key-release-to-raw-result elapsedMs=\(transcriptionElapsedMs, privacy: .public) resultChars=\(result.count, privacy: .public)")
 
     // Check for force quit command (emergency escape hatch)
     if ForceQuitCommandDetector.matches(result) {
@@ -547,6 +558,7 @@ private extension TranscriptionFeature {
     // If empty text, nothing else to do
     guard !result.isEmpty else {
       state.isTranscribing = false
+      state.transcriptionRequestStartUptime = nil
       return .none
     }
 
@@ -586,6 +598,7 @@ private extension TranscriptionFeature {
 
     guard !modifiedResult.isEmpty else {
       state.isTranscribing = false
+      state.transcriptionRequestStartUptime = nil
       return .none
     }
 
@@ -607,16 +620,19 @@ private extension TranscriptionFeature {
       var resultToUse = modifiedResult
 
       if useAI {
+        let aiStartedAt = ProcessInfo.processInfo.systemUptime
         do {
           resultToUse = try await aiPostProcessing.postProcess(modifiedResult, aiMode, appContext)
-          transcriptionFeatureLogger.info("AI post-processing completed with mode: \(aiMode.displayName), app: \(appContext?.appName ?? "unknown")")
+          transcriptionFeatureLogger.info("AI post-processing completed with mode: \(aiMode.displayName), app: \(appContext?.appName ?? "unknown"), elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - aiStartedAt) * 1000), privacy: .public)")
         } catch {
           transcriptionFeatureLogger.error("AI post-processing failed: \(error.localizedDescription), using raw result")
           resultToUse = modifiedResult
         }
       }
 
+      let pasteStartedAt = ProcessInfo.processInfo.systemUptime
       let pasteResult = await pasteboard.paste(resultToUse)
+      transcriptionFeatureLogger.info("Paste transport elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - pasteStartedAt) * 1000), privacy: .public) totalKeyReleaseToPasteMs=\(Int((ProcessInfo.processInfo.systemUptime - requestStartUptime) * 1000), privacy: .public)")
       if case .pasted = pasteResult {
         soundEffect.play(.pasteTranscript)
       }
@@ -658,6 +674,7 @@ private extension TranscriptionFeature {
   ) -> Effect<Action> {
     state.isTranscribing = false
     state.isPrewarming = false
+    state.transcriptionRequestStartUptime = nil
     state.error = error.localizedDescription
     
     if let audioURL {

@@ -363,7 +363,10 @@ struct PasteboardClientLive {
         // up pasting the user's previous screenshot/clipboard item. Keep the
         // temporary item available for the same consumption window for every
         // fallback transport.
-        try? await Task.sleep(for: .milliseconds(500))
+        // Keep the temporary item available long enough for asynchronous web,
+        // Electron, terminal, and Ghostty paste handlers without adding half a
+        // second to every fallback paste.
+        try? await Task.sleep(for: .milliseconds(180))
 
         // Do not overwrite a clipboard change made by the user while the
         // paste was in flight.
@@ -377,7 +380,7 @@ struct PasteboardClientLive {
 
         guard didPostPaste else { return .failed }
         pasteboardLogger.notice(
-            "Clipboard paste command posted app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public) restoreDelayMs=500 restored=\(didRestoreClipboard, privacy: .public)"
+            "Clipboard paste command posted app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public) restoreDelayMs=180 restored=\(didRestoreClipboard, privacy: .public)"
         )
         return .pasted(beforeText: beforeText, afterText: nil)
     }

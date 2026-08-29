@@ -194,6 +194,8 @@ extension DependencyValues {
 private actor LocalAIModelManager {
 	#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
 	private var modelContainer: ModelContainer?
+	private var metalKernelsWarmed = false
+	private var warmTask: Task<Void, Error>?
 
 	private let modelDirectoryName = "Qwen3-1.7B-MLX-4bit"
 	private let parallelDownloadThreshold: Int64 = 64 * 1024 * 1024
@@ -508,11 +510,62 @@ private actor LocalAIModelManager {
 		guard isModelDownloaded() else {
 			throw AIPostProcessingError.modelUnavailable
 		}
-		_ = try await loadLocalModel()
-		aiLogger.notice("On-device AI model warmed")
+		try await ensureModelWarmed()
+	}
+
+	private func ensureModelWarmed() async throws {
+		guard !metalKernelsWarmed else { return }
+		if let warmTask {
+			try await warmTask.value
+			return
+		}
+
+		let task = Task { [self] in
+			try await performModelWarmup()
+		}
+		warmTask = task
+		do {
+			try await task.value
+			metalKernelsWarmed = true
+			warmTask = nil
+		} catch {
+			warmTask = nil
+			throw error
+		}
+	}
+
+	private func performModelWarmup() async throws {
+		let container = try await loadLocalModel()
+
+		// Loading the weights alone does not compile MLX's Metal kernels. Run a
+		// one-token, non-thinking completion while Hex is idle so the first real
+		// dictation does not pay that compilation cost.
+		let input = UserInput(
+			chat: [
+				.system("Return only transformed text."),
+				.user("Warm up.")
+			],
+			additionalContext: ["enable_thinking": false]
+		)
+		let preparedInput = try await container.prepare(input: input)
+		let generation = try await container.generate(
+			input: preparedInput,
+			parameters: GenerateParameters(
+				maxTokens: 1,
+				temperature: 0,
+				prefillStepSize: 512
+			)
+		)
+		for try await _ in generation {
+			try Task.checkCancellation()
+		}
+		aiLogger.notice("On-device AI model warmed and Metal kernels compiled")
 	}
 
 	func deleteModel() throws {
+		warmTask?.cancel()
+		warmTask = nil
+		metalKernelsWarmed = false
 		modelContainer = nil
 		let fileManager = FileManager.default
 		let destination = try modelDirectory
@@ -538,7 +591,10 @@ private actor LocalAIModelManager {
 		let normalizedInput = AIPostProcessingInputNormalizer.normalized(text)
 
 		#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
+		let modelLoadStartedAt = ProcessInfo.processInfo.systemUptime
+		try await ensureModelWarmed()
 		let container = try await loadLocalModel()
+		aiLogger.info("Qwen model access elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - modelLoadStartedAt) * 1000), privacy: .public)")
 		let input = UserInput(
 			chat: [
 				.system(prompt),
@@ -546,13 +602,20 @@ private actor LocalAIModelManager {
 			],
 			additionalContext: ["enable_thinking": false]
 		)
+		let prepareStartedAt = ProcessInfo.processInfo.systemUptime
 		let preparedInput = try await container.prepare(input: input)
+		aiLogger.info("Qwen prompt preparation elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - prepareStartedAt) * 1000), privacy: .public) inputChars=\(normalizedInput.count, privacy: .public)")
 		// Keep the generation budget proportional to the dictation. A large
 		// fixed budget makes the local model spend time exploring completions
 		// that cannot fit a short voice command, while still allowing longer
 		// dictation to be formatted without truncation.
-		let estimatedOutputTokens = normalizedInput.utf8.count / 4 + 64
-		let maxOutputTokens = min(2048, max(128, estimatedOutputTokens))
+		let estimatedOutputTokens = normalizedInput.utf8.count / 4 + 16
+		// Ordinary dictation rarely needs more output than its input. A smaller
+		// floor avoids making Qwen search through a large completion budget for
+		// short utterances, while the proportional cap still accommodates long
+		// paragraphs without truncating them.
+		let maxOutputTokens = min(2048, max(48, estimatedOutputTokens))
+		let generationStartedAt = ProcessInfo.processInfo.systemUptime
 		let generation = try await container.generate(
 			input: preparedInput,
 			parameters: GenerateParameters(
@@ -570,6 +633,7 @@ private actor LocalAIModelManager {
 			}
 		}
 
+		aiLogger.info("Qwen generation elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - generationStartedAt) * 1000), privacy: .public) outputChars=\(output.count, privacy: .public)")
 		guard let validated = AIPostProcessingOutputValidator.validated(output, sourceText: text) else {
 			let containsReasoning = output.range(of: "<think>", options: .caseInsensitive) != nil
 				|| output.range(of: "<reasoning>", options: .caseInsensitive) != nil

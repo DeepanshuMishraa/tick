@@ -959,6 +959,18 @@ actor RecordingClientLive {
       recordingLogger.error("Failed to copy recording: \(error.localizedDescription)")
     }
 
+    // The exported file is complete and ready for Parakeet. Recorder
+    // re-priming, capture-environment recovery, and output restoration do not
+    // need to delay the first inference after key release.
+    Task { [self] in
+      await finishStandardStop(didCopyRecording: didCopyRecording)
+    }
+
+    recordingLogger.info("Recording file ready for transcription file=\(exportedURL.lastPathComponent, privacy: .public)")
+    return exportedURL
+  }
+
+  private func finishStandardStop(didCopyRecording: Bool) async {
     if didCopyRecording {
       do {
         try primeRecorderForNextSession()
@@ -974,8 +986,6 @@ actor RecordingClientLive {
 
     await flushDeferredCaptureRestartIfNeeded()
     await restoreRecordingAudioState()
-
-    return exportedURL
   }
 
   private func restoreRecordingAudioState() async {

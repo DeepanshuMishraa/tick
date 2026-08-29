@@ -235,8 +235,10 @@ actor TranscriptionClientLive {
         progressCallback(p)
       }
       transcriptionLogger.info("Parakeet ensureLoaded took \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s")
+      let preparationStartedAt = ProcessInfo.processInfo.systemUptime
       let preparedClip = try ParakeetClipPreparer.ensureMinimumDuration(url: url, logger: parakeetLogger)
       defer { preparedClip.cleanup() }
+      transcriptionLogger.info("Parakeet clip preparation took \(Int((ProcessInfo.processInfo.systemUptime - preparationStartedAt) * 1000), privacy: .public)ms")
       let startTx = Date()
       let text = try await parakeet.transcribe(preparedClip.url)
       transcriptionLogger.info("Parakeet transcription took \(String(format: "%.2f", Date().timeIntervalSince(startTx)))s")
