@@ -1,18 +1,34 @@
+import AppKit
+import ComposableArchitecture
 import Foundation
 import HexCore
 import SwiftUI
 
-struct InsightsTabView: View {
+public struct InsightsTabView: View {
   let transcripts: [Transcript]
   let wordCount: Int
   let averageWPM: Int
   let uniqueAppsCount: Int
 
+  @Shared(.hexSettings) private var hexSettings: HexSettings
   @State private var heatmapPage = 0
   @State private var cachedWordsByDay: [Date: Int] = [:]
   @State private var cachedTranscriptsByDay: [Date: Int] = [:]
   @State private var cachedTopApps: [(name: String, words: Int)] = []
+  @State private var hoveredDay: InsightDay? = nil
   private let monthsPerPage = 3
+
+  public init(
+    transcripts: [Transcript],
+    wordCount: Int,
+    averageWPM: Int,
+    uniqueAppsCount: Int
+  ) {
+    self.transcripts = transcripts
+    self.wordCount = wordCount
+    self.averageWPM = averageWPM
+    self.uniqueAppsCount = uniqueAppsCount
+  }
 
   private var calendar: Calendar {
     var calendar = Calendar.autoupdatingCurrent
@@ -75,6 +91,26 @@ struct InsightsTabView: View {
   private var averageWordsPerDay: Int {
     guard activeDays > 0 else { return 0 }
     return wordCount / activeDays
+  }
+
+  private var effectiveWPM: Int {
+    averageWPM > 0 ? averageWPM : 130
+  }
+
+  private var hoursSaved: Double {
+    guard wordCount > 0 else { return 0.0 }
+    let typingMinutes = Double(wordCount) / 40.0
+    let voiceMinutes = Double(wordCount) / Double(max(40, effectiveWPM))
+    return max(0.1, (typingMinutes - voiceMinutes) / 60.0)
+  }
+
+  private var speedMultiplier: String {
+    let mult = Double(max(40, effectiveWPM)) / 40.0
+    return String(format: "%.1fx", mult)
+  }
+
+  private var pagesEquivalent: Int {
+    max(1, wordCount / 250)
   }
 
   private var bestDay: (date: Date, words: Int)? {
@@ -155,13 +191,18 @@ struct InsightsTabView: View {
     return (0..<7).map { (names[$0], totals[$0]) }
   }
 
+  private var peakWeekday: String? {
+    weekdayTotals.max { $0.words < $1.words }?.name
+  }
+
   private var topApps: [(name: String, words: Int)] {
     cachedTopApps
   }
 
-  var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      pageIntro
+  public var body: some View {
+    VStack(alignment: .leading, spacing: 22) {
+      pageHero
+      productivityPowerBanner
       metricGrid
       activityCard
       supportingDetails
@@ -191,10 +232,10 @@ struct InsightsTabView: View {
           (name: entry.key, words: entry.value)
         }
         let topApps = sortedApps.sorted { lhs, rhs in
-            lhs.words == rhs.words ? lhs.name < rhs.name : lhs.words > rhs.words
+          lhs.words == rhs.words ? lhs.name < rhs.name : lhs.words > rhs.words
         }
 
-        return (wordsByDay, transcriptsByDay, Array(topApps.prefix(4)))
+        return (wordsByDay, transcriptsByDay, Array(topApps.prefix(5)))
       }.value
 
       guard !Task.isCancelled else { return }
@@ -204,99 +245,220 @@ struct InsightsTabView: View {
     }
   }
 
-  private var pageIntro: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      TickEyebrow(text: "Insights")
-      HStack(spacing: 6) {
-        Text("Your words, in")
-          .font(TickFont.display(30, weight: .medium))
-        Text("motion.")
-          .font(TickFont.displayItalic(30))
-          .foregroundStyle(TickColor.brand)
-      }
-      .foregroundStyle(TickColor.textPrimary)
+  // MARK: - Hero Header
 
-      Text("A quiet view of how your voice becomes momentum.")
-        .font(TickFont.bodyFunc(14))
-        .foregroundStyle(TickColor.textSecondary)
+  private var pageHero: some View {
+    HStack(alignment: .bottom) {
+      VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: 8) {
+          TickEyebrow(text: "INSIGHTS & MOMENTUM")
+          Circle()
+            .fill(TickColor.brand)
+            .frame(width: 4, height: 4)
+          Text("LIVE")
+            .font(TickFont.mono(9))
+            .foregroundStyle(TickColor.brand)
+        }
+        
+        HStack(spacing: 7) {
+          Text("Your voice, in")
+            .font(TickFont.display(32, weight: .semibold))
+          Text("momentum.")
+            .font(TickFont.displayItalic(32))
+            .foregroundStyle(TickColor.brand)
+        }
+        .foregroundStyle(TickColor.textPrimary)
+
+        Text("A crystalline overview of your voice productivity, speech speed, and writing cadence.")
+          .font(TickFont.bodyFunc(13))
+          .foregroundStyle(TickColor.textSecondary)
+      }
+
+      Spacer()
+
+      // Quick momentum badges
+      HStack(spacing: 8) {
+        HStack(spacing: 5) {
+          Text("🔥")
+            .font(.system(size: 12))
+          Text("\(streaks.current)d streak")
+            .font(TickFont.labelFunc(12, weight: .semibold))
+            .foregroundStyle(TickColor.textPrimary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .hexGlass(cornerRadius: 10, interactive: true)
+
+        HStack(spacing: 5) {
+          Image(systemName: "bolt.fill")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(TickColor.brand)
+          Text("\(effectiveWPM) WPM")
+            .font(TickFont.labelFunc(12, weight: .semibold))
+            .foregroundStyle(TickColor.textPrimary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .hexGlass(cornerRadius: 10, interactive: true)
+      }
     }
   }
 
+  // MARK: - Productivity Power Banner
+
+  private var productivityPowerBanner: some View {
+    HStack(spacing: 20) {
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 6) {
+          Image(systemName: "sparkles")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(TickColor.brand)
+          Text("VOICE VELOCITY GAIN")
+            .font(TickFont.eyebrow)
+            .foregroundStyle(TickColor.brand)
+        }
+
+        Text(wordCount > 0 ? "\(String(format: "%.1f", hoursSaved)) hours reclaimed" : "Ready for takeoff")
+          .font(TickFont.headingFunc(22, weight: .bold))
+          .foregroundStyle(TickColor.textPrimary)
+
+        Text(wordCount > 0 ? "You dictate at \(speedMultiplier) the speed of typing (~40 WPM). Equivalent to writing ~\(pagesEquivalent) full pages." : "Speak anywhere with your hotkey to start tracking your time saved.")
+          .font(TickFont.captionFunc(12))
+          .foregroundStyle(TickColor.textSecondary)
+      }
+
+      Spacer()
+
+      // Velocity Comparison Metric Bars
+      VStack(alignment: .trailing, spacing: 8) {
+        HStack(spacing: 10) {
+          Text("Keyboard Typing")
+            .font(TickFont.captionFunc(11))
+            .foregroundStyle(TickColor.textTertiary)
+          Text("40 WPM")
+            .font(TickFont.mono(11))
+            .foregroundStyle(TickColor.textSecondary)
+            .frame(width: 55, alignment: .trailing)
+        }
+
+        HStack(spacing: 10) {
+          Text("Tick Dictation")
+            .font(TickFont.labelFunc(11, weight: .semibold))
+            .foregroundStyle(TickColor.brand)
+          Text("\(effectiveWPM) WPM")
+            .font(TickFont.mono(11))
+            .foregroundStyle(TickColor.brand)
+            .frame(width: 55, alignment: .trailing)
+        }
+
+        // Relative speed bar
+        GeometryReader { proxy in
+          ZStack(alignment: .leading) {
+            Capsule()
+              .fill(Color.primary.opacity(0.06))
+
+            Capsule()
+              .fill(
+                LinearGradient(
+                  colors: [TickColor.brand.opacity(0.85), TickColor.brand],
+                  startPoint: .leading,
+                  endPoint: .trailing
+                )
+              )
+              .frame(width: min(proxy.size.width, proxy.size.width * CGFloat(min(1.0, Double(effectiveWPM) / 180.0))))
+          }
+        }
+        .frame(width: 160, height: 5)
+      }
+    }
+    .padding(20)
+    .hexGlass(cornerRadius: TickRadius.card, style: .regular)
+  }
+
+  // MARK: - Key Metrics Grid
+
   private var metricGrid: some View {
-    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
       InsightMetricCard(
         label: "WORDS DICTATED",
         value: wordCount.formatted(),
-        detail: wordCount == 0 ? "Your first words are waiting." : "Across all your transcripts.",
-        icon: "text.quote"
+        detail: wordCount == 0 ? "Your first words are waiting." : "Across \(transcripts.count.formatted()) dictation sessions.",
+        icon: "text.quote",
+        badgeText: wordCount > 0 ? "~\(pagesEquivalent) pages" : nil
       )
       InsightMetricCard(
-        label: "ACTIVE DAYS",
-        value: activeDays.formatted(),
-        detail: activeDays == 0 ? "Start a rhythm today." : "Days with at least one transcript.",
-        icon: "calendar"
+        label: "ACTIVE RHYTHM",
+        value: "\(activeDays.formatted()) \(activeDays == 1 ? "day" : "days")",
+        detail: streaks.current > 0 ? "Current streak: \(streaks.current) days." : "Start your daily flow today.",
+        icon: "flame.fill",
+        badgeText: streaks.longest > 1 ? "Best: \(streaks.longest)d" : nil
       )
       InsightMetricCard(
-        label: "AVERAGE / DAY",
-        value: averageWordsPerDay.formatted(),
-        detail: activeDays == 0 ? "No daily average yet." : "Words on an active day.",
-        icon: "chart.bar"
+        label: "AVERAGE PACE",
+        value: "\(averageWordsPerDay.formatted()) / day",
+        detail: activeDays == 0 ? "No daily cadence yet." : "Average output on active days.",
+        icon: "chart.bar.xaxis",
+        badgeText: "\(speedMultiplier) typing"
       )
       InsightMetricCard(
-        label: "BEST DAY",
+        label: "ALL-TIME RECORD",
         value: bestDay?.words.formatted() ?? "—",
-        detail: bestDay.map { "Words on \(shortDate($0.date))." } ?? "Your biggest day will appear here.",
-        icon: "sparkles"
+        detail: bestDay.map { "Words recorded on \(shortDate($0.date))." } ?? "Your biggest session awaits.",
+        icon: "trophy.fill",
+        badgeText: bestDay != nil ? "Personal best" : nil
       )
     }
   }
 
+  // MARK: - Dictation Rhythm Heatmap Card
+
   private var activityCard: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 5) {
-          Text("Dictation rhythm")
-            .font(TickFont.headingFunc(18, weight: .semibold))
-            .foregroundStyle(TickColor.textPrimary)
-          Text("Three months at a time, day by day")
-            .font(TickFont.caption)
+      HStack(alignment: .center) {
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(spacing: 8) {
+            Text("Dictation Rhythm")
+              .font(TickFont.headingFunc(18, weight: .semibold))
+              .foregroundStyle(TickColor.textPrimary)
+            
+            Text("3-Month Window")
+              .font(TickFont.captionFunc(10))
+              .foregroundStyle(TickColor.brand)
+              .padding(.horizontal, 7)
+              .padding(.vertical, 2.5)
+              .hexGlass(cornerRadius: 6)
+          }
+
+          Text("Your voice momentum day by day across the quarter")
+            .font(TickFont.captionFunc(12))
             .foregroundStyle(TickColor.textSecondary)
         }
+
         Spacer()
-        VStack(alignment: .trailing, spacing: 3) {
-          HStack(spacing: 6) {
-            heatmapNavigationButton(icon: "chevron.left", isDisabled: heatmapPage == 0) {
-              withAnimation(.easeInOut(duration: 0.2)) { heatmapPage -= 1 }
-            }
-            Text(visibleRangeLabel)
-              .font(TickFont.labelFunc(12, weight: .medium))
-              .foregroundStyle(TickColor.textPrimary)
-              .frame(minWidth: 112)
-            heatmapNavigationButton(icon: "chevron.right", isDisabled: heatmapPage >= maxHeatmapPage) {
-              withAnimation(.easeInOut(duration: 0.2)) { heatmapPage += 1 }
-            }
+
+        HStack(spacing: 8) {
+          heatmapNavigationButton(icon: "chevron.left", isDisabled: heatmapPage == 0) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) { heatmapPage -= 1 }
           }
-          .accessibilityElement(children: .contain)
-          .accessibilityLabel("Heat map period")
-          .accessibilityValue(visibleRangeLabel)
-          Text("\(streaks.current) day streak · \(averageWPM) WPM")
-            .font(TickFont.caption)
-            .foregroundStyle(TickColor.brand)
-          Text("Longest \(streaks.longest) days")
-            .font(TickFont.caption)
-            .foregroundStyle(TickColor.textTertiary)
+          Text(visibleRangeLabel)
+            .font(TickFont.labelFunc(12, weight: .semibold))
+            .foregroundStyle(TickColor.textPrimary)
+            .frame(minWidth: 125, alignment: .center)
+          heatmapNavigationButton(icon: "chevron.right", isDisabled: heatmapPage >= maxHeatmapPage) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) { heatmapPage += 1 }
+          }
         }
       }
+      .padding(.bottom, 20)
 
-        .padding(.vertical, 18)
-
+      // Heatmap Grid
       HStack(alignment: .top, spacing: 10) {
         VStack(alignment: .leading, spacing: 5) {
           ForEach(calendar.shortWeekdaySymbols, id: \.self) { weekday in
-            Text(weekday)
-              .font(TickFont.captionFunc(10))
+            Text(weekday.prefix(2))
+              .font(TickFont.mono(9))
               .foregroundStyle(TickColor.textTertiary)
-              .frame(width: 26, height: 18, alignment: .leading)
+              .frame(width: 22, height: 18, alignment: .leading)
           }
         }
         .padding(.top, 22)
@@ -305,8 +467,8 @@ struct InsightsTabView: View {
           HStack(spacing: 5) {
             ForEach(Array(heatmapWeeks.enumerated()), id: \.offset) { _, week in
               Text(monthLabel(for: week))
-                .font(TickFont.captionFunc(10))
-                .foregroundStyle(TickColor.textTertiary)
+                .font(TickFont.captionFunc(10, weight: .medium))
+                .foregroundStyle(TickColor.textSecondary)
                 .frame(width: 18, height: 18, alignment: .leading)
             }
           }
@@ -323,65 +485,107 @@ struct InsightsTabView: View {
         }
       }
 
-      HStack(spacing: 7) {
-        Text("Less")
-          .font(TickFont.caption)
-          .foregroundStyle(TickColor.textTertiary)
-        ForEach([0, 1, 2, 3, 4], id: \.self) { level in
-          RoundedRectangle(cornerRadius: 4)
-            .fill(InsightHeatmapCell.color(for: level))
-            .frame(width: 15, height: 15)
+      // Legend and Micro-Stats
+      HStack(spacing: 12) {
+        HStack(spacing: 6) {
+          Text("Less")
+            .font(TickFont.captionFunc(11))
+            .foregroundStyle(TickColor.textTertiary)
+          ForEach([0, 1, 2, 3, 4], id: \.self) { level in
+            RoundedRectangle(cornerRadius: 3.5)
+              .fill(InsightHeatmapCell.color(for: level, theme: hexSettings.themeColor))
+              .frame(width: 13, height: 13)
+          }
+          Text("More")
+            .font(TickFont.captionFunc(11))
+            .foregroundStyle(TickColor.textTertiary)
         }
-        Text("More")
-          .font(TickFont.caption)
-          .foregroundStyle(TickColor.textTertiary)
+
         Spacer()
-        Text("Hover a day for details")
-          .font(TickFont.caption)
-          .foregroundStyle(TickColor.textTertiary)
+
+        HStack(spacing: 14) {
+          Text("🔥 \(streaks.current) day streak")
+            .font(TickFont.captionFunc(11))
+            .foregroundStyle(TickColor.brand)
+          Text("⚡️ \(effectiveWPM) WPM average")
+            .font(TickFont.captionFunc(11))
+            .foregroundStyle(TickColor.textSecondary)
+          Text("🏆 Longest: \(streaks.longest) days")
+            .font(TickFont.captionFunc(11))
+            .foregroundStyle(TickColor.textTertiary)
+        }
       }
-      .padding(.top, 18)
+      .padding(.top, 20)
     }
-    .padding(20)
+    .padding(22)
     .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 
+  // MARK: - Supporting Details (Two-Column Analytics Grid)
+
   private var supportingDetails: some View {
-    HStack(alignment: .top, spacing: 12) {
+    HStack(alignment: .top, spacing: 14) {
       weekdayCard
       appsCard
     }
   }
 
   private var weekdayCard: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      VStack(alignment: .leading, spacing: 5) {
-        Text("When you flow")
-          .font(TickFont.headingFunc(17, weight: .semibold))
-          .foregroundStyle(TickColor.textPrimary)
-        Text("Your strongest days of the week")
-          .font(TickFont.caption)
-          .foregroundStyle(TickColor.textSecondary)
+    VStack(alignment: .leading, spacing: 18) {
+      HStack {
+        VStack(alignment: .leading, spacing: 3) {
+          Text("When you flow")
+            .font(TickFont.headingFunc(17, weight: .semibold))
+            .foregroundStyle(TickColor.textPrimary)
+          Text("Word volume by day of the week")
+            .font(TickFont.captionFunc(12))
+            .foregroundStyle(TickColor.textSecondary)
+        }
+        Spacer()
+        if let peak = peakWeekday {
+          Text("Peak: \(peak)")
+            .font(TickFont.captionFunc(10, weight: .semibold))
+            .foregroundStyle(TickColor.brand)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .hexGlass(cornerRadius: 6)
+        }
       }
 
-      VStack(spacing: 11) {
+      let maxWords = max(1, weekdayTotals.map(\.words).max() ?? 1)
+      VStack(spacing: 12) {
         ForEach(Array(weekdayTotals.enumerated()), id: \.offset) { _, weekday in
+          let isPeak = weekday.words == maxWords && weekday.words > 0
           HStack(spacing: 10) {
             Text(weekday.name)
-              .font(TickFont.captionFunc(11))
-              .foregroundStyle(TickColor.textSecondary)
-              .frame(width: 30, alignment: .leading)
+              .font(TickFont.labelFunc(11, weight: isPeak ? .semibold : .regular))
+              .foregroundStyle(isPeak ? TickColor.textPrimary : TickColor.textSecondary)
+              .frame(width: 32, alignment: .leading)
+
             GeometryReader { geometry in
-              RoundedRectangle(cornerRadius: 4)
-                .fill(TickColor.brand.opacity(0.78))
-                .frame(width: weekdayBarWidth(for: weekday.words, in: geometry.size.width), height: 8)
-                .frame(maxHeight: .infinity, alignment: .center)
+              ZStack(alignment: .leading) {
+                Capsule()
+                  .fill(Color.primary.opacity(0.04))
+
+                Capsule()
+                  .fill(
+                    LinearGradient(
+                      colors: isPeak
+                        ? [TickColor.brand, TickColor.brand.opacity(0.70)]
+                        : [TickColor.brand.opacity(0.55), TickColor.brand.opacity(0.30)],
+                      startPoint: .leading,
+                      endPoint: .trailing
+                    )
+                  )
+                  .frame(width: max(4, geometry.size.width * CGFloat(weekday.words) / CGFloat(maxWords)))
+              }
             }
-            .frame(height: 12)
+            .frame(height: 7)
+
             Text(weekday.words.formatted())
               .font(TickFont.mono(10))
-              .foregroundStyle(TickColor.textTertiary)
-              .frame(width: 42, alignment: .trailing)
+              .foregroundStyle(isPeak ? TickColor.brand : TickColor.textTertiary)
+              .frame(width: 44, alignment: .trailing)
           }
         }
       }
@@ -392,56 +596,90 @@ struct InsightsTabView: View {
   }
 
   private var appsCard: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Where you flow")
-          .font(TickFont.headingFunc(17, weight: .semibold))
-          .foregroundStyle(TickColor.textPrimary)
-        Text("Words by app · \(uniqueAppsCount) \(uniqueAppsCount == 1 ? "app" : "apps")")
-          .font(TickFont.caption)
-          .foregroundStyle(TickColor.textSecondary)
+    VStack(alignment: .leading, spacing: 18) {
+      HStack {
+        VStack(alignment: .leading, spacing: 3) {
+          Text("Where you flow")
+            .font(TickFont.headingFunc(17, weight: .semibold))
+            .foregroundStyle(TickColor.textPrimary)
+          Text("Distribution across applications")
+            .font(TickFont.captionFunc(12))
+            .foregroundStyle(TickColor.textSecondary)
+        }
+        Spacer()
+        Text("\(uniqueAppsCount) \(uniqueAppsCount == 1 ? "app" : "apps") active")
+          .font(TickFont.captionFunc(10, weight: .semibold))
+          .foregroundStyle(TickColor.textTertiary)
+          .padding(.horizontal, 7)
+          .padding(.vertical, 3)
+          .hexGlass(cornerRadius: 6)
       }
 
       if topApps.isEmpty {
-        VStack(alignment: .leading, spacing: 5) {
-          Image(systemName: "rectangle.stack.badge.plus")
-            .foregroundStyle(TickColor.textTertiary)
-          Text("Your app patterns will appear after you dictate.")
-            .font(TickFont.caption)
+        VStack(spacing: 12) {
+          Spacer()
+          Image(systemName: "app.connected.to.app.below.fill")
+            .font(.system(size: 26))
+            .foregroundStyle(TickColor.textTertiary.opacity(0.6))
+          Text("Your app voice distribution will appear as you dictate across macOS apps.")
+            .font(TickFont.captionFunc(12))
             .foregroundStyle(TickColor.textSecondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 20)
+          Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 160)
       } else {
-        let maxAppWords = max(1, topApps.map { $0.words }.max() ?? 1)
+        let maxAppWords = max(1, topApps.map(\.words).max() ?? 1)
+        let totalAppWords = max(1, topApps.reduce(0) { $0 + $1.words })
+
         VStack(spacing: 14) {
-          ForEach(Array(topApps.enumerated()), id: \.offset) { _, app in
-            HStack(spacing: 10) {
-              Image(systemName: "rectangle.inset.filled")
-                .font(TickFont.captionFunc(11))
-                .foregroundStyle(TickColor.brand)
-                .frame(width: 18)
-              Text(app.name)
-                .font(TickFont.labelFunc(12))
-                .foregroundStyle(TickColor.textPrimary)
-                .lineLimit(1)
-              Spacer(minLength: 4)
-              Text(app.words.formatted())
-                .font(TickFont.mono(10))
-                .foregroundStyle(TickColor.textTertiary)
-            }
-            .overlay(alignment: .bottomLeading) {
-              GeometryReader { geometry in
-                RoundedRectangle(cornerRadius: 2)
-                  .fill(TickColor.brandSoft)
-                  .frame(height: 3)
-                  .overlay(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                      .fill(TickColor.brand)
-                      .frame(width: geometry.size.width * CGFloat(app.words) / CGFloat(maxAppWords), height: 3)
-                  }
+          ForEach(Array(topApps.enumerated()), id: \.offset) { index, app in
+            let percentage = Int(round(Double(app.words) / Double(totalAppWords) * 100.0))
+            VStack(spacing: 5) {
+              HStack(spacing: 8) {
+                AppIconBadge(appName: app.name)
+
+                Text(app.name)
+                  .font(TickFont.labelFunc(12, weight: .medium))
+                  .foregroundStyle(TickColor.textPrimary)
+                  .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                Text("\(percentage)%")
+                  .font(TickFont.mono(10))
+                  .foregroundStyle(TickColor.brand)
+                  .padding(.horizontal, 5)
+                  .padding(.vertical, 1.5)
+                  .background(TickColor.brand.opacity(0.12))
+                  .cornerRadius(4)
+
+                Text("\(app.words.formatted()) words")
+                  .font(TickFont.mono(10))
+                  .foregroundStyle(TickColor.textTertiary)
+                  .frame(minWidth: 70, alignment: .trailing)
               }
-              .frame(height: 3)
-              .offset(y: 7)
+
+              GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                  Capsule()
+                    .fill(Color.primary.opacity(0.04))
+
+                  Capsule()
+                    .fill(
+                      LinearGradient(
+                        colors: index == 0
+                          ? [TickColor.brand, TickColor.brand.opacity(0.75)]
+                          : [TickColor.brand.opacity(0.60), TickColor.brand.opacity(0.35)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                      )
+                    )
+                    .frame(width: max(4, proxy.size.width * CGFloat(app.words) / CGFloat(maxAppWords)))
+                }
+              }
+              .frame(height: 4)
             }
           }
         }
@@ -451,6 +689,8 @@ struct InsightsTabView: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
+
+  // MARK: - Helpers
 
   private func monthLabel(for date: Date?) -> String {
     guard let date else { return "" }
@@ -475,26 +715,22 @@ struct InsightsTabView: View {
   ) -> some View {
     Button(action: action) {
       Image(systemName: icon)
-        .font(TickFont.captionFunc(11, weight: .semibold))
-        .foregroundStyle(isDisabled ? TickColor.textTertiary.opacity(0.35) : TickColor.textSecondary)
-        .frame(width: 24, height: 24)
-        .hexGlass(cornerRadius: 6, interactive: true)
+        .font(TickFont.captionFunc(10, weight: .bold))
+        .foregroundStyle(isDisabled ? TickColor.textTertiary.opacity(0.30) : TickColor.textPrimary)
+        .frame(width: 26, height: 26)
+        .hexGlass(cornerRadius: 8, interactive: !isDisabled)
     }
     .buttonStyle(.plain)
     .disabled(isDisabled)
-    .help(isDisabled ? "No more data in this direction" : icon == "chevron.left" ? "Show earlier months" : "Show later months")
+    .help(isDisabled ? "No more data" : icon == "chevron.left" ? "Previous 3 months" : "Next 3 months")
   }
 
   private func shortDate(_ date: Date) -> String {
     date.formatted(.dateTime.month(.abbreviated).day())
   }
-
-  private func weekdayBarWidth(for words: Int, in width: CGFloat) -> CGFloat {
-    let maximum = max(1, weekdayTotals.map { $0.words }.max() ?? 1)
-    guard words > 0 else { return 0 }
-    return max(5, width * CGFloat(words) / CGFloat(maximum))
-  }
 }
+
+// MARK: - Insight Data Types & Component Views
 
 private struct InsightDay: Identifiable {
   let date: Date
@@ -510,37 +746,65 @@ private struct InsightMetricCard: View {
   let value: String
   let detail: String
   let icon: String
+  var badgeText: String? = nil
+
+  @State private var isHovered = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 10) {
       HStack {
         Text(label)
           .font(TickFont.eyebrow)
-          .tracking(0.7)
+          .tracking(0.8)
           .foregroundStyle(TickColor.textTertiary)
+
         Spacer()
-        Image(systemName: icon)
-          .font(TickFont.captionFunc(12))
-          .foregroundStyle(TickColor.brand)
+
+        ZStack {
+          Circle()
+            .fill(TickColor.brand.opacity(0.12))
+            .frame(width: 24, height: 24)
+          Image(systemName: icon)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(TickColor.brand)
+        }
       }
+
       Text(value)
-        .font(TickFont.display(25))
+        .font(TickFont.display(26, weight: .bold))
         .foregroundStyle(TickColor.textPrimary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.85)
+
       Text(detail)
-        .font(TickFont.caption)
+        .font(TickFont.captionFunc(11))
         .foregroundStyle(TickColor.textSecondary)
         .lineLimit(2)
         .fixedSize(horizontal: false, vertical: true)
+
+      if let badgeText {
+        Text(badgeText)
+          .font(TickFont.mono(9))
+          .foregroundStyle(TickColor.brand)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(TickColor.brand.opacity(0.10))
+          .cornerRadius(4)
+      }
     }
     .padding(16)
-    .frame(maxWidth: .infinity, minHeight: 118, alignment: .leading)
+    .frame(maxWidth: .infinity, minHeight: 128, alignment: .leading)
     .hexGlass(cornerRadius: TickRadius.card, style: .regular)
+    .scaleEffect(isHovered ? 1.015 : 1.0)
+    .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
+    .onHover { isHovered = $0 }
   }
 }
 
 private struct InsightHeatmapCell: View {
   let day: InsightDay
   let maximumWords: Int
+  @Shared(.hexSettings) private var hexSettings: HexSettings
   @State private var isHovered = false
 
   private var level: Int {
@@ -555,33 +819,90 @@ private struct InsightHeatmapCell: View {
   }
 
   private var tooltipText: String {
-    guard !day.isUnavailable else { return "No data available" }
+    guard !day.isUnavailable else { return "No data recorded" }
     let transcriptLabel = day.transcriptCount == 1 ? "transcript" : "transcripts"
     let date = day.date.formatted(.dateTime.month(.abbreviated).day().year())
-    return "\(day.wordCount.formatted()) words · \(day.transcriptCount) \(transcriptLabel) · \(date)"
+    return "\(day.wordCount.formatted()) words · \(day.transcriptCount) \(transcriptLabel) on \(date)"
   }
 
   var body: some View {
-    RoundedRectangle(cornerRadius: 4)
-      .fill(day.isUnavailable ? TickColor.canvas.opacity(0.35) : Self.color(for: level))
+    RoundedRectangle(cornerRadius: 3.5)
+      .fill(day.isUnavailable ? TickColor.canvas.opacity(0.30) : Self.color(for: level, theme: hexSettings.themeColor))
       .frame(width: 18, height: 18)
       .overlay(
-        RoundedRectangle(cornerRadius: 4)
-          .stroke(Color.clear, lineWidth: 0)
+        RoundedRectangle(cornerRadius: 3.5)
+          .stroke(isHovered ? Color.white.opacity(0.40) : Color.clear, lineWidth: 0.75)
       )
+      .scaleEffect(isHovered ? 1.20 : 1.0)
+      .animation(.spring(response: 0.2, dampingFraction: 0.75), value: isHovered)
       .contentShape(Rectangle())
       .onHover { isHovered = $0 }
       .help(tooltipText)
       .accessibilityLabel(Text(day.isUnavailable ? "No data available" : "\(day.wordCount) words on \(day.date.formatted(date: .abbreviated, time: .omitted))"))
   }
 
-  static func color(for level: Int) -> Color {
-    switch level {
-    case 4: return TickColor.brand
-    case 3: return TickColor.brand.opacity(0.78)
-    case 2: return TickColor.brandMid.opacity(0.75)
-    case 1: return TickColor.brandSoft
-    default: return TickColor.canvas
+  static func color(for level: Int, theme: HexThemeColor) -> Color {
+    switch theme {
+    case .monochrome:
+      switch level {
+      case 4: return Color.white.opacity(0.90)
+      case 3: return Color.white.opacity(0.65)
+      case 2: return Color.white.opacity(0.40)
+      case 1: return Color.white.opacity(0.20)
+      default: return TickColor.canvas
+      }
+    case .multicolor:
+      switch level {
+      case 4: return Color.cyan
+      case 3: return Color.purple.opacity(0.85)
+      case 2: return Color.pink.opacity(0.70)
+      case 1: return Color.orange.opacity(0.45)
+      default: return TickColor.canvas
+      }
+    default:
+      let accent = theme.swatchColor
+      switch level {
+      case 4: return accent
+      case 3: return accent.opacity(0.78)
+      case 2: return accent.opacity(0.55)
+      case 1: return accent.opacity(0.28)
+      default: return TickColor.canvas
+      }
+    }
+  }
+}
+
+private struct AppIconBadge: View {
+  let appName: String
+
+  private var appIcon: NSImage? {
+    if let running = NSRunningApplication.runningApplications(withBundleIdentifier: appName).first {
+      return running.icon
+    }
+    if let workspaceApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appName) {
+      return NSWorkspace.shared.icon(forFile: workspaceApp.path)
+    }
+    return nil
+  }
+
+  var body: some View {
+    Group {
+      if let icon = appIcon {
+        Image(nsImage: icon)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(width: 16, height: 16)
+          .cornerRadius(3.5)
+      } else {
+        ZStack {
+          RoundedRectangle(cornerRadius: 3.5)
+            .fill(TickColor.brand.opacity(0.15))
+            .frame(width: 16, height: 16)
+          Image(systemName: "app.fill")
+            .font(.system(size: 9))
+            .foregroundStyle(TickColor.brand)
+        }
+      }
     }
   }
 }

@@ -559,6 +559,7 @@ struct AppView: View {
         }
         .frame(maxWidth: .infinity, alignment: .top)
       }
+      .thinScrollbars()
     }
   }
 
@@ -1393,6 +1394,7 @@ struct DictionaryTabView: View {
           )
         }
       }
+      .thinScrollbars()
     }
     .sheet(isPresented: $isAddingWord) {
       AddWordSheet()
@@ -1708,6 +1710,7 @@ struct SnippetsTabView: View {
           )
         }
       }
+      .thinScrollbars()
     }
     .sheet(isPresented: $isAddingSnippet) {
       AddSnippetSheet()
@@ -1915,6 +1918,7 @@ struct StyleTabView: View {
           .padding(.top, 10)
         }
       }
+      .thinScrollbars()
     }
     .onAppear {
       if !hasSeenWizard {

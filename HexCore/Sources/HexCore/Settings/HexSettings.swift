@@ -181,21 +181,50 @@ Output only the final text. No reasoning, explanations, markdown code fences, or
 	}
 }
 
-/// The single model used for optional on-device post-processing.
-public enum OnDeviceAIModel {
-	public static let identifier = "Qwen/Qwen3-1.7B-MLX-4bit"
-	public static let displayName = "Qwen3 1.7B"
-	public static let approximateSize = "~914 MB"
-	public static let remoteBaseURL = URL(string: "https://pub-54623ce7fca847f9aec8c62f976b6c09.r2.dev/tick/models")!
-	public static let files: [(name: String, size: Int64)] = [
-		("config.json", 988),
-		("merges.txt", 1_671_853),
-		("model.safetensors.index.json", 49_731),
-		("tokenizer.json", 11_422_654),
-		("tokenizer_config.json", 8_311),
-		("vocab.json", 2_776_833),
-		("model.safetensors", 914_316_100)
-	]
+/// Local Qwen models available for optional on-device post-processing.
+public enum OnDeviceAIModel: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+	case qwen3_17b = "Qwen3-1.7B-MLX-4bit"
+	case qwen3_06b = "Qwen3-0.6B-MLX-4bit"
+
+	public static let defaultModel: Self = .qwen3_17b
+
+	public var displayName: String {
+		switch self {
+		case .qwen3_17b: return "Qwen3 1.7B"
+		case .qwen3_06b: return "Qwen3 0.6B"
+		}
+	}
+
+	public var approximateSize: String {
+		switch self {
+		case .qwen3_17b: return "~914 MB"
+		case .qwen3_06b: return "~302 MB"
+		}
+	}
+
+	public var remoteBaseURL: URL {
+		let suffix = self == .qwen3_17b ? "" : "/qwen3-0.6b"
+		return URL(string: "https://pub-54623ce7fca847f9aec8c62f976b6c09.r2.dev/tick/models\(suffix)")!
+	}
+
+	public var files: [(name: String, size: Int64)] {
+		switch self {
+		case .qwen3_17b:
+			return [
+				("config.json", 988), ("merges.txt", 1_671_853),
+				("model.safetensors.index.json", 49_731), ("tokenizer.json", 11_422_654),
+				("tokenizer_config.json", 8_311), ("vocab.json", 2_776_833),
+				("model.safetensors", 914_316_100)
+			]
+		case .qwen3_06b:
+			return [
+				("config.json", 988), ("merges.txt", 1_671_853),
+				("model.safetensors.index.json", 49_731), ("tokenizer.json", 11_422_654),
+				("tokenizer_config.json", 8_311), ("vocab.json", 2_776_833),
+				("model.safetensors", 316_825_742)
+			]
+		}
+	}
 }
 
 /// Removes only high-confidence spoken correction cues before the local model
@@ -497,6 +526,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var wordRemovals: [WordRemoval]
 	public var wordRemappings: [WordRemapping]
 	public var aiPostProcessingMode: AIPostProcessingMode
+	public var selectedAIModel: OnDeviceAIModel
 	public var selectedStyleIndex: Int
 	public var hasSelectedStyle: Bool
 	public var snippets: [SnippetSetting]
@@ -534,6 +564,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		wordRemovals: [WordRemoval] = HexSettings.defaultWordRemovals,
 		wordRemappings: [WordRemapping] = [],
 		aiPostProcessingMode: AIPostProcessingMode = .off,
+		selectedAIModel: OnDeviceAIModel = .defaultModel,
 		selectedStyleIndex: Int = 2,
 		hasSelectedStyle: Bool = false,
 		snippets: [SnippetSetting] = [
@@ -568,6 +599,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.wordRemovals = wordRemovals
 		self.wordRemappings = wordRemappings
 		self.aiPostProcessingMode = aiPostProcessingMode
+		self.selectedAIModel = selectedAIModel
 		self.selectedStyleIndex = selectedStyleIndex
 		self.hasSelectedStyle = hasSelectedStyle
 		self.snippets = snippets
@@ -624,6 +656,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case wordRemovals
 	case wordRemappings
 	case aiPostProcessingMode
+	case selectedAIModel
 	case selectedStyleIndex
 	case hasSelectedStyle
 	case snippets
@@ -770,6 +803,7 @@ private enum HexSettingsSchema {
 			default: defaults.wordRemappings
 		).eraseToAny(),
 		SettingsField(.aiPostProcessingMode, keyPath: \.aiPostProcessingMode, default: defaults.aiPostProcessingMode).eraseToAny(),
+		SettingsField(.selectedAIModel, keyPath: \.selectedAIModel, default: defaults.selectedAIModel).eraseToAny(),
 		SettingsField(.selectedStyleIndex, keyPath: \.selectedStyleIndex, default: defaults.selectedStyleIndex).eraseToAny(),
 		SettingsField(.hasSelectedStyle, keyPath: \.hasSelectedStyle, default: defaults.hasSelectedStyle).eraseToAny(),
 		SettingsField(.snippets, keyPath: \.snippets, default: defaults.snippets).eraseToAny(),

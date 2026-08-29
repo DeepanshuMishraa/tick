@@ -68,6 +68,7 @@ struct ChangelogView: View {
             }
             .padding(TickSpacing.xl)
         }
+        .thinScrollbars()
         .frame(minWidth: 500, idealWidth: 600, minHeight: 420)
         .background(Color.clear)
         .enableInjection()

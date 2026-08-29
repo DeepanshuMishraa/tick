@@ -72,12 +72,35 @@ struct AIPostProcessingSectionView: View {
 	@ViewBuilder
 	private var modelManagement: some View {
 		VStack(alignment: .leading, spacing: TickSpacing.m) {
+			VStack(alignment: .leading, spacing: 6) {
+				Text("Processing model")
+					.font(TickFont.captionFunc(12, weight: .medium))
+					.foregroundStyle(TickColor.textSecondary)
+				ForEach(OnDeviceAIModel.allCases, id: \.self) { model in
+					Button {
+						store.send(.selectAIModel(model))
+					} label: {
+						HStack {
+							Image(systemName: store.hexSettings.selectedAIModel == model ? "checkmark.circle.fill" : "circle")
+								.foregroundStyle(store.hexSettings.selectedAIModel == model ? TickColor.brand : TickColor.textTertiary)
+							VStack(alignment: .leading, spacing: 2) {
+								Text(model.displayName).font(TickFont.bodyFunc(14, weight: .semibold))
+								Text("\(model.approximateSize) · Runs fully offline").font(TickFont.caption).foregroundStyle(TickColor.textTertiary)
+							}
+							Spacer()
+						}
+					}
+					.buttonStyle(.plain)
+					.padding(.vertical, 4)
+				}
+			}
+
 			HStack(alignment: .center) {
 				VStack(alignment: .leading, spacing: 2) {
-					Text(OnDeviceAIModel.displayName)
+					Text(store.hexSettings.selectedAIModel.displayName)
 						.font(TickFont.bodyFunc(14, weight: .semibold))
 						.foregroundStyle(TickColor.textPrimary)
-					Text("\(OnDeviceAIModel.approximateSize) · Runs fully offline")
+					Text("\(store.hexSettings.selectedAIModel.approximateSize) · Runs fully offline")
 						.font(TickFont.caption)
 						.foregroundStyle(TickColor.textTertiary)
 				}
@@ -127,7 +150,7 @@ struct AIPostProcessingSectionView: View {
 				}
 			} else {
 				TickPrimaryButton(
-					title: store.aiModelError == nil ? "Download \(OnDeviceAIModel.displayName)" : "Retry Download",
+					title: store.aiModelError == nil ? "Download \(store.hexSettings.selectedAIModel.displayName)" : "Retry Download",
 					icon: "arrow.down.circle"
 				) {
 					store.send(.downloadAIModel)

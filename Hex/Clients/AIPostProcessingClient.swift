@@ -194,18 +194,28 @@ extension DependencyValues {
 private actor LocalAIModelManager {
 	#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
 	private var modelContainer: ModelContainer?
+	private var loadedModel: OnDeviceAIModel?
 	private var metalKernelsWarmed = false
+	private var warmedModel: OnDeviceAIModel?
 	private var warmTask: Task<Void, Error>?
+	@Shared(.hexSettings) private var hexSettings: HexSettings
 
-	private let modelDirectoryName = "Qwen3-1.7B-MLX-4bit"
 	private let parallelDownloadThreshold: Int64 = 64 * 1024 * 1024
 	private let downloadChunkSize: Int64 = 64 * 1024 * 1024
 	private let maxConcurrentDownloads = 6
 
+	private var selectedModel: OnDeviceAIModel {
+		hexSettings.selectedAIModel
+	}
+
 	private var modelDirectory: URL {
 		get throws {
-			try URL.hexAIModelsDirectory.appendingPathComponent(modelDirectoryName, isDirectory: true)
+			try URL.hexAIModelsDirectory.appendingPathComponent(selectedModel.rawValue, isDirectory: true)
 		}
+	}
+
+	private var modelDirectoryName: String {
+		selectedModel.rawValue
 	}
 
 	func isModelDownloaded() -> Bool {
@@ -247,7 +257,8 @@ private actor LocalAIModelManager {
 		let destination = try modelDirectory
 		try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
 
-		let totalBytes = OnDeviceAIModel.files.reduce(Int64(0)) { $0 + $1.size }
+		let model = selectedModel
+		let totalBytes = model.files.reduce(Int64(0)) { $0 + $1.size }
 		let progress = Progress(totalUnitCount: totalBytes)
 		let progressReporter = DownloadProgressReporter(progress: progress, handler: progressHandler)
 		progressReporter.notify()
@@ -255,7 +266,7 @@ private actor LocalAIModelManager {
 		let stagingDirectory = try URL.hexAIModelsDirectory.appendingPathComponent(".download-\(modelDirectoryName)", isDirectory: true)
 		try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
 
-		for file in OnDeviceAIModel.files {
+		for file in model.files {
 			try Task.checkCancellation()
 			let localURL = destination.appendingPathComponent(file.name)
 			if fileManager.fileExists(atPath: localURL.path),
@@ -265,7 +276,7 @@ private actor LocalAIModelManager {
 				continue
 			}
 
-			let source = OnDeviceAIModel.remoteBaseURL.appendingPathComponent(file.name)
+			let source = model.remoteBaseURL.appendingPathComponent(file.name)
 			let fileProgressStart = progressReporter.completedUnitCount
 			if file.size >= parallelDownloadThreshold {
 				do {
@@ -514,7 +525,7 @@ private actor LocalAIModelManager {
 	}
 
 	private func ensureModelWarmed() async throws {
-		guard !metalKernelsWarmed else { return }
+		guard warmedModel != selectedModel else { return }
 		if let warmTask {
 			try await warmTask.value
 			return
@@ -527,9 +538,12 @@ private actor LocalAIModelManager {
 		do {
 			try await task.value
 			metalKernelsWarmed = true
+			warmedModel = selectedModel
 			warmTask = nil
 		} catch {
 			warmTask = nil
+			metalKernelsWarmed = false
+			warmedModel = nil
 			throw error
 		}
 	}
@@ -566,6 +580,8 @@ private actor LocalAIModelManager {
 		warmTask?.cancel()
 		warmTask = nil
 		metalKernelsWarmed = false
+		warmedModel = nil
+		loadedModel = nil
 		modelContainer = nil
 		let fileManager = FileManager.default
 		let destination = try modelDirectory
@@ -660,12 +676,17 @@ private actor LocalAIModelManager {
 
 	#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
 	private func loadLocalModel() async throws -> ModelContainer {
-		if let modelContainer { return modelContainer }
+		if let modelContainer, loadedModel == selectedModel { return modelContainer }
+		modelContainer = nil
+		loadedModel = nil
+		metalKernelsWarmed = false
+		warmedModel = nil
 		let container = try await LLMModelFactory.shared.loadContainer(
 			from: try modelDirectory,
 			using: LocalTokenizerLoader()
 		)
 		modelContainer = container
+		loadedModel = selectedModel
 		return container
 	}
 	#endif

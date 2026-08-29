@@ -110,6 +110,7 @@ struct SettingsFeature {
 
     // AI Post-Processing
     case setAIPostProcessingMode(AIPostProcessingMode)
+    case selectAIModel(OnDeviceAIModel)
     case fetchAIModel
     case aiModelStatusLoaded(isDownloaded: Bool, size: Int64?)
     case downloadAIModel
@@ -495,6 +496,13 @@ struct SettingsFeature {
       case let .setAIPostProcessingMode(mode):
         state.$hexSettings.withLock { $0.aiPostProcessingMode = mode }
         return mode == .off || !state.aiModelIsDownloaded ? .none : .send(.warmAIModel)
+
+      case let .selectAIModel(model):
+        state.$hexSettings.withLock { $0.selectedAIModel = model }
+        state.aiModelError = nil
+        state.aiModelIsDownloaded = false
+        state.aiModelSize = nil
+        return .send(.fetchAIModel)
 
       case .fetchAIModel:
         guard !state.isLoadingAIModel else { return .none }

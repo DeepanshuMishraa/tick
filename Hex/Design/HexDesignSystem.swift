@@ -990,6 +990,92 @@ private struct HexGlassModifier<S: Shape>: ViewModifier {
     }
 }
 
+// MARK: - Super Thin Glass Scroller & ScrollView Modifier
+
+public class ThinGlassScroller: NSScroller {
+    public override class var isCompatibleWithOverlayScrollers: Bool {
+        return true
+    }
+
+    public override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
+        return 6.0
+    }
+
+    public override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
+        // Clear background track for a pure floating minimalist appearance
+    }
+
+    public override func drawKnob() {
+        guard let knobRect = rect(for: .knob) as NSRect?, knobRect.width > 0, knobRect.height > 0 else { return }
+
+        let insetWidth: CGFloat = 3.5
+        let xOffset = knobRect.origin.x + (knobRect.width - insetWidth) / 2.0
+        let refinedRect = NSRect(
+            x: xOffset,
+            y: knobRect.origin.y + 2,
+            width: insetWidth,
+            height: max(14, knobRect.height - 4)
+        )
+        let path = NSBezierPath(roundedRect: refinedRect, xRadius: insetWidth / 2.0, yRadius: insetWidth / 2.0)
+
+        let isHighlighted = hitPart != .noPart
+        let alpha: CGFloat = isHighlighted ? 0.45 : 0.22
+        let color = NSColor.textColor.withAlphaComponent(alpha)
+        color.setFill()
+        path.fill()
+    }
+}
+
+public struct ScrollViewScrollerConfigurator: NSViewRepresentable {
+    public init() {}
+
+    public func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            configure(view: view)
+        }
+        return view
+    }
+
+    public func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            configure(view: nsView)
+        }
+    }
+
+    private func configure(view: NSView) {
+        guard let scrollView = view.enclosingScrollView ?? findEnclosingScrollView(from: view) else { return }
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = true
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+
+        if !(scrollView.verticalScroller is ThinGlassScroller) {
+            let scroller = ThinGlassScroller()
+            scroller.controlSize = .mini
+            scroller.scrollerStyle = .overlay
+            scrollView.verticalScroller = scroller
+        }
+    }
+
+    private func findEnclosingScrollView(from view: NSView) -> NSScrollView? {
+        var current: NSView? = view.superview
+        while let v = current {
+            if let sv = v as? NSScrollView { return sv }
+            current = v.superview
+        }
+        return nil
+    }
+}
+
+public extension View {
+    func thinScrollbars() -> some View {
+        self
+            .background(ScrollViewScrollerConfigurator())
+            .scrollIndicators(.automatic)
+    }
+}
+
 // MARK: - Font Registration
 //
 // On macOS, SwiftUI's `Font.custom` only resolves fonts that are registered
