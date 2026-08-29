@@ -23,7 +23,7 @@ struct WordRemappingsView: View {
 							.foregroundStyle(TickColor.brand)
 					)
 					.fixedSize(horizontal: false, vertical: true)
-					Text("Tick adapts to how you write in different apps. Personalise your style for **messages, work chats, emails, and other apps** so every word sounds like you.")
+					Text("Tick writes your speech differently depending on the app you're in. Set your style for **messages, work chats, and email** and your transcriptions come out the way you'd type them.")
 						.font(TickFont.body)
 						.foregroundStyle(TickColor.textPrimary)
 						.opacity(0.75)

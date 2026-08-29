@@ -1599,7 +1599,7 @@ struct SnippetsTabView: View {
                 .buttonStyle(.plain)
               }
               
-              Text("Save shortcuts to speak the things you type all the time - emails, links, addresses, bios - anything. **Just speak and Tick expands them instantly,** without retyping or hunting through old messages.")
+              Text("Save shortcuts for the things you type all the time, like email addresses, links, and bios. Say the shortcut and Tick expands it. No retyping, no scrolling back through old messages.")
                 .font(TickFont.captionFunc(13))
                 .foregroundStyle(TickColor.textSecondary)
                 .lineSpacing(4)

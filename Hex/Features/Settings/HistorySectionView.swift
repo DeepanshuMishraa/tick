@@ -46,7 +46,7 @@ struct HistorySectionView: View {
 							Text("Limit how many transcripts to keep")
 								.font(TickFont.body)
 								.foregroundStyle(TickColor.textPrimary)
-							Text("Oldest entries are deleted automatically when limit is reached")
+							Text("The app deletes the oldest entries once you hit the limit")
 								.font(TickFont.caption)
 								.foregroundStyle(TickColor.textSecondary)
 						}
@@ -96,7 +96,7 @@ private struct PasteLastTranscriptHotkeyRow: View {
 					.font(TickFont.eyebrow)
 					.tracking(0.8)
 					.foregroundStyle(TickColor.textTertiary)
-				Text("Shortcut to instantly paste your last transcription")
+				Text("Paste your last transcription with a shortcut")
 					.font(TickFont.body)
 					.foregroundStyle(TickColor.textPrimary)
 			}

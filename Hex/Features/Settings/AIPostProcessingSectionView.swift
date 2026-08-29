@@ -19,7 +19,7 @@ struct AIPostProcessingSectionView: View {
 							.font(TickFont.display(24, weight: .semibold))
 							.foregroundStyle(TickColor.textPrimary)
 
-						Text("Removes hesitation fillers, resolves speech corrections, and intelligently formats emails, chat messages, and structured notes. Runs 100% privately on your Mac.")
+						Text("Cuts filler words, cleans up self-corrections, and formats your text to fit the app you're dictating into. Everything runs on your Mac.")
 							.font(TickFont.body)
 							.foregroundStyle(TickColor.textSecondary)
 							.fixedSize(horizontal: false, vertical: true)
@@ -33,7 +33,7 @@ struct AIPostProcessingSectionView: View {
 							Text("AI Post-Processing")
 								.font(TickFont.headingFunc(15, weight: .semibold))
 								.foregroundStyle(TickColor.textPrimary)
-							Text("Intelligently adapt formatting based on content and active app")
+							Text("Adjusts formatting to what you said and the app you're typing into")
 								.font(TickFont.caption)
 								.foregroundStyle(TickColor.textSecondary)
 						}
@@ -167,7 +167,7 @@ struct AIPostProcessingSectionView: View {
 				Image(systemName: "lock.shield.fill")
 					.font(.system(size: 11))
 					.foregroundStyle(TickColor.textTertiary)
-				Text("Privacy: 100% on-device processing. No voice or text is ever sent to the cloud.")
+				Text("All processing happens on your Mac. Voice and text never leave it.")
 					.font(TickFont.caption)
 					.foregroundStyle(TickColor.textTertiary)
 			}

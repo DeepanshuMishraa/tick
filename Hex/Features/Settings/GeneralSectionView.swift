@@ -55,7 +55,7 @@ struct GeneralSectionView: View {
 				row(
 					eyebrow: "Performance",
 					title: "Super Fast Mode",
-					subtitle: "Keep microphone warm for near-instant capture",
+					subtitle: "Keep the microphone warm so recording starts immediately",
 					isOn: Binding(
 						get: { store.hexSettings.superFastModeEnabled },
 						set: { store.send(.toggleSuperFastMode($0)) }

@@ -15,7 +15,6 @@ public struct InsightsTabView: View {
   @State private var cachedWordsByDay: [Date: Int] = [:]
   @State private var cachedTranscriptsByDay: [Date: Int] = [:]
   @State private var cachedTopApps: [(name: String, words: Int)] = []
-  @State private var hoveredDay: InsightDay? = nil
   private let monthsPerPage = 3
 
   public init(
@@ -200,10 +199,9 @@ public struct InsightsTabView: View {
   }
 
   public var body: some View {
-    VStack(alignment: .leading, spacing: 22) {
-      pageHero
-      productivityPowerBanner
+    VStack(alignment: .leading, spacing: 20) {
       metricGrid
+      efficiencyCard
       activityCard
       supportingDetails
     }
@@ -245,113 +243,80 @@ public struct InsightsTabView: View {
     }
   }
 
-  // MARK: - Hero Header
+  // MARK: - Key Metrics Grid
 
-  private var pageHero: some View {
-    HStack(alignment: .bottom) {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: 8) {
-          TickEyebrow(text: "INSIGHTS & MOMENTUM")
-          Circle()
-            .fill(TickColor.brand)
-            .frame(width: 4, height: 4)
-          Text("LIVE")
-            .font(TickFont.mono(9))
-            .foregroundStyle(TickColor.brand)
-        }
-        
-        HStack(spacing: 7) {
-          Text("Your voice, in")
-            .font(TickFont.display(32, weight: .semibold))
-          Text("momentum.")
-            .font(TickFont.displayItalic(32))
-            .foregroundStyle(TickColor.brand)
-        }
-        .foregroundStyle(TickColor.textPrimary)
-
-        Text("A crystalline overview of your voice productivity, speech speed, and writing cadence.")
-          .font(TickFont.bodyFunc(13))
-          .foregroundStyle(TickColor.textSecondary)
-      }
-
-      Spacer()
-
-      // Quick momentum badges
-      HStack(spacing: 8) {
-        HStack(spacing: 5) {
-          Text("🔥")
-            .font(.system(size: 12))
-          Text("\(streaks.current)d streak")
-            .font(TickFont.labelFunc(12, weight: .semibold))
-            .foregroundStyle(TickColor.textPrimary)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .hexGlass(cornerRadius: 10, interactive: true)
-
-        HStack(spacing: 5) {
-          Image(systemName: "bolt.fill")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(TickColor.brand)
-          Text("\(effectiveWPM) WPM")
-            .font(TickFont.labelFunc(12, weight: .semibold))
-            .foregroundStyle(TickColor.textPrimary)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .hexGlass(cornerRadius: 10, interactive: true)
-      }
+  private var metricGrid: some View {
+    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+      InsightMetricCard(
+        label: "WORDS SPOKEN",
+        value: wordCount.formatted(),
+        detail: wordCount == 0 ? "No dictations yet" : "\(transcripts.count.formatted()) recordings total",
+        icon: "text.word.spacing",
+        badge: wordCount > 0 ? "~\(pagesEquivalent) pages" : nil
+      )
+      InsightMetricCard(
+        label: "ACTIVE STREAK",
+        value: "\(streaks.current) \(streaks.current == 1 ? "day" : "days")",
+        detail: streaks.longest > 1 ? "Longest: \(streaks.longest) days" : "Daily activity",
+        icon: "flame.fill",
+        badge: streaks.current > 0 ? "Active" : nil
+      )
+      InsightMetricCard(
+        label: "SPEAKING SPEED",
+        value: "\(effectiveWPM) WPM",
+        detail: "\(speedMultiplier) faster than typing",
+        icon: "gauge.with.needle.fill",
+        badge: "~40 WPM avg typing"
+      )
+      InsightMetricCard(
+        label: "PEAK DAY",
+        value: bestDay != nil ? "\(bestDay!.words.formatted())" : "—",
+        detail: bestDay != nil ? shortDate(bestDay!.date) : "No daily record yet",
+        icon: "trophy.fill",
+        badge: bestDay != nil ? "Record" : nil
+      )
     }
   }
 
-  // MARK: - Productivity Power Banner
+  // MARK: - Efficiency & Velocity Comparison
 
-  private var productivityPowerBanner: some View {
-    HStack(spacing: 20) {
-      VStack(alignment: .leading, spacing: 4) {
-        HStack(spacing: 6) {
-          Image(systemName: "sparkles")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(TickColor.brand)
-          Text("VOICE VELOCITY GAIN")
-            .font(TickFont.eyebrow)
-            .foregroundStyle(TickColor.brand)
-        }
-
-        Text(wordCount > 0 ? "\(String(format: "%.1f", hoursSaved)) hours reclaimed" : "Ready for takeoff")
-          .font(TickFont.headingFunc(22, weight: .bold))
+  private var efficiencyCard: some View {
+    HStack(alignment: .center, spacing: 24) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("Typing vs. Dictation Speed")
+          .font(.system(size: 15, weight: .semibold, design: .default))
           .foregroundStyle(TickColor.textPrimary)
 
-        Text(wordCount > 0 ? "You dictate at \(speedMultiplier) the speed of typing (~40 WPM). Equivalent to writing ~\(pagesEquivalent) full pages." : "Speak anywhere with your hotkey to start tracking your time saved.")
-          .font(TickFont.captionFunc(12))
+        Text(wordCount > 0 ? "Estimated \(String(format: "%.1f", hoursSaved)) hours saved compared to 40 WPM manual keyboard typing." : "Start dictating to see how much time you save over manual keyboard typing.")
+          .font(.system(size: 12, weight: .regular, design: .default))
           .foregroundStyle(TickColor.textSecondary)
       }
 
       Spacer()
 
-      // Velocity Comparison Metric Bars
       VStack(alignment: .trailing, spacing: 8) {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
           Text("Keyboard Typing")
-            .font(TickFont.captionFunc(11))
+            .font(.system(size: 11, weight: .regular, design: .default))
             .foregroundStyle(TickColor.textTertiary)
+
           Text("40 WPM")
-            .font(TickFont.mono(11))
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
             .foregroundStyle(TickColor.textSecondary)
-            .frame(width: 55, alignment: .trailing)
+            .frame(width: 58, alignment: .trailing)
         }
 
-        HStack(spacing: 10) {
-          Text("Tick Dictation")
-            .font(TickFont.labelFunc(11, weight: .semibold))
+        HStack(spacing: 12) {
+          Text("Voice Dictation")
+            .font(.system(size: 11, weight: .semibold, design: .default))
             .foregroundStyle(TickColor.brand)
+
           Text("\(effectiveWPM) WPM")
-            .font(TickFont.mono(11))
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(TickColor.brand)
-            .frame(width: 55, alignment: .trailing)
+            .frame(width: 58, alignment: .trailing)
         }
 
-        // Relative speed bar
         GeometryReader { proxy in
           ZStack(alignment: .leading) {
             Capsule()
@@ -368,69 +333,26 @@ public struct InsightsTabView: View {
               .frame(width: min(proxy.size.width, proxy.size.width * CGFloat(min(1.0, Double(effectiveWPM) / 180.0))))
           }
         }
-        .frame(width: 160, height: 5)
+        .frame(width: 170, height: 5)
       }
     }
-    .padding(20)
+    .padding(.horizontal, 20)
+    .padding(.vertical, 16)
     .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 
-  // MARK: - Key Metrics Grid
-
-  private var metricGrid: some View {
-    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-      InsightMetricCard(
-        label: "WORDS DICTATED",
-        value: wordCount.formatted(),
-        detail: wordCount == 0 ? "Your first words are waiting." : "Across \(transcripts.count.formatted()) dictation sessions.",
-        icon: "text.quote",
-        badgeText: wordCount > 0 ? "~\(pagesEquivalent) pages" : nil
-      )
-      InsightMetricCard(
-        label: "ACTIVE RHYTHM",
-        value: "\(activeDays.formatted()) \(activeDays == 1 ? "day" : "days")",
-        detail: streaks.current > 0 ? "Current streak: \(streaks.current) days." : "Start your daily flow today.",
-        icon: "flame.fill",
-        badgeText: streaks.longest > 1 ? "Best: \(streaks.longest)d" : nil
-      )
-      InsightMetricCard(
-        label: "AVERAGE PACE",
-        value: "\(averageWordsPerDay.formatted()) / day",
-        detail: activeDays == 0 ? "No daily cadence yet." : "Average output on active days.",
-        icon: "chart.bar.xaxis",
-        badgeText: "\(speedMultiplier) typing"
-      )
-      InsightMetricCard(
-        label: "ALL-TIME RECORD",
-        value: bestDay?.words.formatted() ?? "—",
-        detail: bestDay.map { "Words recorded on \(shortDate($0.date))." } ?? "Your biggest session awaits.",
-        icon: "trophy.fill",
-        badgeText: bestDay != nil ? "Personal best" : nil
-      )
-    }
-  }
-
-  // MARK: - Dictation Rhythm Heatmap Card
+  // MARK: - Daily Activity Heatmap Card
 
   private var activityCard: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .center) {
         VStack(alignment: .leading, spacing: 3) {
-          HStack(spacing: 8) {
-            Text("Dictation Rhythm")
-              .font(TickFont.headingFunc(18, weight: .semibold))
-              .foregroundStyle(TickColor.textPrimary)
-            
-            Text("3-Month Window")
-              .font(TickFont.captionFunc(10))
-              .foregroundStyle(TickColor.brand)
-              .padding(.horizontal, 7)
-              .padding(.vertical, 2.5)
-              .hexGlass(cornerRadius: 6)
-          }
+          Text("Daily Activity")
+            .font(.system(size: 15, weight: .semibold, design: .default))
+            .foregroundStyle(TickColor.textPrimary)
 
-          Text("Your voice momentum day by day across the quarter")
-            .font(TickFont.captionFunc(12))
+          Text("Overview across 3-month windows")
+            .font(.system(size: 12, weight: .regular, design: .default))
             .foregroundStyle(TickColor.textSecondary)
         }
 
@@ -441,24 +363,24 @@ public struct InsightsTabView: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) { heatmapPage -= 1 }
           }
           Text(visibleRangeLabel)
-            .font(TickFont.labelFunc(12, weight: .semibold))
+            .font(.system(size: 12, weight: .medium, design: .default))
             .foregroundStyle(TickColor.textPrimary)
-            .frame(minWidth: 125, alignment: .center)
+            .frame(minWidth: 120, alignment: .center)
           heatmapNavigationButton(icon: "chevron.right", isDisabled: heatmapPage >= maxHeatmapPage) {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) { heatmapPage += 1 }
           }
         }
       }
-      .padding(.bottom, 20)
+      .padding(.bottom, 18)
 
       // Heatmap Grid
       HStack(alignment: .top, spacing: 10) {
         VStack(alignment: .leading, spacing: 5) {
           ForEach(calendar.shortWeekdaySymbols, id: \.self) { weekday in
             Text(weekday.prefix(2))
-              .font(TickFont.mono(9))
+              .font(.system(size: 9, weight: .medium, design: .monospaced))
               .foregroundStyle(TickColor.textTertiary)
-              .frame(width: 22, height: 18, alignment: .leading)
+              .frame(width: 20, height: 18, alignment: .leading)
           }
         }
         .padding(.top, 22)
@@ -467,7 +389,7 @@ public struct InsightsTabView: View {
           HStack(spacing: 5) {
             ForEach(Array(heatmapWeeks.enumerated()), id: \.offset) { _, week in
               Text(monthLabel(for: week))
-                .font(TickFont.captionFunc(10, weight: .medium))
+                .font(.system(size: 10, weight: .medium, design: .default))
                 .foregroundStyle(TickColor.textSecondary)
                 .frame(width: 18, height: 18, alignment: .leading)
             }
@@ -485,39 +407,36 @@ public struct InsightsTabView: View {
         }
       }
 
-      // Legend and Micro-Stats
+      // Legend
       HStack(spacing: 12) {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
           Text("Less")
-            .font(TickFont.captionFunc(11))
+            .font(.system(size: 11, weight: .regular, design: .default))
             .foregroundStyle(TickColor.textTertiary)
           ForEach([0, 1, 2, 3, 4], id: \.self) { level in
-            RoundedRectangle(cornerRadius: 3.5)
+            RoundedRectangle(cornerRadius: 3)
               .fill(InsightHeatmapCell.color(for: level, theme: hexSettings.themeColor))
-              .frame(width: 13, height: 13)
+              .frame(width: 12, height: 12)
           }
           Text("More")
-            .font(TickFont.captionFunc(11))
+            .font(.system(size: 11, weight: .regular, design: .default))
             .foregroundStyle(TickColor.textTertiary)
         }
 
         Spacer()
 
         HStack(spacing: 14) {
-          Text("🔥 \(streaks.current) day streak")
-            .font(TickFont.captionFunc(11))
+          Text("🔥 \(streaks.current)d streak")
+            .font(.system(size: 11, weight: .medium, design: .default))
             .foregroundStyle(TickColor.brand)
-          Text("⚡️ \(effectiveWPM) WPM average")
-            .font(TickFont.captionFunc(11))
+          Text("\(wordCount.formatted()) words total")
+            .font(.system(size: 11, weight: .regular, design: .default))
             .foregroundStyle(TickColor.textSecondary)
-          Text("🏆 Longest: \(streaks.longest) days")
-            .font(TickFont.captionFunc(11))
-            .foregroundStyle(TickColor.textTertiary)
         }
       }
-      .padding(.top, 20)
+      .padding(.top, 18)
     }
-    .padding(22)
+    .padding(20)
     .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 
@@ -531,34 +450,34 @@ public struct InsightsTabView: View {
   }
 
   private var weekdayCard: some View {
-    VStack(alignment: .leading, spacing: 18) {
+    VStack(alignment: .leading, spacing: 16) {
       HStack {
         VStack(alignment: .leading, spacing: 3) {
-          Text("When you flow")
-            .font(TickFont.headingFunc(17, weight: .semibold))
+          Text("Activity by Weekday")
+            .font(.system(size: 15, weight: .semibold, design: .default))
             .foregroundStyle(TickColor.textPrimary)
-          Text("Word volume by day of the week")
-            .font(TickFont.captionFunc(12))
+          Text("Word volume across days")
+            .font(.system(size: 12, weight: .regular, design: .default))
             .foregroundStyle(TickColor.textSecondary)
         }
         Spacer()
         if let peak = peakWeekday {
           Text("Peak: \(peak)")
-            .font(TickFont.captionFunc(10, weight: .semibold))
+            .font(.system(size: 10, weight: .semibold, design: .default))
             .foregroundStyle(TickColor.brand)
             .padding(.horizontal, 7)
-            .padding(.vertical, 3)
+            .padding(.vertical, 2.5)
             .hexGlass(cornerRadius: 6)
         }
       }
 
       let maxWords = max(1, weekdayTotals.map(\.words).max() ?? 1)
-      VStack(spacing: 12) {
+      VStack(spacing: 11) {
         ForEach(Array(weekdayTotals.enumerated()), id: \.offset) { _, weekday in
           let isPeak = weekday.words == maxWords && weekday.words > 0
           HStack(spacing: 10) {
             Text(weekday.name)
-              .font(TickFont.labelFunc(11, weight: isPeak ? .semibold : .regular))
+              .font(.system(size: 11, weight: isPeak ? .semibold : .regular, design: .default))
               .foregroundStyle(isPeak ? TickColor.textPrimary : TickColor.textSecondary)
               .frame(width: 32, alignment: .leading)
 
@@ -572,7 +491,7 @@ public struct InsightsTabView: View {
                     LinearGradient(
                       colors: isPeak
                         ? [TickColor.brand, TickColor.brand.opacity(0.70)]
-                        : [TickColor.brand.opacity(0.55), TickColor.brand.opacity(0.30)],
+                        : [TickColor.brand.opacity(0.50), TickColor.brand.opacity(0.25)],
                       startPoint: .leading,
                       endPoint: .trailing
                     )
@@ -580,10 +499,10 @@ public struct InsightsTabView: View {
                   .frame(width: max(4, geometry.size.width * CGFloat(weekday.words) / CGFloat(maxWords)))
               }
             }
-            .frame(height: 7)
+            .frame(height: 6)
 
             Text(weekday.words.formatted())
-              .font(TickFont.mono(10))
+              .font(.system(size: 10, weight: .regular, design: .monospaced))
               .foregroundStyle(isPeak ? TickColor.brand : TickColor.textTertiary)
               .frame(width: 44, alignment: .trailing)
           }
@@ -596,69 +515,69 @@ public struct InsightsTabView: View {
   }
 
   private var appsCard: some View {
-    VStack(alignment: .leading, spacing: 18) {
+    VStack(alignment: .leading, spacing: 16) {
       HStack {
         VStack(alignment: .leading, spacing: 3) {
-          Text("Where you flow")
-            .font(TickFont.headingFunc(17, weight: .semibold))
+          Text("Top Applications")
+            .font(.system(size: 15, weight: .semibold, design: .default))
             .foregroundStyle(TickColor.textPrimary)
-          Text("Distribution across applications")
-            .font(TickFont.captionFunc(12))
+          Text("Voice activity distribution")
+            .font(.system(size: 12, weight: .regular, design: .default))
             .foregroundStyle(TickColor.textSecondary)
         }
         Spacer()
-        Text("\(uniqueAppsCount) \(uniqueAppsCount == 1 ? "app" : "apps") active")
-          .font(TickFont.captionFunc(10, weight: .semibold))
+        Text("\(uniqueAppsCount) \(uniqueAppsCount == 1 ? "app" : "apps")")
+          .font(.system(size: 10, weight: .semibold, design: .default))
           .foregroundStyle(TickColor.textTertiary)
           .padding(.horizontal, 7)
-          .padding(.vertical, 3)
+          .padding(.vertical, 2.5)
           .hexGlass(cornerRadius: 6)
       }
 
       if topApps.isEmpty {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
           Spacer()
           Image(systemName: "app.connected.to.app.below.fill")
-            .font(.system(size: 26))
-            .foregroundStyle(TickColor.textTertiary.opacity(0.6))
-          Text("Your app voice distribution will appear as you dictate across macOS apps.")
-            .font(TickFont.captionFunc(12))
+            .font(.system(size: 24))
+            .foregroundStyle(TickColor.textTertiary.opacity(0.5))
+          Text("Application breakdown will appear as you dictate across macOS apps.")
+            .font(.system(size: 12, weight: .regular, design: .default))
             .foregroundStyle(TickColor.textSecondary)
             .multilineTextAlignment(.center)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 16)
           Spacer()
         }
-        .frame(maxWidth: .infinity, minHeight: 160)
+        .frame(maxWidth: .infinity, minHeight: 150)
       } else {
         let maxAppWords = max(1, topApps.map(\.words).max() ?? 1)
         let totalAppWords = max(1, topApps.reduce(0) { $0 + $1.words })
 
-        VStack(spacing: 14) {
+        VStack(spacing: 13) {
           ForEach(Array(topApps.enumerated()), id: \.offset) { index, app in
             let percentage = Int(round(Double(app.words) / Double(totalAppWords) * 100.0))
-            VStack(spacing: 5) {
+            VStack(spacing: 4) {
               HStack(spacing: 8) {
                 AppIconBadge(appName: app.name)
 
                 Text(app.name)
-                  .font(TickFont.labelFunc(12, weight: .medium))
+                  .font(.system(size: 12, weight: .medium, design: .default))
                   .foregroundStyle(TickColor.textPrimary)
                   .lineLimit(1)
 
                 Spacer(minLength: 4)
 
                 Text("\(percentage)%")
-                  .font(TickFont.mono(10))
+                  .font(.system(size: 10, weight: .semibold, design: .monospaced))
                   .foregroundStyle(TickColor.brand)
                   .padding(.horizontal, 5)
                   .padding(.vertical, 1.5)
-                  .background(TickColor.brand.opacity(0.12))
+                  .background(TickColor.brand.opacity(0.10))
                   .cornerRadius(4)
 
                 Text("\(app.words.formatted()) words")
-                  .font(TickFont.mono(10))
+                  .font(.system(size: 10, weight: .regular, design: .monospaced))
                   .foregroundStyle(TickColor.textTertiary)
-                  .frame(minWidth: 70, alignment: .trailing)
+                  .frame(minWidth: 65, alignment: .trailing)
               }
 
               GeometryReader { proxy in
@@ -670,8 +589,8 @@ public struct InsightsTabView: View {
                     .fill(
                       LinearGradient(
                         colors: index == 0
-                          ? [TickColor.brand, TickColor.brand.opacity(0.75)]
-                          : [TickColor.brand.opacity(0.60), TickColor.brand.opacity(0.35)],
+                          ? [TickColor.brand, TickColor.brand.opacity(0.70)]
+                          : [TickColor.brand.opacity(0.50), TickColor.brand.opacity(0.25)],
                         startPoint: .leading,
                         endPoint: .trailing
                       )
@@ -715,14 +634,13 @@ public struct InsightsTabView: View {
   ) -> some View {
     Button(action: action) {
       Image(systemName: icon)
-        .font(TickFont.captionFunc(10, weight: .bold))
+        .font(.system(size: 10, weight: .bold))
         .foregroundStyle(isDisabled ? TickColor.textTertiary.opacity(0.30) : TickColor.textPrimary)
-        .frame(width: 26, height: 26)
-        .hexGlass(cornerRadius: 8, interactive: !isDisabled)
+        .frame(width: 24, height: 24)
+        .hexGlass(cornerRadius: 6, interactive: !isDisabled)
     }
     .buttonStyle(.plain)
     .disabled(isDisabled)
-    .help(isDisabled ? "No more data" : icon == "chevron.left" ? "Previous 3 months" : "Next 3 months")
   }
 
   private func shortDate(_ date: Date) -> String {
@@ -730,7 +648,7 @@ public struct InsightsTabView: View {
   }
 }
 
-// MARK: - Insight Data Types & Component Views
+// MARK: - Components
 
 private struct InsightDay: Identifiable {
   let date: Date
@@ -746,54 +664,53 @@ private struct InsightMetricCard: View {
   let value: String
   let detail: String
   let icon: String
-  var badgeText: String? = nil
+  var badge: String? = nil
 
   @State private var isHovered = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 8) {
       HStack {
         Text(label)
-          .font(TickFont.eyebrow)
-          .tracking(0.8)
+          .font(.system(size: 10, weight: .semibold, design: .default))
+          .tracking(0.6)
           .foregroundStyle(TickColor.textTertiary)
 
         Spacer()
 
         ZStack {
           Circle()
-            .fill(TickColor.brand.opacity(0.12))
-            .frame(width: 24, height: 24)
+            .fill(TickColor.brand.opacity(0.10))
+            .frame(width: 22, height: 22)
           Image(systemName: icon)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(TickColor.brand)
         }
       }
 
       Text(value)
-        .font(TickFont.display(26, weight: .bold))
+        .font(.system(size: 24, weight: .bold, design: .default))
         .foregroundStyle(TickColor.textPrimary)
         .lineLimit(1)
         .minimumScaleFactor(0.85)
 
       Text(detail)
-        .font(TickFont.captionFunc(11))
+        .font(.system(size: 11, weight: .regular, design: .default))
         .foregroundStyle(TickColor.textSecondary)
-        .lineLimit(2)
-        .fixedSize(horizontal: false, vertical: true)
+        .lineLimit(1)
 
-      if let badgeText {
-        Text(badgeText)
-          .font(TickFont.mono(9))
+      if let badge {
+        Text(badge)
+          .font(.system(size: 9, weight: .medium, design: .monospaced))
           .foregroundStyle(TickColor.brand)
-          .padding(.horizontal, 6)
+          .padding(.horizontal, 5)
           .padding(.vertical, 2)
-          .background(TickColor.brand.opacity(0.10))
+          .background(TickColor.brand.opacity(0.08))
           .cornerRadius(4)
       }
     }
-    .padding(16)
-    .frame(maxWidth: .infinity, minHeight: 128, alignment: .leading)
+    .padding(14)
+    .frame(maxWidth: .infinity, minHeight: 116, alignment: .leading)
     .hexGlass(cornerRadius: TickRadius.card, style: .regular)
     .scaleEffect(isHovered ? 1.015 : 1.0)
     .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
@@ -819,18 +736,18 @@ private struct InsightHeatmapCell: View {
   }
 
   private var tooltipText: String {
-    guard !day.isUnavailable else { return "No data recorded" }
+    guard !day.isUnavailable else { return "No recordings" }
     let transcriptLabel = day.transcriptCount == 1 ? "transcript" : "transcripts"
     let date = day.date.formatted(.dateTime.month(.abbreviated).day().year())
     return "\(day.wordCount.formatted()) words · \(day.transcriptCount) \(transcriptLabel) on \(date)"
   }
 
   var body: some View {
-    RoundedRectangle(cornerRadius: 3.5)
+    RoundedRectangle(cornerRadius: 3)
       .fill(day.isUnavailable ? TickColor.canvas.opacity(0.30) : Self.color(for: level, theme: hexSettings.themeColor))
-      .frame(width: 18, height: 18)
+      .frame(width: 17, height: 17)
       .overlay(
-        RoundedRectangle(cornerRadius: 3.5)
+        RoundedRectangle(cornerRadius: 3)
           .stroke(isHovered ? Color.white.opacity(0.40) : Color.clear, lineWidth: 0.75)
       )
       .scaleEffect(isHovered ? 1.20 : 1.0)
