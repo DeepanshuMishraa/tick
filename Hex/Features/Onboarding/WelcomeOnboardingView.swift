@@ -14,7 +14,7 @@ public struct WelcomeOnboardingView: View {
   @State private var accessibilityPermission: PermissionStatus = .notDetermined
   @State private var inputMonitoringPermission: PermissionStatus = .notDetermined
 
-  // Entrance choreography states (Emil Kowalski style staggered physics)
+  // Entrance choreography states
   @State private var isAppeared: Bool = false
   @State private var timerTask: Task<Void, Never>? = nil
 
@@ -38,34 +38,34 @@ public struct WelcomeOnboardingView: View {
       ambientBackdrop
 
       VStack(spacing: 0) {
-        // Step progress dashes
+        // Step indicator dashes
         stepIndicator
-          .padding(.top, 36)
-          .padding(.bottom, 24)
+          .padding(.top, 32)
+          .padding(.bottom, 20)
 
         // Main animated presentation with clean transition
         if currentStep == 0 {
           welcomeStepView
             .transition(.asymmetric(
-              insertion: .opacity.combined(with: .scale(scale: 0.96)),
+              insertion: .opacity.combined(with: .scale(scale: 0.97)),
               removal: .opacity.combined(with: .move(edge: .leading))
             ))
         } else {
           permissionsStepView
             .transition(.asymmetric(
               insertion: .opacity.combined(with: .move(edge: .trailing)),
-              removal: .opacity.combined(with: .scale(scale: 0.96))
+              removal: .opacity.combined(with: .scale(scale: 0.97))
             ))
         }
 
-        Spacer(minLength: 20)
+        Spacer(minLength: 16)
 
         // Bottom action bar with elevated buttons
         bottomActionBar
           .padding(.horizontal, 44)
-          .padding(.bottom, 36)
+          .padding(.bottom, 32)
       }
-      .frame(maxWidth: 760, maxHeight: 600)
+      .frame(maxWidth: 780, maxHeight: 580)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .onAppear {
@@ -88,13 +88,13 @@ public struct WelcomeOnboardingView: View {
 
       RadialGradient(
         colors: [
-          TickColor.brand.opacity(0.16),
+          TickColor.brand.opacity(0.18),
           TickColor.brand.opacity(0.04),
           Color.clear
         ],
         center: .center,
         startRadius: 40,
-        endRadius: 420
+        endRadius: 440
       )
       .blur(radius: 60)
       .ignoresSafeArea()
@@ -127,8 +127,8 @@ public struct WelcomeOnboardingView: View {
   // MARK: - Step 0: Welcome View
 
   private var welcomeStepView: some View {
-    VStack(spacing: 28) {
-      // Clean, confident editorial typography (No Tick logo icon)
+    VStack(spacing: 24) {
+      // Clean, confident editorial typography
       VStack(spacing: 8) {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           Text("Welcome to")
@@ -147,43 +147,49 @@ public struct WelcomeOnboardingView: View {
       .offset(y: isAppeared ? 0 : 10)
       .animation(.spring(response: 0.40, dampingFraction: 0.80), value: isAppeared)
 
-      // 3 Elevated Spatial Feature Cards with staggered Emil Kowalski entrance physics
+      // 3 Fine Elevated Spatial Showcase Cards
       HStack(spacing: 16) {
-        ElevatedFeatureCard(
-          icon: "lock.shield.fill",
-          badge: "PRIVACY",
-          title: "100% Private",
-          detail: "Runs entirely on your Apple Silicon Neural Engine. Zero audio or keystrokes ever leave your Mac.",
+        // Card 1: Global Hotkey
+        ElevatedShowcaseCard(
+          badge: "CAPTURE",
+          title: "Global Hotkey",
+          description: "Hold ⌥ Option anywhere to transcribe speech directly into active apps.",
           index: 0,
           isAppeared: isAppeared
-        )
+        ) {
+          HotkeyVisualWidget()
+        }
 
-        ElevatedFeatureCard(
-          icon: "command.square.fill",
-          badge: "GLOBAL",
-          title: "Instant Hotkey",
-          detail: "Hold ⌥ Option anywhere to dictate directly into code editors, emails, notes, and messengers.",
-          index: 1,
-          isAppeared: isAppeared
-        )
-
-        ElevatedFeatureCard(
-          icon: "sparkles",
+        // Card 2: Smart Polish
+        ElevatedShowcaseCard(
           badge: "INTELLIGENCE",
           title: "Smart Polish",
-          detail: "Automatically eliminates verbal filler words, fixes self-corrections, and formats punctuation.",
+          description: "Automatically cuts verbal filler words and formats punctuation.",
+          index: 1,
+          isAppeared: isAppeared
+        ) {
+          TransformationVisualWidget()
+        }
+
+        // Card 3: 100% Private
+        ElevatedShowcaseCard(
+          badge: "PRIVACY",
+          title: "100% Private",
+          description: "Runs offline on Apple Silicon Neural Engine. 0KB sent to the cloud.",
           index: 2,
           isAppeared: isAppeared
-        )
+        ) {
+          SiliconChipVisualWidget()
+        }
       }
-      .padding(.horizontal, 32)
+      .padding(.horizontal, 28)
     }
   }
 
   // MARK: - Step 1: Permissions View
 
   private var permissionsStepView: some View {
-    VStack(spacing: 24) {
+    VStack(spacing: 22) {
       VStack(spacing: 8) {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           Text("Required")
@@ -244,7 +250,7 @@ public struct WelcomeOnboardingView: View {
       }
       .padding(.horizontal, 32)
 
-      // Privacy guarantee note
+      // Privacy note
       HStack(spacing: 6) {
         Image(systemName: "lock.fill")
           .font(.system(size: 10))
@@ -350,89 +356,92 @@ public struct WelcomeOnboardingView: View {
   }
 }
 
-// MARK: - Elevated Spatial Feature Card (Emil Kowalski Physics & Lighting)
+// MARK: - Elevated Showcase Card (Emil Kowalski Physics & Refined Proportions)
 
-private struct ElevatedFeatureCard: View {
-  let icon: String
+private struct ElevatedShowcaseCard<VisualContent: View>: View {
   let badge: String
   let title: String
-  let detail: String
+  let description: String
   let index: Int
   let isAppeared: Bool
+  @ViewBuilder let visual: () -> VisualContent
 
   @State private var isHovered = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      // Top icon badge & category tag
-      HStack {
-        ZStack {
-          RoundedRectangle(cornerRadius: 9)
-            .fill(
-              LinearGradient(
-                colors: [
-                  TickColor.brand.opacity(isHovered ? 0.24 : 0.14),
-                  TickColor.brand.opacity(0.08)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
+    VStack(alignment: .leading, spacing: 10) {
+      // Top visual hero container
+      ZStack {
+        RoundedRectangle(cornerRadius: 10)
+          .fill(
+            LinearGradient(
+              colors: [
+                TickColor.brand.opacity(isHovered ? 0.12 : 0.06),
+                Color.black.opacity(0.15)
+              ],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+          .frame(height: 72)
+          .overlay(
+            RoundedRectangle(cornerRadius: 10)
+              .stroke(
+                LinearGradient(
+                  colors: [
+                    Color.white.opacity(isHovered ? 0.30 : 0.14),
+                    TickColor.brand.opacity(isHovered ? 0.25 : 0.06)
+                  ],
+                  startPoint: .topLeading,
+                  endPoint: .bottomTrailing
+                ),
+                lineWidth: 0.75
               )
-            )
-            .frame(width: 34, height: 34)
-            .overlay(
-              RoundedRectangle(cornerRadius: 9)
-                .stroke(
-                  LinearGradient(
-                    colors: [Color.white.opacity(0.35), TickColor.brand.opacity(0.20)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                  ),
-                  lineWidth: 0.75
-                )
-            )
+          )
 
-          Image(systemName: icon)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(TickColor.brand)
-        }
+        visual()
+      }
+      .padding(.top, 2)
 
-        Spacer()
-
+      // Category badge
+      HStack {
         Text(badge)
           .font(TickFont.mono(9, weight: .medium))
           .tracking(0.6)
           .foregroundStyle(isHovered ? TickColor.brand : TickColor.textTertiary)
           .padding(.horizontal, 6)
-          .padding(.vertical, 2.5)
+          .padding(.vertical, 2)
           .background(TickColor.brand.opacity(isHovered ? 0.12 : 0.06))
           .cornerRadius(4)
+
+        Spacer()
       }
 
-      // Title & Description
-      VStack(alignment: .leading, spacing: 4) {
+      // Title & Text
+      VStack(alignment: .leading, spacing: 3) {
         Text(title)
-          .font(TickFont.headingFunc(15, weight: .semibold))
+          .font(TickFont.headingFunc(14, weight: .semibold))
           .foregroundStyle(TickColor.textPrimary)
 
-        Text(detail)
-          .font(TickFont.bodyFunc(12, weight: .regular))
+        Text(description)
+          .font(TickFont.bodyFunc(11.5, weight: .regular))
           .foregroundStyle(TickColor.textSecondary)
-          .lineSpacing(3)
+          .lineSpacing(2)
           .fixedSize(horizontal: false, vertical: true)
       }
 
       Spacer(minLength: 0)
     }
-    .padding(16)
-    .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
+    .padding(14)
+    .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 215, alignment: .topLeading)
     .background(
       ZStack {
-        // Deep liquid glass base
+        // Deep liquid glass substrate
         RoundedRectangle(cornerRadius: 16)
           .fill(
             LinearGradient(
               colors: [
-                Color.white.opacity(isHovered ? 0.09 : 0.05),
+                Color.white.opacity(isHovered ? 0.08 : 0.04),
                 Color.black.opacity(0.18)
               ],
               startPoint: .top,
@@ -440,7 +449,7 @@ private struct ElevatedFeatureCard: View {
             )
           )
 
-        // Top edge specular reflection highlight
+        // Top edge specular bevel highlight
         VStack {
           LinearGradient(
             colors: [Color.white.opacity(isHovered ? 0.45 : 0.25), Color.clear],
@@ -459,7 +468,7 @@ private struct ElevatedFeatureCard: View {
           LinearGradient(
             colors: isHovered
               ? [TickColor.brand.opacity(0.60), Color.white.opacity(0.20), TickColor.brand.opacity(0.25)]
-              : [Color.white.opacity(0.25), Color.white.opacity(0.06)],
+              : [Color.white.opacity(0.24), Color.white.opacity(0.06)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
           ),
@@ -468,11 +477,11 @@ private struct ElevatedFeatureCard: View {
     )
     .hexGlass(cornerRadius: 16, style: .regular)
     // Tactile multi-layer elevation shadows
-    .shadow(color: Color.black.opacity(0.30), radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 6 : 3)
-    .shadow(color: isHovered ? TickColor.brand.opacity(0.20) : Color.clear, radius: 14, x: 0, y: 4)
+    .shadow(color: Color.black.opacity(0.28), radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 6 : 3)
+    .shadow(color: isHovered ? TickColor.brand.opacity(0.22) : Color.clear, radius: 14, x: 0, y: 4)
     // Smooth physical hover lift and scale
-    .offset(y: isAppeared ? (isHovered ? -3 : 0) : 18)
-    .scaleEffect(isAppeared ? (isHovered ? 1.015 : 1.0) : 0.94)
+    .offset(y: isAppeared ? (isHovered ? -3 : 0) : 16)
+    .scaleEffect(isAppeared ? (isHovered ? 1.015 : 1.0) : 0.95)
     .opacity(isAppeared ? 1 : 0)
     .animation(
       .spring(response: 0.38, dampingFraction: 0.76).delay(0.06 + Double(index) * 0.06),
@@ -480,6 +489,118 @@ private struct ElevatedFeatureCard: View {
     )
     .animation(.spring(response: 0.28, dampingFraction: 0.74), value: isHovered)
     .onHover { isHovered = $0 }
+  }
+}
+
+// MARK: - Visual Showcase Widgets (Rich Tactile Micro-Graphics)
+
+private struct HotkeyVisualWidget: View {
+  @State private var wavePhase: Double = 0.0
+
+  var body: some View {
+    HStack(spacing: 8) {
+      // 3D Keycap
+      ZStack {
+        RoundedRectangle(cornerRadius: 6)
+          .fill(
+            LinearGradient(
+              colors: [Color.white.opacity(0.16), Color.white.opacity(0.06)],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+          .frame(width: 32, height: 28)
+          .overlay(
+            RoundedRectangle(cornerRadius: 6)
+              .stroke(Color.white.opacity(0.35), lineWidth: 0.75)
+          )
+          .shadow(color: Color.black.opacity(0.3), radius: 2, x: 0, y: 1.5)
+
+        Text("⌥")
+          .font(TickFont.mono(14, weight: .bold))
+          .foregroundStyle(TickColor.textPrimary)
+      }
+
+      Text("+")
+        .font(TickFont.mono(12, weight: .medium))
+        .foregroundStyle(TickColor.textTertiary)
+
+      // Mini Waveform
+      HStack(spacing: 2.5) {
+        ForEach(0..<4) { i in
+          let h: CGFloat = 6.0 + CGFloat(sin(wavePhase + Double(i) * 0.9) * 0.5 + 0.5) * 12.0
+          RoundedRectangle(cornerRadius: 1)
+            .fill(TickColor.brand)
+            .frame(width: 2.5, height: h)
+        }
+      }
+      .frame(width: 24, height: 24)
+    }
+    .onAppear {
+      withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
+        wavePhase = .pi * 2
+      }
+    }
+  }
+}
+
+private struct TransformationVisualWidget: View {
+  var body: some View {
+    VStack(spacing: 4) {
+      HStack(spacing: 5) {
+        Text("um, let's ship...")
+          .font(TickFont.mono(10, weight: .regular))
+          .foregroundStyle(TickColor.textTertiary)
+          .strikethrough(color: TickColor.error.opacity(0.6))
+
+        Image(systemName: "arrow.right")
+          .font(.system(size: 8, weight: .bold))
+          .foregroundStyle(TickColor.brand)
+      }
+
+      HStack(spacing: 4) {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.system(size: 9))
+          .foregroundStyle(TickColor.brand)
+
+        Text("Let's ship.")
+          .font(TickFont.mono(11, weight: .semibold))
+          .foregroundStyle(TickColor.textPrimary)
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(TickColor.brand.opacity(0.12))
+      .cornerRadius(5)
+    }
+  }
+}
+
+private struct SiliconChipVisualWidget: View {
+  var body: some View {
+    HStack(spacing: 8) {
+      ZStack {
+        RoundedRectangle(cornerRadius: 6)
+          .fill(TickColor.brand.opacity(0.14))
+          .frame(width: 30, height: 30)
+          .overlay(
+            RoundedRectangle(cornerRadius: 6)
+              .stroke(TickColor.brand.opacity(0.40), lineWidth: 0.75)
+          )
+
+        Image(systemName: "cpu.fill")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(TickColor.brand)
+      }
+
+      VStack(alignment: .leading, spacing: 1) {
+        Text("APPLE SILICON")
+          .font(TickFont.mono(9, weight: .bold))
+          .foregroundStyle(TickColor.textPrimary)
+        Text("0KB Cloud · 100% Offline")
+          .font(TickFont.mono(8.5, weight: .regular))
+          .foregroundStyle(TickColor.success)
+      }
+    }
   }
 }
 
