@@ -262,6 +262,7 @@ struct AppFeature {
 
 struct AppView: View {
   @Bindable var store: StoreOf<AppFeature>
+  @Shared(.hexSettings) private var hexSettings: HexSettings
   @State private var isSidebarVisible = true
   @State private var isPersonalisationWizardPresented = false
   @Namespace private var transcriptHoverNamespace
@@ -427,38 +428,47 @@ struct AppView: View {
     ZStack {
       WindowThemeBackground()
 
-      HStack(spacing: 0) {
-        if isSidebarVisible {
-          sidebar
-            .frame(width: 220)
-            .background(AppTheme.sidebarBackground)
-            .transition(.move(edge: .leading))
+      if !hexSettings.hasCompletedWelcomeOnboarding {
+        WelcomeOnboardingView()
+          .transition(.opacity.combined(with: .scale(scale: 0.98)))
+      } else {
+        HStack(spacing: 0) {
+          if isSidebarVisible {
+            sidebar
+              .frame(width: 220)
+              .background(AppTheme.sidebarBackground)
+              .transition(.move(edge: .leading))
 
-          Rectangle()
-            .fill(TickColor.line)
-            .frame(width: 1)
+            Rectangle()
+              .fill(TickColor.line)
+              .frame(width: 1)
+          }
+
+          detailContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppTheme.detailBackground)
         }
-
-        detailContent
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .background(AppTheme.detailBackground)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSidebarVisible)
+        .transition(.opacity.combined(with: .scale(scale: 1.02)))
       }
-      .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSidebarVisible)
 
       if isPersonalisationWizardPresented {
         PersonalisationWizardModal(onDismiss: { isPersonalisationWizardPresented = false })
       }
     }
+    .animation(.spring(response: 0.45, dampingFraction: 0.82), value: hexSettings.hasCompletedWelcomeOnboarding)
     .toolbar {
-      ToolbarItem(placement: .navigation) {
-        Button(action: {
-          withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            isSidebarVisible.toggle()
+      if hexSettings.hasCompletedWelcomeOnboarding {
+        ToolbarItem(placement: .navigation) {
+          Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+              isSidebarVisible.toggle()
+            }
+          }) {
+            Image(systemName: "sidebar.left")
           }
-        }) {
-          Image(systemName: "sidebar.left")
+          .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
         }
-        .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
       }
     }
     .task {

@@ -714,6 +714,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var hasSelectedStyle: Bool
 	public var snippets: [SnippetSetting]
 	public var themeColor: HexThemeColor
+	public var hasCompletedWelcomeOnboarding: Bool
 
 	private mutating func normalizeDoubleTapSettings() {
 		if !doubleTapLockEnabled {
@@ -755,7 +756,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 			.init(shortcut: "intro email", content: "Hey, would love to find some time to chat later..."),
 			.init(shortcut: "my calendly link", content: "calendly.com/you/invite-name")
 		],
-		themeColor: HexThemeColor = .monochrome
+		themeColor: HexThemeColor = .monochrome,
+		hasCompletedWelcomeOnboarding: Bool = false
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -787,6 +789,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.hasSelectedStyle = hasSelectedStyle
 		self.snippets = snippets
 		self.themeColor = themeColor
+		self.hasCompletedWelcomeOnboarding = hasCompletedWelcomeOnboarding
 		normalizeDoubleTapSettings()
 	}
 
@@ -844,6 +847,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case hasSelectedStyle
 	case snippets
 	case themeColor
+	case hasCompletedWelcomeOnboarding
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -990,6 +994,7 @@ private enum HexSettingsSchema {
 		SettingsField(.selectedStyleIndex, keyPath: \.selectedStyleIndex, default: defaults.selectedStyleIndex).eraseToAny(),
 		SettingsField(.hasSelectedStyle, keyPath: \.hasSelectedStyle, default: defaults.hasSelectedStyle).eraseToAny(),
 		SettingsField(.snippets, keyPath: \.snippets, default: defaults.snippets).eraseToAny(),
-		SettingsField(.themeColor, keyPath: \.themeColor, default: defaults.themeColor).eraseToAny()
+		SettingsField(.themeColor, keyPath: \.themeColor, default: defaults.themeColor).eraseToAny(),
+		SettingsField(.hasCompletedWelcomeOnboarding, keyPath: \.hasCompletedWelcomeOnboarding, default: defaults.hasCompletedWelcomeOnboarding).eraseToAny()
 	]
 }
