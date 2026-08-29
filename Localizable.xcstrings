@@ -4,6 +4,9 @@
     "" : {
       "shouldTranslate" : false
     },
+    " " : {
+
+    },
     " to record" : {
 
     },
@@ -26,12 +29,18 @@
         }
       }
     },
-    "%lld day streak · %lld WPM" : {
+    "%@ hours reclaimed" : {
+
+    },
+    "%@ words" : {
+
+    },
+    "%lld %@ active" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$lld day streak · %2$lld WPM"
+            "value" : "%1$lld %2$@ active"
           }
         }
       }
@@ -46,13 +55,40 @@
         }
       }
     },
+    "%lld WPM" : {
+
+    },
+    "%lld%%" : {
+
+    },
+    "%lldd streak" : {
+
+    },
+    "⚡️ %lld WPM average" : {
+
+    },
+    "🏆 Longest: %lld days" : {
+
+    },
+    "🔥" : {
+
+    },
+    "🔥 %lld day streak" : {
+
+    },
+    "3-Month Window" : {
+
+    },
     "12:04 PM" : {
+
+    },
+    "40 WPM" : {
 
     },
     "A" : {
 
     },
-    "A quiet view of how your voice becomes momentum." : {
+    "A crystalline overview of your voice productivity, speech speed, and writing cadence." : {
 
     },
     "About" : {
@@ -188,6 +224,9 @@
         }
       }
     },
+    "Colour" : {
+
+    },
     "Configure how your transcriptions are formatted. Choose the style that best matches where you speak, and Tick will automatically format spelling, capitalization, and punctuation." : {
 
     },
@@ -267,13 +306,16 @@
         }
       }
     },
-    "Dictation rhythm" : {
+    "Dictation Rhythm" : {
 
     },
     "Dictionary" : {
 
     },
     "dipxsy/Tick" : {
+
+    },
+    "Distribution across applications" : {
 
     },
     "double-tap" : {
@@ -390,9 +432,6 @@
         }
       }
     },
-    "Heat map period" : {
-
-    },
     "Help & Support" : {
 
     },
@@ -450,9 +489,6 @@
         }
       }
     },
-    "Hover a day for details" : {
-
-    },
     "How do you write in " : {
 
     },
@@ -476,6 +512,9 @@
     "Keep transcriptions and audio recordings for later access" : {
 
     },
+    "Keyboard Typing" : {
+
+    },
     "Learned" : {
 
     },
@@ -485,7 +524,7 @@
     "Limit how many transcripts to keep" : {
 
     },
-    "Longest %lld days" : {
+    "LIVE" : {
 
     },
     "Make Tick sound like " : {
@@ -508,13 +547,16 @@
         }
       }
     },
+    "momentum." : {
+
+    },
     "More" : {
 
     },
-    "motion." : {
+    "N" : {
 
     },
-    "N" : {
+    "Next 3 months" : {
 
     },
     "No data available" : {
@@ -538,7 +580,7 @@
         }
       }
     },
-    "No more data in this direction" : {
+    "No more data" : {
 
     },
     "No snippets found" : {
@@ -616,6 +658,9 @@
         }
       }
     },
+    "Peak: %@" : {
+
+    },
     "permissions" : {
 
     },
@@ -666,16 +711,25 @@
         }
       }
     },
+    "Previous 3 months" : {
+
+    },
     "Privacy: 100% on-device processing. No voice or text is ever sent to the cloud." : {
 
     },
     "Pro" : {
 
     },
+    "Processing model" : {
+
+    },
     "Quit" : {
 
     },
     "Ready" : {
+
+    },
+    "Ready for takeoff" : {
 
     },
     "Remove filler words using case-insensitive regex patterns" : {
@@ -787,13 +841,7 @@
         }
       }
     },
-    "Show earlier months" : {
-
-    },
     "Show in Finder" : {
-
-    },
-    "Show later months" : {
 
     },
     "Show Less" : {
@@ -832,6 +880,9 @@
       }
     },
     "sounds like you" : {
+
+    },
+    "Speak anywhere with your hotkey to start tracking your time saved." : {
 
     },
     "Speak the shortcut phrase, and Tick expands it into the full text." : {
@@ -875,13 +926,13 @@
     "The stuff you shouldn't have to re-type." : {
 
     },
-    "Three months at a time, day by day" : {
-
-    },
     "Tick" : {
 
     },
     "Tick adapts to how you write in different apps. Personalise your style for **messages, work chats, emails, and other apps** so every word sounds like you." : {
+
+    },
+    "Tick Dictation" : {
 
     },
     "Tick is a fork of [hex](https://hex.kitlangton.com) and in case of any issues contact [Deepanshu](mailto:dipxsy@duck.com)." : {
@@ -974,6 +1025,9 @@
         }
       }
     },
+    "VOICE VELOCITY GAIN" : {
+
+    },
     "VOLUME" : {
 
     },
@@ -992,26 +1046,26 @@
     "WORD REMOVALS" : {
 
     },
-    "Words by app · %lld %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Words by app · %1$lld %2$@"
-          }
-        }
-      }
+    "Word volume by day of the week" : {
+
     },
     "you" : {
 
     },
+    "You dictate at %@ the speed of typing (~40 WPM). Equivalent to writing ~%lld full pages." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "You dictate at %1$@ the speed of typing (~40 WPM). Equivalent to writing ~%2$lld full pages."
+          }
+        }
+      }
+    },
     "You've been " : {
 
     },
-    "Your app patterns will appear after you dictate." : {
-
-    },
-    "Your strongest days of the week" : {
+    "Your app voice distribution will appear as you dictate across macOS apps." : {
 
     },
     "Your transcription history will appear here." : {
@@ -1026,7 +1080,10 @@
         }
       }
     },
-    "Your words, in" : {
+    "Your voice momentum day by day across the quarter" : {
+
+    },
+    "Your voice, in" : {
 
     }
   },
