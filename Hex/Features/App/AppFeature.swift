@@ -490,19 +490,19 @@ struct AppView: View {
         .frame(height: 52)
       
       VStack(alignment: .leading, spacing: 4) {
-        SidebarItem(icon: "house.fill", title: "Home", iconColor: Color(red: 0.20, green: 0.48, blue: 0.96), isActive: store.activeTab == .home) {
+        SidebarItem(icon: "house.fill", title: "Home", isActive: store.activeTab == .home) {
           store.send(.setActiveTab(.home))
         }
-        SidebarItem(icon: "chart.xyaxis.line", title: "Insights", iconColor: Color(red: 0.58, green: 0.28, blue: 0.94), isActive: store.activeTab == .insights) {
+        SidebarItem(icon: "chart.xyaxis.line", title: "Insights", isActive: store.activeTab == .insights) {
           store.send(.setActiveTab(.insights))
         }
-        SidebarItem(icon: "book.closed.fill", title: "Dictionary", iconColor: Color(red: 0.12, green: 0.68, blue: 0.62), isActive: store.activeTab == .dictionary) {
+        SidebarItem(icon: "book.closed.fill", title: "Dictionary", isActive: store.activeTab == .dictionary) {
           store.send(.setActiveTab(.dictionary))
         }
-        SidebarItem(icon: "scissors", title: "Snippets", iconColor: Color(red: 0.96, green: 0.52, blue: 0.18), isActive: store.activeTab == .snippets) {
+        SidebarItem(icon: "scissors", title: "Snippets", isActive: store.activeTab == .snippets) {
           store.send(.setActiveTab(.snippets))
         }
-        SidebarItem(icon: "slider.horizontal.3", title: "Style", iconColor: Color(red: 0.92, green: 0.24, blue: 0.56), isActive: store.activeTab == .style) {
+        SidebarItem(icon: "slider.horizontal.3", title: "Style", isActive: store.activeTab == .style) {
           store.send(.setActiveTab(.style))
         }
       }
@@ -511,10 +511,10 @@ struct AppView: View {
       Spacer()
       
       VStack(alignment: .leading, spacing: 4) {
-        SidebarItem(icon: "gearshape.fill", title: "Settings", iconColor: Color(red: 0.45, green: 0.48, blue: 0.54), isActive: store.activeTab == .settings) {
+        SidebarItem(icon: "gearshape.fill", title: "Settings", isActive: store.activeTab == .settings) {
           store.send(.setActiveTab(.settings))
         }
-        SidebarItem(icon: "questionmark.circle.fill", title: "Help", iconColor: Color(red: 0.35, green: 0.38, blue: 0.88), isActive: store.activeTab == .help) {
+        SidebarItem(icon: "questionmark.circle.fill", title: "Help", isActive: store.activeTab == .help) {
           store.send(.setActiveTab(.help))
         }
       }
@@ -698,7 +698,6 @@ struct AppView: View {
 struct SidebarItem: View {
   let icon: String
   let title: String
-  var iconColor: Color? = nil
   let isActive: Bool
   let action: () -> Void
   
@@ -708,30 +707,37 @@ struct SidebarItem: View {
   var body: some View {
     Button(action: action) {
       HStack(spacing: 10) {
-        if let iconColor {
-          ZStack {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-              .fill(iconColor.gradient)
-              .frame(width: 22, height: 22)
-            Image(systemName: icon)
-              .font(.system(size: 11, weight: .semibold))
-              .foregroundColor(.white)
-          }
-        } else {
+        ZStack {
+          RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(
+              isActive
+                ? TickColor.brand.opacity(0.18)
+                : (isHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
+            )
+            .frame(width: 24, height: 24)
+            .overlay(
+              RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(
+                  isActive
+                    ? TickColor.brand.opacity(0.35)
+                    : Color.white.opacity(isHovered ? 0.14 : 0.05),
+                  lineWidth: 0.5
+                )
+            )
+
           Image(systemName: icon)
-            .font(TickFont.labelFunc(13, weight: isActive ? .semibold : .medium))
-            .foregroundColor(isActive ? TickColor.brand : .secondary)
-            .frame(width: 16, height: 16)
+            .font(.system(size: 11.5, weight: isActive ? .semibold : .medium))
+            .foregroundColor(isActive ? TickColor.brand : (isHovered ? TickColor.textPrimary : TickColor.textSecondary))
         }
         
         Text(title)
-          .font(TickFont.labelFunc(13, weight: isActive ? Font.Weight.semibold : Font.Weight.regular))
-          .foregroundColor(isActive ? TickColor.textPrimary : TickColor.textSecondary)
+          .font(TickFont.labelFunc(13, weight: isActive ? .semibold : .regular))
+          .foregroundColor(isActive ? TickColor.textPrimary : (isHovered ? TickColor.textPrimary : TickColor.textSecondary))
         
         Spacer()
       }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 5)
       .background {
         if isActive || isHovered {
           RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -747,6 +753,8 @@ struct SidebarItem: View {
     }
     .buttonStyle(.plain)
     .onHover { isHovered = $0 }
+    .animation(.spring(response: 0.22, dampingFraction: 0.76), value: isHovered)
+    .animation(.spring(response: 0.25, dampingFraction: 0.78), value: isActive)
   }
 }
 
