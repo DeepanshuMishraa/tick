@@ -5,6 +5,32 @@ public enum RecordingAudioBehavior: String, Codable, CaseIterable, Equatable, Se
 	case doNothing
 }
 
+public enum HexThemeColor: String, Codable, CaseIterable, Equatable, Sendable {
+	case multicolor
+	case blue
+	case purple
+	case pink
+	case red
+	case orange
+	case yellow
+	case green
+	case monochrome
+
+	public var displayName: String {
+		switch self {
+		case .multicolor: return "Multicolor"
+		case .blue: return "Blue"
+		case .purple: return "Purple"
+		case .pink: return "Pink"
+		case .red: return "Red"
+		case .orange: return "Orange"
+		case .yellow: return "Yellow"
+		case .green: return "Green"
+		case .monochrome: return "Monochrome"
+		}
+	}
+}
+
 public enum AIPostProcessingMode: String, Codable, CaseIterable, Equatable, Sendable {
 	case off
 	case on
@@ -464,6 +490,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var selectedStyleIndex: Int
 	public var hasSelectedStyle: Bool
 	public var snippets: [SnippetSetting]
+	public var themeColor: HexThemeColor
 
 	private mutating func normalizeDoubleTapSettings() {
 		if !doubleTapLockEnabled {
@@ -503,7 +530,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 			.init(shortcut: "LinkedIn", content: "https://www.linkedin.com/in/john-doe-9b0139134/"),
 			.init(shortcut: "intro email", content: "Hey, would love to find some time to chat later..."),
 			.init(shortcut: "my calendly link", content: "calendly.com/you/invite-name")
-		]
+		],
+		themeColor: HexThemeColor = .monochrome
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -533,6 +561,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.selectedStyleIndex = selectedStyleIndex
 		self.hasSelectedStyle = hasSelectedStyle
 		self.snippets = snippets
+		self.themeColor = themeColor
 		normalizeDoubleTapSettings()
 	}
 
@@ -588,6 +617,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case selectedStyleIndex
 	case hasSelectedStyle
 	case snippets
+	case themeColor
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -732,6 +762,7 @@ private enum HexSettingsSchema {
 		SettingsField(.aiPostProcessingMode, keyPath: \.aiPostProcessingMode, default: defaults.aiPostProcessingMode).eraseToAny(),
 		SettingsField(.selectedStyleIndex, keyPath: \.selectedStyleIndex, default: defaults.selectedStyleIndex).eraseToAny(),
 		SettingsField(.hasSelectedStyle, keyPath: \.hasSelectedStyle, default: defaults.hasSelectedStyle).eraseToAny(),
-		SettingsField(.snippets, keyPath: \.snippets, default: defaults.snippets).eraseToAny()
+		SettingsField(.snippets, keyPath: \.snippets, default: defaults.snippets).eraseToAny(),
+		SettingsField(.themeColor, keyPath: \.themeColor, default: defaults.themeColor).eraseToAny()
 	]
 }

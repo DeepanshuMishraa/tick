@@ -13,6 +13,9 @@
     "%.1fs" : {
 
     },
+    "%@ · Runs fully offline" : {
+
+    },
     "%@ %@" : {
       "localizations" : {
         "en" : {
@@ -23,10 +26,33 @@
         }
       }
     },
+    "%lld day streak · %lld WPM" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld day streak · %2$lld WPM"
+          }
+        }
+      }
+    },
+    "%lld words on %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld words on %2$@"
+          }
+        }
+      }
+    },
     "12:04 PM" : {
 
     },
     "A" : {
+
+    },
+    "A quiet view of how your voice becomes momentum." : {
 
     },
     "About" : {
@@ -62,22 +88,16 @@
     "Add Dictionary Term" : {
 
     },
-    "Add new" : {
-
-    },
-    "Add new snippet" : {
-
-    },
-    "Add new word" : {
-
-    },
     "Add Snippet Shortcut" : {
 
     },
-    "Alex" : {
+    "Added word to dictionary" : {
 
     },
-    "App-Aware detects the active application and adapts formatting" : {
+    "AI Post-Processing" : {
+
+    },
+    "Alex" : {
 
     },
     "Are you sure you want to delete all transcripts? This action cannot be undone." : {
@@ -92,9 +112,6 @@
       }
     },
     "Audio feedback for recording actions" : {
-
-    },
-    "Back" : {
 
     },
     "Cancel" : {
@@ -157,9 +174,6 @@
         }
       }
     },
-    "Clean and format transcriptions " : {
-
-    },
     "Clear shortcut" : {
 
     },
@@ -179,7 +193,6 @@
     },
     "Copied" : {
       "comment" : "Transcription from history copied.",
-      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -188,6 +201,9 @@
           }
         }
       }
+    },
+    "Copy" : {
+
     },
     "Copy to clipboard" : {
       "comment" : "copy transcription from history.",
@@ -199,6 +215,9 @@
           }
         }
       }
+    },
+    "Copy transcription to clipboard" : {
+
     },
     "Delete" : {
 
@@ -248,6 +267,9 @@
         }
       }
     },
+    "Dictation rhythm" : {
+
+    },
     "Dictionary" : {
 
     },
@@ -291,6 +313,9 @@
           }
         }
       }
+    },
+    "Downloading model… %.1f%%" : {
+
     },
     "e.g. My Calendly or Intro email" : {
 
@@ -365,7 +390,7 @@
         }
       }
     },
-    "GROQ API KEY" : {
+    "Heat map period" : {
 
     },
     "Help & Support" : {
@@ -425,6 +450,9 @@
         }
       }
     },
+    "Hover a day for details" : {
+
+    },
     "How do you write in " : {
 
     },
@@ -439,13 +467,25 @@
         }
       }
     },
+    "Installed size: %@" : {
+
+    },
+    "Intelligently adapt formatting based on content and active app" : {
+
+    },
     "Keep transcriptions and audio recordings for later access" : {
+
+    },
+    "Learned" : {
+
+    },
+    "Less" : {
 
     },
     "Limit how many transcripts to keep" : {
 
     },
-    "Llama 3.3 70B" : {
+    "Longest %lld days" : {
 
     },
     "Make Tick sound like " : {
@@ -459,7 +499,6 @@
     },
     "Microphone" : {
       "comment" : "Microphone permission.",
-      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -469,13 +508,22 @@
         }
       }
     },
+    "More" : {
+
+    },
+    "motion." : {
+
+    },
     "N" : {
 
     },
-    "Next" : {
+    "No data available" : {
 
     },
     "No dictionary terms found" : {
+
+    },
+    "No microphones found" : {
 
     },
     "No models found." : {
@@ -489,6 +537,9 @@
           }
         }
       }
+    },
+    "No more data in this direction" : {
+
     },
     "No snippets found" : {
 
@@ -508,10 +559,10 @@
     "Not set" : {
 
     },
-    "Off / App-Aware" : {
+    "Oldest entries are deleted automatically when limit is reached" : {
 
     },
-    "Oldest entries are deleted automatically when limit is reached" : {
+    "On-Device AI Post-Processing" : {
 
     },
     "On-device, private, and free. No audio leaves your Mac." : {
@@ -615,19 +666,22 @@
         }
       }
     },
+    "Privacy: 100% on-device processing. No voice or text is ever sent to the cloud." : {
+
+    },
     "Pro" : {
 
     },
     "Quit" : {
 
     },
-    "Qwen 3 32B" : {
-
-    },
-    "Qwen 3.6 27B" : {
+    "Ready" : {
 
     },
     "Remove filler words using case-insensitive regex patterns" : {
+
+    },
+    "Removes hesitation fillers, resolves speech corrections, and intelligently formats emails, chat messages, and structured notes. Runs 100% privately on your Mac." : {
 
     },
     "Replace specific words in every transcript" : {
@@ -651,9 +705,6 @@
         }
       }
     },
-    "Save" : {
-
-    },
     "Save shortcuts to speak the things you type all the time - emails, links, addresses, bios - anything. **Just speak and Tick expands them instantly,** without retyping or hunting through old messages." : {
 
     },
@@ -664,9 +715,6 @@
 
     },
     "Search words..." : {
-
-    },
-    "Select the LLM model to process your transcriptions" : {
 
     },
     "Selected device not connected. System default will be used." : {
@@ -739,7 +787,13 @@
         }
       }
     },
+    "Show earlier months" : {
+
+    },
     "Show in Finder" : {
+
+    },
+    "Show later months" : {
 
     },
     "Show Less" : {
@@ -786,9 +840,6 @@
     "Speed" : {
 
     },
-    "Start now" : {
-
-    },
     "Stop Audio" : {
 
     },
@@ -804,9 +855,6 @@
       }
     },
     "Strip filler words from your transcriptions" : {
-
-    },
-    "Strips filler words, fixes self-corrections, and adapts tone to the app you're typing in." : {
 
     },
     "Styles" : {
@@ -827,13 +875,13 @@
     "The stuff you shouldn't have to re-type." : {
 
     },
+    "Three months at a time, day by day" : {
+
+    },
     "Tick" : {
 
     },
     "Tick adapts to how you write in different apps. Personalise your style for **messages, work chats, emails, and other apps** so every word sounds like you." : {
-
-    },
-    "Tick adapts to how you write in different apps. Personalize your style for messages, work chats, emails, and other apps so every word sounds like you." : {
 
     },
     "Tick is a fork of [hex](https://hex.kitlangton.com) and in case of any issues contact [Deepanshu](mailto:dipxsy@duck.com)." : {
@@ -902,9 +950,6 @@
         }
       }
     },
-    "Uses %@ via Groq." : {
-
-    },
     "Version" : {
       "comment" : "Label for version in About section.",
       "extractionState" : "stale",
@@ -932,13 +977,13 @@
     "VOLUME" : {
 
     },
-    "Welcome back, %@" : {
+    "When you flow" : {
+
+    },
+    "Where you flow" : {
 
     },
     "While recording" : {
-
-    },
-    "with AI" : {
 
     },
     "WORD REMAPPINGS" : {
@@ -947,10 +992,26 @@
     "WORD REMOVALS" : {
 
     },
+    "Words by app · %lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Words by app · %1$lld %2$@"
+          }
+        }
+      }
+    },
     "you" : {
 
     },
     "You've been " : {
+
+    },
+    "Your app patterns will appear after you dictate." : {
+
+    },
+    "Your strongest days of the week" : {
 
     },
     "Your transcription history will appear here." : {
@@ -964,6 +1025,9 @@
           }
         }
       }
+    },
+    "Your words, in" : {
+
     }
   },
   "version" : "1.0"

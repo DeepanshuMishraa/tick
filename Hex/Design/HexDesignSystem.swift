@@ -1,3 +1,5 @@
+import ComposableArchitecture
+import HexCore
 import SwiftUI
 
 // MARK: - Design System: "Tick"
@@ -6,11 +8,62 @@ import SwiftUI
 // The bundled Spline Sans Mono type system stays intentionally intact; the
 // surfaces around it are adaptive materials rather than fixed color blocks.
 
+extension HexThemeColor {
+    public var accentColor: Color {
+        switch self {
+        case .multicolor:
+            return Color(red: 0.0, green: 0.55, blue: 1.0)
+        case .blue:
+            return Color(red: 0.0, green: 0.48, blue: 1.0)
+        case .purple:
+            return Color(red: 0.68, green: 0.35, blue: 0.95)
+        case .pink:
+            return Color(red: 1.0, green: 0.30, blue: 0.64)
+        case .red:
+            return Color(red: 1.0, green: 0.28, blue: 0.28)
+        case .orange:
+            return Color(red: 1.0, green: 0.55, blue: 0.0)
+        case .yellow:
+            return Color(red: 1.0, green: 0.80, blue: 0.0)
+        case .green:
+            return Color(red: 0.30, green: 0.85, blue: 0.40)
+        case .monochrome:
+            return Color.primary
+        }
+    }
+
+    public var swatchColor: Color {
+        switch self {
+        case .multicolor:
+            return Color(red: 0.0, green: 0.55, blue: 1.0)
+        case .blue:
+            return Color(red: 0.0, green: 0.48, blue: 1.0)
+        case .purple:
+            return Color(red: 0.68, green: 0.35, blue: 0.95)
+        case .pink:
+            return Color(red: 1.0, green: 0.30, blue: 0.64)
+        case .red:
+            return Color(red: 1.0, green: 0.28, blue: 0.28)
+        case .orange:
+            return Color(red: 1.0, green: 0.55, blue: 0.0)
+        case .yellow:
+            return Color(red: 1.0, green: 0.80, blue: 0.0)
+        case .green:
+            return Color(red: 0.30, green: 0.85, blue: 0.40)
+        case .monochrome:
+            return Color(red: 0.58, green: 0.58, blue: 0.60)
+        }
+    }
+}
+
 // MARK: - Color Tokens
 
 enum TickColor {
-    // Neutral Apple Monochrome / Liquid Glass Brand
-    static let brand = Color.primary
+    // Dynamic Theme / Liquid Glass Brand
+    static var brand: Color {
+        let theme = (try? SharedReader(.hexSettings).wrappedValue.themeColor) ?? .monochrome
+        return theme.accentColor
+    }
     static let brandSoft = Color.primary.opacity(0.08)
     static let brandMid = Color.primary.opacity(0.60)
     static let brandGlow = Color.white.opacity(0.20)
@@ -722,11 +775,15 @@ private struct HexGlassModifier<S: Shape>: ViewModifier {
     let tint: Color?
     let interactive: Bool
     let style: HexGlassStyle
+    @Shared(.hexSettings) private var hexSettings: HexSettings
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
+        let theme = hexSettings.themeColor
+        let isDark = colorScheme == .dark
+
         if reduceTransparency || contrast == .increased {
             content
                 .clipShape(shape)
@@ -739,53 +796,128 @@ private struct HexGlassModifier<S: Shape>: ViewModifier {
             case .prominent: .regular
             }
 
-            // Glossy optical substrate: delicate light gradient giving glossy liquid sheen
-            let substrateGradient = LinearGradient(
-                stops: [
-                    .init(color: colorScheme == .dark ? Color.white.opacity(style == .prominent ? 0.12 : (style == .regular ? 0.06 : 0.025)) : Color.white.opacity(style == .prominent ? 0.50 : (style == .regular ? 0.30 : 0.15)), location: 0.0),
-                    .init(color: colorScheme == .dark ? Color.white.opacity(style == .prominent ? 0.04 : (style == .regular ? 0.015 : 0.005)) : Color.white.opacity(style == .prominent ? 0.20 : (style == .regular ? 0.10 : 0.03)), location: 0.45),
-                    .init(color: colorScheme == .dark ? Color.black.opacity(style == .prominent ? 0.10 : (style == .regular ? 0.04 : 0.01)) : Color.black.opacity(0.02), location: 1.0)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            // Glossy optical substrate: delicate light gradient giving glossy liquid sheen with theme reflection
+            let substrateGradient: LinearGradient = {
+                switch theme {
+                case .monochrome:
+                    return LinearGradient(
+                        stops: [
+                            .init(color: isDark ? Color.white.opacity(style == .prominent ? 0.12 : (style == .regular ? 0.06 : 0.025)) : Color.white.opacity(style == .prominent ? 0.50 : (style == .regular ? 0.30 : 0.15)), location: 0.0),
+                            .init(color: isDark ? Color.white.opacity(style == .prominent ? 0.04 : (style == .regular ? 0.015 : 0.005)) : Color.white.opacity(style == .prominent ? 0.20 : (style == .regular ? 0.10 : 0.03)), location: 0.45),
+                            .init(color: isDark ? Color.black.opacity(style == .prominent ? 0.10 : (style == .regular ? 0.04 : 0.01)) : Color.black.opacity(0.02), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                case .multicolor:
+                    return LinearGradient(
+                        stops: [
+                            .init(color: isDark ? Color.cyan.opacity(style == .prominent ? 0.14 : 0.07) : Color.cyan.opacity(0.12), location: 0.0),
+                            .init(color: isDark ? Color.purple.opacity(style == .prominent ? 0.10 : 0.05) : Color.purple.opacity(0.08), location: 0.35),
+                            .init(color: isDark ? Color.pink.opacity(style == .prominent ? 0.08 : 0.04) : Color.pink.opacity(0.06), location: 0.70),
+                            .init(color: isDark ? Color.orange.opacity(style == .prominent ? 0.10 : 0.05) : Color.orange.opacity(0.08), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                default:
+                    let accent = theme.swatchColor
+                    return LinearGradient(
+                        stops: [
+                            .init(color: isDark ? Color.white.opacity(style == .prominent ? 0.12 : 0.06) : Color.white.opacity(style == .prominent ? 0.45 : 0.25), location: 0.0),
+                            .init(color: accent.opacity(isDark ? (style == .prominent ? 0.14 : 0.08) : (style == .prominent ? 0.16 : 0.09)), location: 0.25),
+                            .init(color: accent.opacity(isDark ? (style == .prominent ? 0.06 : 0.03) : (style == .prominent ? 0.08 : 0.04)), location: 0.70),
+                            .init(color: isDark ? Color.black.opacity(0.08) : Color.black.opacity(0.02), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }()
 
-            // Specular rim stroke gradient: luminous top-leading light source
-            let rimGradient = LinearGradient(
-                stops: [
-                    .init(color: colorScheme == .dark ? Color.white.opacity(0.35) : Color.white.opacity(0.65), location: 0.0),
-                    .init(color: colorScheme == .dark ? Color.white.opacity(0.12) : Color.white.opacity(0.25), location: 0.35),
-                    .init(color: colorScheme == .dark ? Color.white.opacity(0.04) : Color.white.opacity(0.08), location: 0.75),
-                    .init(color: colorScheme == .dark ? Color.white.opacity(0.18) : Color.white.opacity(0.35), location: 1.0)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            // Specular rim stroke gradient: luminous top-leading light source with theme chromatic reflection
+            let rimGradient: LinearGradient = {
+                switch theme {
+                case .monochrome:
+                    return LinearGradient(
+                        stops: [
+                            .init(color: isDark ? Color.white.opacity(0.35) : Color.white.opacity(0.65), location: 0.0),
+                            .init(color: isDark ? Color.white.opacity(0.12) : Color.white.opacity(0.25), location: 0.35),
+                            .init(color: isDark ? Color.white.opacity(0.04) : Color.white.opacity(0.08), location: 0.75),
+                            .init(color: isDark ? Color.white.opacity(0.18) : Color.white.opacity(0.35), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                case .multicolor:
+                    return LinearGradient(
+                        stops: [
+                            .init(color: Color.white.opacity(isDark ? 0.45 : 0.70), location: 0.0),
+                            .init(color: Color.cyan.opacity(0.40), location: 0.20),
+                            .init(color: Color.purple.opacity(0.30), location: 0.50),
+                            .init(color: Color.pink.opacity(0.25), location: 0.75),
+                            .init(color: Color.orange.opacity(0.35), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                default:
+                    let accent = theme.swatchColor
+                    return LinearGradient(
+                        stops: [
+                            .init(color: Color.white.opacity(isDark ? 0.40 : 0.70), location: 0.0),
+                            .init(color: accent.opacity(isDark ? 0.45 : 0.55), location: 0.20),
+                            .init(color: Color.white.opacity(isDark ? 0.06 : 0.12), location: 0.60),
+                            .init(color: accent.opacity(isDark ? 0.35 : 0.45), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }()
+
+            let effectiveTint: Color = {
+                if let tint { return tint }
+                switch theme {
+                case .monochrome: return .clear
+                case .multicolor: return Color.cyan.opacity(0.04)
+                default: return theme.swatchColor.opacity(isDark ? 0.06 : 0.05)
+                }
+            }()
 
             content
                 .background(shape.fill(substrateGradient))
                 .clipShape(shape)
-                .glassEffect(glass.tint(tint ?? .clear).interactive(interactive), in: shape)
+                .glassEffect(glass.tint(effectiveTint).interactive(interactive), in: shape)
                 .overlay(
                     shape.stroke(rimGradient, lineWidth: 0.75)
                 )
                 .shadow(
-                    color: Color.black.opacity(colorScheme == .dark ? 0.15 : 0.04),
+                    color: Color.black.opacity(isDark ? 0.15 : 0.04),
                     radius: interactive ? 4 : 2,
                     x: 0,
                     y: 1
                 )
         } else {
+            let fallbackTint: Color = {
+                if let tint { return tint }
+                switch theme {
+                case .monochrome: return .clear
+                case .multicolor: return Color.cyan.opacity(0.05)
+                default: return theme.swatchColor.opacity(0.06)
+                }
+            }()
+
             content
                 .clipShape(shape)
                 .background(shape.fill(.ultraThinMaterial))
-                .overlay(shape.fill(tint ?? .clear).clipShape(shape))
+                .overlay(shape.fill(fallbackTint).clipShape(shape))
                 .overlay(
                     shape.stroke(
                         LinearGradient(
                             stops: [
-                                .init(color: colorScheme == .dark ? Color.white.opacity(0.30) : Color.white.opacity(0.60), location: 0.0),
-                                .init(color: colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.20), location: 0.4),
+                                .init(color: isDark ? Color.white.opacity(0.30) : Color.white.opacity(0.60), location: 0.0),
+                                .init(color: theme == .monochrome ? (isDark ? Color.white.opacity(0.08) : Color.white.opacity(0.20)) : theme.swatchColor.opacity(0.30), location: 0.4),
                                 .init(color: Color.clear, location: 1.0)
                             ],
                             startPoint: .topLeading,
@@ -795,7 +927,7 @@ private struct HexGlassModifier<S: Shape>: ViewModifier {
                     )
                 )
                 .shadow(
-                    color: Color.black.opacity(colorScheme == .dark ? 0.15 : 0.04),
+                    color: Color.black.opacity(isDark ? 0.15 : 0.04),
                     radius: interactive ? 4 : 2,
                     x: 0,
                     y: 1

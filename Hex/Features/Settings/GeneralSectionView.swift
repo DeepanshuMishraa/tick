@@ -9,8 +9,17 @@ struct GeneralSectionView: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: TickSpacing.m) {
+			TickEyebrow(text: "Appearance")
+				.padding(.leading, TickSpacing.xs)
+
+			ThemeColorCard(
+				selectedColor: store.hexSettings.themeColor,
+				onSelect: { store.send(.setThemeColor($0)) }
+			)
+
 			TickEyebrow(text: "General")
 				.padding(.leading, TickSpacing.xs)
+				.padding(.top, TickSpacing.xs)
 
 			VStack(spacing: 0) {
 				row(
@@ -166,3 +175,121 @@ struct CustomMenuPicker<Option: Hashable>: View {
 		.onHover { isHovered = $0 }
 	}
 }
+
+// MARK: - Theme Color Components
+
+private struct ThemeColorCard: View {
+	let selectedColor: HexThemeColor
+	let onSelect: (HexThemeColor) -> Void
+
+	var body: some View {
+		HStack(alignment: .center) {
+			VStack(alignment: .leading, spacing: 4) {
+				Text("THEME".uppercased())
+					.font(TickFont.eyebrow)
+					.tracking(0.8)
+					.foregroundStyle(TickColor.textTertiary)
+				Text("Colour")
+					.font(TickFont.body)
+					.foregroundStyle(TickColor.textPrimary)
+			}
+
+			Spacer()
+
+			HStack(alignment: .top, spacing: 10) {
+				ForEach(HexThemeColor.allCases, id: \.self) { color in
+					ThemeColorSwatch(
+						color: color,
+						isSelected: color == selectedColor,
+						onSelect: { onSelect(color) }
+					)
+				}
+			}
+		}
+		.padding(.horizontal, TickSpacing.l)
+		.padding(.vertical, TickSpacing.m)
+		.hexGlass(cornerRadius: TickRadius.card)
+	}
+}
+
+private struct ThemeColorSwatch: View {
+	let color: HexThemeColor
+	let isSelected: Bool
+	let onSelect: () -> Void
+	@State private var isHovered = false
+
+	var body: some View {
+		Button(action: onSelect) {
+			VStack(spacing: 4) {
+				ZStack {
+					if isSelected {
+						Circle()
+							.stroke(
+								color == .multicolor
+									? Color.cyan.opacity(0.85)
+									: (color == .monochrome ? Color.primary.opacity(0.65) : color.swatchColor.opacity(0.85)),
+								lineWidth: 2
+							)
+							.frame(width: 26, height: 26)
+							.transition(.scale.combined(with: .opacity))
+					}
+
+					swatchCircle
+						.frame(width: 18, height: 18)
+						.scaleEffect(isHovered ? 1.08 : 1.0)
+						.shadow(
+							color: isSelected ? (color == .monochrome ? Color.white.opacity(0.2) : color.swatchColor.opacity(0.40)) : Color.clear,
+							radius: 4,
+							x: 0,
+							y: 1
+						)
+				}
+				.frame(width: 28, height: 28)
+
+				if isSelected {
+					Text(color.displayName)
+						.font(TickFont.captionFunc(10, weight: .medium))
+						.foregroundStyle(TickColor.textSecondary)
+						.fixedSize()
+						.transition(.opacity)
+				} else {
+					Text(" ")
+						.font(TickFont.captionFunc(10, weight: .medium))
+						.fixedSize()
+						.opacity(0)
+				}
+			}
+		}
+		.buttonStyle(.plain)
+		.onHover { isHovered = $0 }
+		.animation(.spring(response: 0.28, dampingFraction: 0.75), value: isSelected)
+		.animation(.easeInOut(duration: 0.15), value: isHovered)
+	}
+
+	@ViewBuilder
+	private var swatchCircle: some View {
+		if color == .multicolor {
+			Circle()
+				.fill(
+					AngularGradient(
+						gradient: Gradient(colors: [
+							.red, .orange, .yellow, .green, .cyan, .blue, .purple, .pink, .red
+						]),
+						center: .center
+					)
+				)
+				.overlay(
+					Circle()
+						.stroke(Color.white.opacity(0.25), lineWidth: 0.5)
+				)
+		} else {
+			Circle()
+				.fill(color.swatchColor)
+				.overlay(
+					Circle()
+						.stroke(Color.white.opacity(0.20), lineWidth: 0.5)
+				)
+		}
+	}
+}
+

@@ -19,8 +19,9 @@ node_modules/
 .npm-cache/
 .tmp/
 
-# Claude
+# Local agent / editor files
 .claude/
+.pi/
 
 # Ignore local installer packages
 *.dmg

@@ -135,6 +135,7 @@ struct SettingsFeature {
     case toggleWordRemovalsEnabled(Bool)
     case setWordRemovals([WordRemoval])
     case setWordRemappings([WordRemapping])
+    case setThemeColor(HexThemeColor)
 
     // Delegate — sent to the parent AppFeature to update shared permission state
     case delegate(Delegate)
@@ -659,6 +660,10 @@ struct SettingsFeature {
 
       case let .setWordRemappings(remappings):
         state.$hexSettings.withLock { $0.wordRemappings = remappings }
+        return .none
+
+      case let .setThemeColor(color):
+        state.$hexSettings.withLock { $0.themeColor = color }
         return .none
 
       case .delegate:

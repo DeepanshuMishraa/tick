@@ -88,6 +88,15 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertFalse(savedJSON.contains("aiPostProcessingModel"))
 	}
 
+	func testThemeColorEncodesAndDecodes() throws {
+		var settings = HexSettings()
+		settings.themeColor = .red
+		let data = try JSONEncoder().encode(settings)
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+
+		XCTAssertEqual(decoded.themeColor, .red)
+	}
+
 	private func loadFixture(named name: String) throws -> Data {
 		guard let url = Bundle.module.url(
 			forResource: name,
