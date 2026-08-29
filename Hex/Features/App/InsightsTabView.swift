@@ -14,7 +14,7 @@ public struct InsightsTabView: View {
   @State private var heatmapPage = 0
   @State private var cachedWordsByDay: [Date: Int] = [:]
   @State private var cachedTranscriptsByDay: [Date: Int] = [:]
-  @State private var cachedTopApps: [(name: String, words: Int)] = []
+  @State private var cachedTopApps: [(name: String, bundleID: String?, words: Int)] = []
   private let monthsPerPage = 3
 
   public init(
@@ -155,67 +155,84 @@ public struct InsightsTabView: View {
     return (current, longest)
   }
 
-  private var heatmapWeeks: [[InsightDay]] {
-    let firstWeek = calendar.dateInterval(of: .weekOfYear, for: visibleStartMonth)?.start
-      ?? visibleStartMonth
-    let today = calendar.startOfDay(for: Date())
-    let daySpan = calendar.dateComponents([.day], from: firstWeek, to: visibleEndDate).day ?? 0
-    let visibleWeekCount = max(1, daySpan / 7 + 1)
-
-    return (0..<visibleWeekCount).map { weekIndex in
-      (0..<7).compactMap { dayIndex in
-        guard let date = calendar.date(byAdding: .day, value: weekIndex * 7 + dayIndex, to: firstWeek) else {
-          return nil
-        }
-        return InsightDay(
-          date: date,
-          wordCount: wordsByDay[date, default: 0],
-          transcriptCount: transcriptsByDay[date, default: 0],
-          isUnavailable: date < userStartDate || date < visibleStartMonth || date > visibleEndDate || date > today
-        )
-      }
-    }
-  }
-
-  private var heatmapMaxWords: Int {
-    max(1, heatmapWeeks.flatMap { $0 }.map(\.wordCount).max() ?? 0)
-  }
-
   private var weekdayTotals: [(name: String, words: Int)] {
-    let names = calendar.shortWeekdaySymbols
-    let totals = wordsByDay.reduce(into: Array(repeating: 0, count: 7)) { result, entry in
-      let weekday = calendar.component(.weekday, from: entry.key)
-      result[weekday - 1] += entry.value
+    let symbols = calendar.shortWeekdaySymbols
+    var totals = Array(repeating: 0, count: 7)
+    for (date, count) in wordsByDay {
+      let weekday = calendar.component(.weekday, from: date)
+      totals[weekday - 1] += count
     }
-    return (0..<7).map { (names[$0], totals[$0]) }
+    return (0..<7).map { index in
+      (name: symbols[index], words: totals[index])
+    }
   }
 
   private var peakWeekday: String? {
     weekdayTotals.max { $0.words < $1.words }?.name
   }
 
-  private var topApps: [(name: String, words: Int)] {
+  private var topApps: [(name: String, bundleID: String?, words: Int)] {
     cachedTopApps
   }
 
+  private var heatmapDays: [InsightDay] {
+    var days: [InsightDay] = []
+    let start = calendar.date(byAdding: .day, value: -(calendar.component(.weekday, from: visibleStartMonth) - 1), to: visibleStartMonth) ?? visibleStartMonth
+    let endDay = calendar.component(.weekday, from: visibleEndDate)
+    let daysToAdd = endDay == 7 ? 0 : 7 - endDay
+    let end = calendar.date(byAdding: .day, value: daysToAdd, to: visibleEndDate) ?? visibleEndDate
+
+    var current = start
+    while current <= end {
+      let normalized = calendar.startOfDay(for: current)
+      let count = wordsByDay[normalized] ?? 0
+      let tCount = transcriptsByDay[normalized] ?? 0
+      let isUnavailable = normalized < userStartDate || normalized > calendar.startOfDay(for: Date())
+      days.append(InsightDay(date: normalized, wordCount: count, transcriptCount: tCount, isUnavailable: isUnavailable))
+      guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+      current = next
+    }
+    return days
+  }
+
+  private var heatmapWeeks: [[InsightDay]] {
+    stride(from: 0, to: heatmapDays.count, by: 7).map {
+      Array(heatmapDays[$0..<min($0 + 7, heatmapDays.count)])
+    }
+  }
+
+  private var heatmapMaxWords: Int {
+    max(1, heatmapDays.map(\.wordCount).max() ?? 1)
+  }
+
   public var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      metricGrid
-      efficiencyCard
-      activityCard
-      supportingDetails
+    ScrollView {
+      VStack(alignment: .leading, spacing: 20) {
+        metricGrid
+        efficiencyCard
+        activityCard
+        supportingDetails
+      }
+      .padding(24)
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .thinScrollbars()
+    .onAppear {
+      heatmapPage = maxHeatmapPage
+      recalculateStats()
+    }
     .onChange(of: transcripts) { _, _ in
-      heatmapPage = min(heatmapPage, maxHeatmapPage)
+      recalculateStats()
     }
-    .task(id: transcripts) {
-      let snapshot = await Task.detached(priority: .userInitiated) {
-        var calendar = Calendar.autoupdatingCurrent
-        calendar.firstWeekday = 1
+  }
+
+  private func recalculateStats() {
+    Task {
+      let snapshot = await Task.detached(priority: .userInitiated) { () -> ([Date: Int], [Date: Int], [(name: String, bundleID: String?, words: Int)]) in
         var wordsByDay: [Date: Int] = [:]
         var transcriptsByDay: [Date: Int] = [:]
-        var apps: [String: Int] = [:]
+        var apps: [String: (bundleID: String?, words: Int)] = [:]
+        let calendar = Calendar.autoupdatingCurrent
 
         for transcript in transcripts {
           let day = calendar.startOfDay(for: transcript.timestamp)
@@ -223,11 +240,20 @@ public struct InsightsTabView: View {
           wordsByDay[day, default: 0] += words
           transcriptsByDay[day, default: 0] += 1
           let appName = transcript.sourceAppName?.isEmpty == false ? transcript.sourceAppName! : "Other apps"
-          apps[appName, default: 0] += words
+          let bundleID = transcript.sourceAppBundleID
+          if var existing = apps[appName] {
+            existing.words += words
+            if existing.bundleID == nil && bundleID != nil {
+              existing.bundleID = bundleID
+            }
+            apps[appName] = existing
+          } else {
+            apps[appName] = (bundleID: bundleID, words: words)
+          }
         }
 
-        let sortedApps: [(name: String, words: Int)] = apps.map { entry in
-          (name: entry.key, words: entry.value)
+        let sortedApps: [(name: String, bundleID: String?, words: Int)] = apps.map { entry in
+          (name: entry.key, bundleID: entry.value.bundleID, words: entry.value.words)
         }
         let topApps = sortedApps.sorted { lhs, rhs in
           lhs.words == rhs.words ? lhs.name < rhs.name : lhs.words > rhs.words
@@ -284,11 +310,11 @@ public struct InsightsTabView: View {
     HStack(alignment: .center, spacing: 24) {
       VStack(alignment: .leading, spacing: 5) {
         Text("Typing vs. Dictation Speed")
-          .font(.system(size: 15, weight: .semibold, design: .default))
+          .font(TickFont.headingFunc(15, weight: .semibold))
           .foregroundStyle(TickColor.textPrimary)
 
         Text(wordCount > 0 ? "Estimated \(String(format: "%.1f", hoursSaved)) hours saved compared to 40 WPM manual keyboard typing." : "Start dictating to see how much time you save over manual keyboard typing.")
-          .font(.system(size: 12, weight: .regular, design: .default))
+          .font(TickFont.bodyFunc(12, weight: .regular))
           .foregroundStyle(TickColor.textSecondary)
       }
 
@@ -297,22 +323,22 @@ public struct InsightsTabView: View {
       VStack(alignment: .trailing, spacing: 8) {
         HStack(spacing: 12) {
           Text("Keyboard Typing")
-            .font(.system(size: 11, weight: .regular, design: .default))
+            .font(TickFont.bodyFunc(11, weight: .regular))
             .foregroundStyle(TickColor.textTertiary)
 
           Text("40 WPM")
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(TickFont.mono(11, weight: .medium))
             .foregroundStyle(TickColor.textSecondary)
             .frame(width: 58, alignment: .trailing)
         }
 
         HStack(spacing: 12) {
           Text("Voice Dictation")
-            .font(.system(size: 11, weight: .semibold, design: .default))
+            .font(TickFont.bodyFunc(11, weight: .semibold))
             .foregroundStyle(TickColor.brand)
 
           Text("\(effectiveWPM) WPM")
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .font(TickFont.mono(11, weight: .bold))
             .foregroundStyle(TickColor.brand)
             .frame(width: 58, alignment: .trailing)
         }
@@ -348,11 +374,11 @@ public struct InsightsTabView: View {
       HStack(alignment: .center) {
         VStack(alignment: .leading, spacing: 3) {
           Text("Daily Activity")
-            .font(.system(size: 15, weight: .semibold, design: .default))
+            .font(TickFont.headingFunc(15, weight: .semibold))
             .foregroundStyle(TickColor.textPrimary)
 
           Text("Overview across 3-month windows")
-            .font(.system(size: 12, weight: .regular, design: .default))
+            .font(TickFont.bodyFunc(12, weight: .regular))
             .foregroundStyle(TickColor.textSecondary)
         }
 
@@ -363,7 +389,7 @@ public struct InsightsTabView: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) { heatmapPage -= 1 }
           }
           Text(visibleRangeLabel)
-            .font(.system(size: 12, weight: .medium, design: .default))
+            .font(TickFont.labelFunc(12, weight: .medium))
             .foregroundStyle(TickColor.textPrimary)
             .frame(minWidth: 120, alignment: .center)
           heatmapNavigationButton(icon: "chevron.right", isDisabled: heatmapPage >= maxHeatmapPage) {
@@ -378,7 +404,7 @@ public struct InsightsTabView: View {
         VStack(alignment: .leading, spacing: 5) {
           ForEach(calendar.shortWeekdaySymbols, id: \.self) { weekday in
             Text(weekday.prefix(2))
-              .font(.system(size: 9, weight: .medium, design: .monospaced))
+              .font(TickFont.mono(9, weight: .medium))
               .foregroundStyle(TickColor.textTertiary)
               .frame(width: 20, height: 18, alignment: .leading)
           }
@@ -389,7 +415,7 @@ public struct InsightsTabView: View {
           HStack(spacing: 5) {
             ForEach(Array(heatmapWeeks.enumerated()), id: \.offset) { _, week in
               Text(monthLabel(for: week))
-                .font(.system(size: 10, weight: .medium, design: .default))
+                .font(TickFont.captionFunc(10, weight: .medium))
                 .foregroundStyle(TickColor.textSecondary)
                 .frame(width: 18, height: 18, alignment: .leading)
             }
@@ -411,7 +437,7 @@ public struct InsightsTabView: View {
       HStack(spacing: 12) {
         HStack(spacing: 5) {
           Text("Less")
-            .font(.system(size: 11, weight: .regular, design: .default))
+            .font(TickFont.bodyFunc(11, weight: .regular))
             .foregroundStyle(TickColor.textTertiary)
           ForEach([0, 1, 2, 3, 4], id: \.self) { level in
             RoundedRectangle(cornerRadius: 3)
@@ -419,7 +445,7 @@ public struct InsightsTabView: View {
               .frame(width: 12, height: 12)
           }
           Text("More")
-            .font(.system(size: 11, weight: .regular, design: .default))
+            .font(TickFont.bodyFunc(11, weight: .regular))
             .foregroundStyle(TickColor.textTertiary)
         }
 
@@ -427,10 +453,10 @@ public struct InsightsTabView: View {
 
         HStack(spacing: 14) {
           Text("🔥 \(streaks.current)d streak")
-            .font(.system(size: 11, weight: .medium, design: .default))
+            .font(TickFont.labelFunc(11, weight: .medium))
             .foregroundStyle(TickColor.brand)
           Text("\(wordCount.formatted()) words total")
-            .font(.system(size: 11, weight: .regular, design: .default))
+            .font(TickFont.bodyFunc(11, weight: .regular))
             .foregroundStyle(TickColor.textSecondary)
         }
       }
@@ -454,16 +480,16 @@ public struct InsightsTabView: View {
       HStack {
         VStack(alignment: .leading, spacing: 3) {
           Text("Activity by Weekday")
-            .font(.system(size: 15, weight: .semibold, design: .default))
+            .font(TickFont.headingFunc(15, weight: .semibold))
             .foregroundStyle(TickColor.textPrimary)
           Text("Word volume across days")
-            .font(.system(size: 12, weight: .regular, design: .default))
+            .font(TickFont.bodyFunc(12, weight: .regular))
             .foregroundStyle(TickColor.textSecondary)
         }
         Spacer()
         if let peak = peakWeekday {
           Text("Peak: \(peak)")
-            .font(.system(size: 10, weight: .semibold, design: .default))
+            .font(TickFont.mono(10, weight: .semibold))
             .foregroundStyle(TickColor.brand)
             .padding(.horizontal, 7)
             .padding(.vertical, 2.5)
@@ -477,7 +503,7 @@ public struct InsightsTabView: View {
           let isPeak = weekday.words == maxWords && weekday.words > 0
           HStack(spacing: 10) {
             Text(weekday.name)
-              .font(.system(size: 11, weight: isPeak ? .semibold : .regular, design: .default))
+              .font(TickFont.bodyFunc(11, weight: isPeak ? .semibold : .regular))
               .foregroundStyle(isPeak ? TickColor.textPrimary : TickColor.textSecondary)
               .frame(width: 32, alignment: .leading)
 
@@ -502,7 +528,7 @@ public struct InsightsTabView: View {
             .frame(height: 6)
 
             Text(weekday.words.formatted())
-              .font(.system(size: 10, weight: .regular, design: .monospaced))
+              .font(TickFont.mono(10, weight: .regular))
               .foregroundStyle(isPeak ? TickColor.brand : TickColor.textTertiary)
               .frame(width: 44, alignment: .trailing)
           }
@@ -519,15 +545,15 @@ public struct InsightsTabView: View {
       HStack {
         VStack(alignment: .leading, spacing: 3) {
           Text("Top Applications")
-            .font(.system(size: 15, weight: .semibold, design: .default))
+            .font(TickFont.headingFunc(15, weight: .semibold))
             .foregroundStyle(TickColor.textPrimary)
           Text("Voice activity distribution")
-            .font(.system(size: 12, weight: .regular, design: .default))
+            .font(TickFont.bodyFunc(12, weight: .regular))
             .foregroundStyle(TickColor.textSecondary)
         }
         Spacer()
         Text("\(uniqueAppsCount) \(uniqueAppsCount == 1 ? "app" : "apps")")
-          .font(.system(size: 10, weight: .semibold, design: .default))
+          .font(TickFont.mono(10, weight: .semibold))
           .foregroundStyle(TickColor.textTertiary)
           .padding(.horizontal, 7)
           .padding(.vertical, 2.5)
@@ -541,7 +567,7 @@ public struct InsightsTabView: View {
             .font(.system(size: 24))
             .foregroundStyle(TickColor.textTertiary.opacity(0.5))
           Text("Application breakdown will appear as you dictate across macOS apps.")
-            .font(.system(size: 12, weight: .regular, design: .default))
+            .font(TickFont.bodyFunc(12, weight: .regular))
             .foregroundStyle(TickColor.textSecondary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 16)
@@ -557,17 +583,17 @@ public struct InsightsTabView: View {
             let percentage = Int(round(Double(app.words) / Double(totalAppWords) * 100.0))
             VStack(spacing: 4) {
               HStack(spacing: 8) {
-                AppIconBadge(appName: app.name)
+                AppIconBadge(appName: app.name, bundleID: app.bundleID)
 
                 Text(app.name)
-                  .font(.system(size: 12, weight: .medium, design: .default))
+                  .font(TickFont.bodyFunc(12, weight: .medium))
                   .foregroundStyle(TickColor.textPrimary)
                   .lineLimit(1)
 
                 Spacer(minLength: 4)
 
                 Text("\(percentage)%")
-                  .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                  .font(TickFont.mono(10, weight: .semibold))
                   .foregroundStyle(TickColor.brand)
                   .padding(.horizontal, 5)
                   .padding(.vertical, 1.5)
@@ -575,7 +601,7 @@ public struct InsightsTabView: View {
                   .cornerRadius(4)
 
                 Text("\(app.words.formatted()) words")
-                  .font(.system(size: 10, weight: .regular, design: .monospaced))
+                  .font(TickFont.mono(10, weight: .regular))
                   .foregroundStyle(TickColor.textTertiary)
                   .frame(minWidth: 65, alignment: .trailing)
               }
@@ -634,7 +660,7 @@ public struct InsightsTabView: View {
   ) -> some View {
     Button(action: action) {
       Image(systemName: icon)
-        .font(.system(size: 10, weight: .bold))
+        .font(TickFont.mono(10, weight: .bold))
         .foregroundStyle(isDisabled ? TickColor.textTertiary.opacity(0.30) : TickColor.textPrimary)
         .frame(width: 24, height: 24)
         .hexGlass(cornerRadius: 6, interactive: !isDisabled)
@@ -672,7 +698,7 @@ private struct InsightMetricCard: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack {
         Text(label)
-          .font(.system(size: 10, weight: .semibold, design: .default))
+          .font(TickFont.eyebrow)
           .tracking(0.6)
           .foregroundStyle(TickColor.textTertiary)
 
@@ -683,25 +709,25 @@ private struct InsightMetricCard: View {
             .fill(TickColor.brand.opacity(0.10))
             .frame(width: 22, height: 22)
           Image(systemName: icon)
-            .font(.system(size: 10, weight: .semibold))
+            .font(TickFont.mono(10, weight: .semibold))
             .foregroundStyle(TickColor.brand)
         }
       }
 
       Text(value)
-        .font(.system(size: 24, weight: .bold, design: .default))
+        .font(TickFont.display(24, weight: .bold))
         .foregroundStyle(TickColor.textPrimary)
         .lineLimit(1)
         .minimumScaleFactor(0.85)
 
       Text(detail)
-        .font(.system(size: 11, weight: .regular, design: .default))
+        .font(TickFont.bodyFunc(11, weight: .regular))
         .foregroundStyle(TickColor.textSecondary)
         .lineLimit(1)
 
       if let badge {
         Text(badge)
-          .font(.system(size: 9, weight: .medium, design: .monospaced))
+          .font(TickFont.mono(9, weight: .medium))
           .foregroundStyle(TickColor.brand)
           .padding(.horizontal, 5)
           .padding(.vertical, 2)
@@ -791,14 +817,53 @@ private struct InsightHeatmapCell: View {
 
 private struct AppIconBadge: View {
   let appName: String
+  var bundleID: String? = nil
 
   private var appIcon: NSImage? {
-    if let running = NSRunningApplication.runningApplications(withBundleIdentifier: appName).first {
-      return running.icon
+    // 1. Try bundle ID if available
+    if let bundleID, !bundleID.isEmpty {
+      if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first, let icon = running.icon {
+        return icon
+      }
+      if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+        return NSWorkspace.shared.icon(forFile: url.path)
+      }
     }
-    if let workspaceApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appName) {
-      return NSWorkspace.shared.icon(forFile: workspaceApp.path)
+
+    // 2. Try running apps by localized name
+    if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName?.caseInsensitiveCompare(appName) == .orderedSame }), let icon = running.icon {
+      return icon
     }
+
+    // 3. Try bundle ID as appName
+    if let running = NSRunningApplication.runningApplications(withBundleIdentifier: appName).first, let icon = running.icon {
+      return icon
+    }
+    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appName) {
+      return NSWorkspace.shared.icon(forFile: url.path)
+    }
+
+    // 4. Try NSWorkspace fullPath(forApplication:)
+    if let path = NSWorkspace.shared.fullPath(forApplication: appName) {
+      return NSWorkspace.shared.icon(forFile: path)
+    }
+
+    // 5. Try standard macOS application paths
+    let candidatePaths = [
+      "/Applications/\(appName).app",
+      "/System/Applications/\(appName).app",
+      "/System/Applications/Utilities/\(appName).app",
+      "\(NSHomeDirectory())/Applications/\(appName).app",
+      "/Applications/\(appName)",
+      "/System/Applications/\(appName)"
+    ]
+
+    for path in candidatePaths {
+      if FileManager.default.fileExists(atPath: path) {
+        return NSWorkspace.shared.icon(forFile: path)
+      }
+    }
+
     return nil
   }
 
@@ -808,15 +873,16 @@ private struct AppIconBadge: View {
         Image(nsImage: icon)
           .resizable()
           .aspectRatio(contentMode: .fit)
-          .frame(width: 16, height: 16)
-          .cornerRadius(3.5)
+          .frame(width: 18, height: 18)
+          .clipShape(RoundedRectangle(cornerRadius: 4))
+          .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0.5)
       } else {
         ZStack {
-          RoundedRectangle(cornerRadius: 3.5)
+          RoundedRectangle(cornerRadius: 4)
             .fill(TickColor.brand.opacity(0.15))
-            .frame(width: 16, height: 16)
+            .frame(width: 18, height: 18)
           Image(systemName: "app.fill")
-            .font(.system(size: 9))
+            .font(TickFont.mono(9))
             .foregroundStyle(TickColor.brand)
         }
       }
