@@ -40,8 +40,10 @@ public struct WelcomeOnboardingView: View {
       VStack(spacing: 0) {
         // Step indicator dashes
         stepIndicator
-          .padding(.top, 32)
-          .padding(.bottom, 20)
+          .padding(.top, 28)
+          .padding(.bottom, 16)
+
+        Spacer(minLength: 8)
 
         // Main animated presentation with clean transition
         if currentStep == 0 {
@@ -58,14 +60,14 @@ public struct WelcomeOnboardingView: View {
             ))
         }
 
-        Spacer(minLength: 16)
+        Spacer(minLength: 28)
 
         // Bottom action bar with elevated buttons
         bottomActionBar
           .padding(.horizontal, 44)
-          .padding(.bottom, 32)
+          .padding(.bottom, 36)
       }
-      .frame(maxWidth: 780, maxHeight: 580)
+      .frame(maxWidth: 800, maxHeight: 620)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .onAppear {
@@ -127,9 +129,9 @@ public struct WelcomeOnboardingView: View {
   // MARK: - Step 0: Welcome View
 
   private var welcomeStepView: some View {
-    VStack(spacing: 24) {
+    VStack(spacing: 34) {
       // Clean, confident editorial typography
-      VStack(spacing: 8) {
+      VStack(spacing: 10) {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           Text("Welcome to")
             .font(TickFont.display(34, weight: .regular))
@@ -267,60 +269,64 @@ public struct WelcomeOnboardingView: View {
   // MARK: - Bottom Action Bar with Elevated Buttons
 
   private var bottomActionBar: some View {
-    HStack {
-      if currentStep == 1 {
-        Button(action: {
-          withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
-            currentStep = 0
-          }
-        }) {
-          HStack(spacing: 6) {
-            Image(systemName: "arrow.left")
-              .font(.system(size: 11, weight: .semibold))
-            Text("Back")
-              .font(TickFont.labelFunc(13, weight: .medium))
-          }
-          .foregroundStyle(TickColor.textSecondary)
-          .padding(.horizontal, 16)
-          .padding(.vertical, 9)
-          .hexGlass(cornerRadius: 10, interactive: true)
-        }
-        .buttonStyle(.plain)
-      }
-
-      Spacer()
-
+    Group {
       if currentStep == 0 {
-        ElevatedTactileButton(
-          title: "Continue",
-          icon: "arrow.right",
-          isEnabled: true,
-          action: {
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
-              currentStep = 1
-            }
-          }
-        )
-      } else {
-        VStack(alignment: .trailing, spacing: 6) {
+        HStack {
+          Spacer()
           ElevatedTactileButton(
-            title: "Enter Tick",
-            icon: "checkmark.circle.fill",
-            isEnabled: canProceedFromPermissions,
+            title: "Continue",
+            icon: "arrow.right",
+            isEnabled: true,
             action: {
-              guard canProceedFromPermissions else { return }
-              withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
-                $hexSettings.withLock {
-                  $0.hasCompletedWelcomeOnboarding = true
-                }
+              withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
+                currentStep = 1
               }
             }
           )
+          Spacer()
+        }
+      } else {
+        HStack {
+          Button(action: {
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
+              currentStep = 0
+            }
+          }) {
+            HStack(spacing: 6) {
+              Image(systemName: "arrow.left")
+                .font(.system(size: 11, weight: .semibold))
+              Text("Back")
+                .font(TickFont.labelFunc(13, weight: .medium))
+            }
+            .foregroundStyle(TickColor.textSecondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .hexGlass(cornerRadius: 10, interactive: true)
+          }
+          .buttonStyle(.plain)
 
-          if !canProceedFromPermissions {
-            Text("Grant both permissions above to proceed")
-              .font(TickFont.captionFunc(11, weight: .regular))
-              .foregroundStyle(TickColor.textTertiary)
+          Spacer()
+
+          VStack(alignment: .trailing, spacing: 6) {
+            ElevatedTactileButton(
+              title: "Enter Tick",
+              icon: "checkmark.circle.fill",
+              isEnabled: canProceedFromPermissions,
+              action: {
+                guard canProceedFromPermissions else { return }
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                  $hexSettings.withLock {
+                    $0.hasCompletedWelcomeOnboarding = true
+                  }
+                }
+              }
+            )
+
+            if !canProceedFromPermissions {
+              Text("Grant both permissions above to proceed")
+                .font(TickFont.captionFunc(11, weight: .regular))
+                .foregroundStyle(TickColor.textTertiary)
+            }
           }
         }
       }
