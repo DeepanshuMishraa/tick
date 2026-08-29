@@ -473,6 +473,7 @@ public struct InsightsTabView: View {
       weekdayCard
       appsCard
     }
+    .fixedSize(horizontal: false, vertical: true)
   }
 
   private var weekdayCard: some View {
@@ -536,7 +537,7 @@ public struct InsightsTabView: View {
       }
     }
     .padding(20)
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 
@@ -573,7 +574,7 @@ public struct InsightsTabView: View {
             .padding(.horizontal, 16)
           Spacer()
         }
-        .frame(maxWidth: .infinity, minHeight: 150)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         let maxAppWords = max(1, topApps.map(\.words).max() ?? 1)
         let totalAppWords = max(1, topApps.reduce(0) { $0 + $1.words })
@@ -628,10 +629,12 @@ public struct InsightsTabView: View {
             }
           }
         }
+
+        Spacer(minLength: 0)
       }
     }
     .padding(20)
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .hexGlass(cornerRadius: TickRadius.card, style: .regular)
   }
 
