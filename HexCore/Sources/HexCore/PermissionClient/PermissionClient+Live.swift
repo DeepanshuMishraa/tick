@@ -5,6 +5,7 @@ import Dependencies
 import Foundation
 import IOKit
 import IOKit.hidsystem
+import PermissionFlow
 
 private let logger = HexLog.permissions
 
@@ -106,6 +107,35 @@ actor PermissionClientLive {
     }
   }
 
+  /// Screen-coordinate rect centered on the current mouse position, used as the
+  /// launch point for PermissionFlow's floating panel fly-in animation.
+  @MainActor
+  private func launchSourceFrame() -> CGRect {
+    let location = NSEvent.mouseLocation
+    return CGRect(x: location.x - 16, y: location.y - 16, width: 32, height: 32)
+  }
+
+  /// Opens a drag-based privacy pane via PermissionFlow, which shows a floating
+  /// helper panel that tracks the System Settings window and lets the user drag
+  /// the Hex app bundle into the permission list.
+  @MainActor
+  private func authorizeViaPermissionFlow(_ pane: PermissionFlowPane) {
+    logger.info("Starting PermissionFlow for pane: \(String(describing: pane), privacy: .public)")
+    let controller = PermissionFlow.makeController(
+      configuration: PermissionFlowConfiguration(
+        requiredAppURLs: [Bundle.main.bundleURL],
+        // Hex already triggers the AX trust prompt explicitly in
+        // requestAccessibility(); avoid a second system prompt.
+        promptForAccessibilityTrust: false
+      )
+    )
+    controller.authorize(
+      pane: pane,
+      suggestedAppURLs: [Bundle.main.bundleURL],
+      sourceFrameInScreen: launchSourceFrame()
+    )
+  }
+
   // MARK: - Accessibility Permissions
 
   nonisolated func accessibilityStatus() -> PermissionStatus {
@@ -155,20 +185,16 @@ actor PermissionClientLive {
   }
 
   func openAccessibilitySettings() async {
-    logger.info("Opening accessibility settings in System Preferences...")
+    logger.info("Opening accessibility settings via PermissionFlow...")
     await MainActor.run {
-      _ = NSWorkspace.shared.open(
-        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-      )
+      authorizeViaPermissionFlow(.accessibility)
     }
   }
 
   func openInputMonitoringSettings() async {
-    logger.info("Opening input monitoring settings in System Preferences...")
+    logger.info("Opening input monitoring settings via PermissionFlow...")
     await MainActor.run {
-      _ = NSWorkspace.shared.open(
-        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
-      )
+      authorizeViaPermissionFlow(.inputMonitoring)
     }
   }
 

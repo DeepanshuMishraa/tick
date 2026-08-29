@@ -45,8 +45,13 @@ struct PermissionsSectionView: View {
 						icon: "accessibility",
 						status: combinedAccessibilityStatus,
 						action: {
-							store.send(.requestAccessibility)
-							store.send(.requestInputMonitoring)
+							// PermissionFlow shows a single floating panel at a time,
+							// so request only the currently missing permission.
+							if accessibilityPermission != .granted {
+								store.send(.requestAccessibility)
+							} else if inputMonitoringPermission != .granted {
+								store.send(.requestInputMonitoring)
+							}
 						}
 					)
 				}

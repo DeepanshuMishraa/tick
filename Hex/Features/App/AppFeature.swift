@@ -29,6 +29,9 @@ struct AppFeature {
     var microphonePermission: PermissionStatus = .notDetermined
     var accessibilityPermission: PermissionStatus = .notDetermined
     var inputMonitoringPermission: PermissionStatus = .notDetermined
+    // True when onboarding finished but one or more permissions were revoked.
+    // Pushes the user back into the onboarding permissions step to re-grant.
+    var isPermissionRepairMode: Bool = false
   }
 
   enum Action: BindableAction {
@@ -149,6 +152,24 @@ struct AppFeature {
         state.microphonePermission = mic
         state.accessibilityPermission = acc
         state.inputMonitoringPermission = input
+
+        // If permissions were revoked after onboarding, push the user back
+        // into the onboarding permissions step so they can re-grant them.
+        guard state.hexSettings.hasCompletedWelcomeOnboarding else { return .none }
+        let allGranted = mic == .granted && acc == .granted && input == .granted
+        if !allGranted && !state.isPermissionRepairMode {
+          state.isPermissionRepairMode = true
+          HexLog.app.notice("Permission(s) missing after onboarding - entering repair mode")
+          return .run { _ in
+            await MainActor.run {
+              NSApplication.shared.activate(ignoringOtherApps: true)
+            }
+          }
+        }
+        if allGranted && state.isPermissionRepairMode {
+          state.isPermissionRepairMode = false
+          HexLog.app.notice("All permissions restored - exiting repair mode")
+        }
         return .none
 
       case .appActivated:
@@ -431,6 +452,9 @@ struct AppView: View {
       if !hexSettings.hasCompletedWelcomeOnboarding {
         WelcomeOnboardingView()
           .transition(.opacity.combined(with: .scale(scale: 0.98)))
+      } else if store.isPermissionRepairMode {
+        WelcomeOnboardingView(isPermissionRepair: true)
+          .transition(.opacity.combined(with: .scale(scale: 0.98)))
       } else {
         HStack(spacing: 0) {
           if isSidebarVisible {
@@ -456,7 +480,7 @@ struct AppView: View {
         PersonalisationWizardModal(onDismiss: { isPersonalisationWizardPresented = false })
       }
     }
-    .animation(.spring(response: 0.45, dampingFraction: 0.82), value: hexSettings.hasCompletedWelcomeOnboarding)
+    .animation(.spring(response: 0.45, dampingFraction: 0.82), value: hexSettings.hasCompletedWelcomeOnboarding && !store.isPermissionRepairMode)
     .toolbar {
       if hexSettings.hasCompletedWelcomeOnboarding {
         ToolbarItem(placement: .navigation) {

@@ -9,6 +9,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/Clipy/Sauce", branch: "master"),
+        .package(url: "https://github.com/jaywcjlove/PermissionFlow.git", from: "2.11.2"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.11.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
     ],
@@ -17,6 +18,7 @@ let package = Package(
 	        name: "HexCore",
 	        dependencies: [
 	            "Sauce",
+	            .product(name: "PermissionFlow", package: "PermissionFlow"),
 	            .product(name: "Dependencies", package: "swift-dependencies"),
 	            .product(name: "DependenciesMacros", package: "swift-dependencies"),
 	            .product(name: "Logging", package: "swift-log"),

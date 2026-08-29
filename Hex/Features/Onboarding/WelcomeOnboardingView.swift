@@ -14,11 +14,19 @@ public struct WelcomeOnboardingView: View {
   @State private var accessibilityPermission: PermissionStatus = .notDetermined
   @State private var inputMonitoringPermission: PermissionStatus = .notDetermined
 
+  /// When true, the user has already completed onboarding but one or more
+  /// permissions were revoked. The view jumps straight to the permissions
+  /// step, hides the welcome/step UI, and lets them re-grant via PermissionFlow.
+  var isPermissionRepair: Bool = false
+
   // Entrance choreography states
   @State private var isAppeared: Bool = false
   @State private var timerTask: Task<Void, Never>? = nil
 
-  public init() {}
+  public init(isPermissionRepair: Bool = false) {
+    self.isPermissionRepair = isPermissionRepair
+    _currentStep = State(initialValue: isPermissionRepair ? 1 : 0)
+  }
 
   private var isAccessibilityGranted: Bool {
     accessibilityPermission == .granted && inputMonitoringPermission == .granted
@@ -26,6 +34,15 @@ public struct WelcomeOnboardingView: View {
 
   private var isMicrophoneGranted: Bool {
     microphonePermission == .granted
+  }
+
+  /// Button label for the combined accessibility/input-monitoring card,
+  /// reflecting which permission is still missing (if any).
+  private var accessibilityButtonTitle: String {
+    if accessibilityPermission == .granted {
+      return inputMonitoringPermission == .granted ? "Granted" : "Enable Input Monitoring"
+    }
+    return accessibilityPermission == .denied ? "Open Settings" : "Enable Accessibility"
   }
 
   private var canProceedFromPermissions: Bool {
@@ -38,10 +55,16 @@ public struct WelcomeOnboardingView: View {
       ambientBackdrop
 
       VStack(spacing: 0) {
-        // Step indicator dashes
-        stepIndicator
-          .padding(.top, 28)
-          .padding(.bottom, 16)
+        // Step indicator dashes (hidden in permission-repair mode)
+        if !isPermissionRepair {
+          stepIndicator
+            .padding(.top, 28)
+            .padding(.bottom, 16)
+        } else {
+          repairModeHeader
+            .padding(.top, 28)
+            .padding(.bottom, 16)
+        }
 
         Spacer(minLength: 8)
 
@@ -126,6 +149,26 @@ public struct WelcomeOnboardingView: View {
     }
   }
 
+  /// Compact banner shown when re-onboarding to restore revoked permissions.
+  private var repairModeHeader: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "exclamationmark.shield.fill")
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(TickColor.brand)
+
+      Text("Permissions needed")
+        .font(TickFont.labelFunc(14, weight: .semibold))
+        .foregroundStyle(TickColor.textPrimary)
+
+      Spacer()
+
+      Text("Grant access to resume dictation")
+        .font(TickFont.captionFunc(11, weight: .regular))
+        .foregroundStyle(TickColor.textTertiary)
+    }
+    .padding(.horizontal, 44)
+  }
+
   // MARK: - Step 0: Welcome View
 
   private var welcomeStepView: some View {
@@ -193,20 +236,32 @@ public struct WelcomeOnboardingView: View {
   private var permissionsStepView: some View {
     VStack(spacing: 22) {
       VStack(spacing: 8) {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-          Text("Required")
+        if isPermissionRepair {
+          Text("Access was revoked.")
             .font(TickFont.display(30, weight: .regular))
             .foregroundStyle(TickColor.textPrimary)
-          Text("Permissions.")
-            .font(TickFont.displayItalic(30))
-            .foregroundStyle(TickColor.brand)
-        }
 
-        Text("Tick requires Microphone and Accessibility access to capture voice and type for you.")
-          .font(TickFont.bodyFunc(13, weight: .regular))
-          .foregroundStyle(TickColor.textSecondary)
-          .multilineTextAlignment(.center)
-          .padding(.horizontal, 32)
+          Text("Tick lost one or more permissions. Grant them again below to resume transcribing.")
+            .font(TickFont.bodyFunc(13, weight: .regular))
+            .foregroundStyle(TickColor.textSecondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 32)
+        } else {
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Required")
+              .font(TickFont.display(30, weight: .regular))
+              .foregroundStyle(TickColor.textPrimary)
+            Text("Permissions.")
+              .font(TickFont.displayItalic(30))
+              .foregroundStyle(TickColor.brand)
+          }
+
+          Text("Tick requires Microphone and Accessibility access to capture voice and type for you.")
+            .font(TickFont.bodyFunc(13, weight: .regular))
+            .foregroundStyle(TickColor.textSecondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 32)
+        }
       }
       .opacity(isAppeared ? 1 : 0)
       .offset(y: isAppeared ? 0 : 8)
@@ -240,11 +295,16 @@ public struct WelcomeOnboardingView: View {
           title: "Accessibility & Input Monitoring",
           subtitle: "Required to detect your hotkey and insert transcriptions into active apps.",
           isGranted: isAccessibilityGranted,
-          buttonTitle: (accessibilityPermission == .denied || inputMonitoringPermission == .denied) ? "Open Settings" : "Enable Accessibility",
+          buttonTitle: accessibilityButtonTitle,
           action: {
             Task {
-              await permissions.requestAccessibility()
-              _ = await permissions.requestInputMonitoring()
+              // PermissionFlow shows a single floating panel at a time, so
+              // request only the missing permission; grant the other one next.
+              if accessibilityPermission != .granted {
+                await permissions.requestAccessibility()
+              } else if inputMonitoringPermission != .granted {
+                _ = await permissions.requestInputMonitoring()
+              }
               refreshPermissions()
             }
           }
@@ -287,29 +347,31 @@ public struct WelcomeOnboardingView: View {
         }
       } else {
         HStack {
-          Button(action: {
-            withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
-              currentStep = 0
+          if !isPermissionRepair {
+            Button(action: {
+              withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
+                currentStep = 0
+              }
+            }) {
+              HStack(spacing: 6) {
+                Image(systemName: "arrow.left")
+                  .font(.system(size: 11, weight: .semibold))
+                Text("Back")
+                  .font(TickFont.labelFunc(13, weight: .medium))
+              }
+              .foregroundStyle(TickColor.textSecondary)
+              .padding(.horizontal, 16)
+              .padding(.vertical, 9)
+              .hexGlass(cornerRadius: 10, interactive: true)
             }
-          }) {
-            HStack(spacing: 6) {
-              Image(systemName: "arrow.left")
-                .font(.system(size: 11, weight: .semibold))
-              Text("Back")
-                .font(TickFont.labelFunc(13, weight: .medium))
-            }
-            .foregroundStyle(TickColor.textSecondary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 9)
-            .hexGlass(cornerRadius: 10, interactive: true)
+            .buttonStyle(.plain)
           }
-          .buttonStyle(.plain)
 
           Spacer()
 
           VStack(alignment: .trailing, spacing: 6) {
             ElevatedTactileButton(
-              title: "Enter Tick",
+              title: isPermissionRepair ? "Done" : "Enter Tick",
               icon: "checkmark.circle.fill",
               isEnabled: canProceedFromPermissions,
               action: {
