@@ -341,6 +341,7 @@ struct PasteboardClientLive {
         _ text: String,
         beforeText: String?
     ) async -> PasteboardPasteResult {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let pasteboard = NSPasteboard.general
         let snapshot = PasteboardSnapshot(pasteboard)
 
@@ -356,6 +357,9 @@ struct PasteboardClientLive {
         // do not expose one and the correction monitor can observe it later.
         try? await Task.sleep(for: .milliseconds(20))
         let didPostPaste = postCommandV()
+        pasteboardLogger.info(
+            "Clipboard paste event posted elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)"
+        )
 
         // Cmd-V is delivered asynchronously. Restoring immediately after
         // posting it races web views, Electron apps, terminals, and Ghostty;

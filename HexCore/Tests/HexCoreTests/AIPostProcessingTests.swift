@@ -70,10 +70,16 @@ final class AIPostProcessingTests: XCTestCase {
 		XCTAssertEqual(chunks.joined(separator: " "), input)
 	}
 
-	func testChunkerKeepsStructuredDictationWhole() {
-		let input = "Write an email to George about tomorrow's meeting. New paragraph. Ask him to bring the report and confirm the time."
+	func testChunkerKeepsExplicitLayoutCommandsWhole() {
+		let input = "Start with an introduction about tomorrow's meeting. New paragraph. Add the report details and ask everyone to confirm the time before the end of the day."
 
 		XCTAssertEqual(AIPostProcessingChunker.chunks(for: input), [input])
+	}
+
+	func testChunkerSplitsLongEmailProse() {
+		let input = "Hello Sam. I'm writing this email to tell you about tomorrow's meeting and the report we need to review. Please bring the latest figures and confirm the time before the end of the day. I know the schedule is tight, but we should have enough time to finish everything."
+
+		XCTAssertGreaterThan(AIPostProcessingChunker.chunks(for: input).count, 1)
 	}
 
 	func testChunkerKeepsShortTextWhole() {

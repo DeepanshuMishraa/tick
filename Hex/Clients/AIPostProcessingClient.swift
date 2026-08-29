@@ -622,12 +622,16 @@ private actor LocalAIModelManager {
 		let modelName = self.selectedModel.rawValue
 		if chunks.count > 1 {
 			aiLogger.info("Qwen parallel pipeline chunks=\(chunks.count, privacy: .public) inputChars=\(normalizedInput.count, privacy: .public)")
+			let chunkPrompt = prompt + """
+
+You are processing one internal segment of a longer dictation. Correct only this segment. Do not add greetings, closings, headings, list markers, or facts that are not present in this segment. Return a non-empty segment with no label.
+"""
 			let results = try await withThrowingTaskGroup(of: (Int, String).self) { group in
 				for (index, chunk) in chunks.enumerated() {
 					group.addTask {
 						let output = try await Self.generateValidated(
 							container: container,
-							prompt: prompt,
+							prompt: chunkPrompt,
 							sourceText: chunk,
 							modelName: modelName,
 							chunkIndex: index

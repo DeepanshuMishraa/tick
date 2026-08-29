@@ -264,7 +264,7 @@ public enum AIPostProcessingChunker {
 		let lower = text.lowercased()
 		let structuredCues = [
 			"new line", "new paragraph", "bullet point", "first thing", "second thing",
-			"write an email", "write a letter", "email to", "subject line"
+			"subject line"
 		]
 		guard !text.contains("\n"), !structuredCues.contains(where: lower.contains) else { return false }
 		return true
