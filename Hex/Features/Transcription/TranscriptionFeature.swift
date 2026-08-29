@@ -423,6 +423,8 @@ private extension TranscriptionFeature {
     )
     transcriptionFeatureLogger.notice("Recording started at \(startTime.ISO8601Format())")
 
+    let speechModel = state.hexSettings.selectedModel
+
     // Prevent system sleep during recording
     return .run { [sleepManagement, preventSleep = state.hexSettings.preventSystemSleep] send in
       // Play sound immediately for instant feedback
@@ -430,6 +432,13 @@ private extension TranscriptionFeature {
 
       if preventSleep {
         await sleepManagement.preventSleep(reason: "Hex Voice Recording")
+      }
+      do {
+        if let sink = try await transcription.startStreaming(speechModel) {
+          await recording.setAudioChunkHandler { sink.yield($0) }
+        }
+      } catch {
+        transcriptionFeatureLogger.error("Streaming transcription setup failed: \(error.localizedDescription); batch fallback remains available")
       }
       await recording.startRecording()
     }
@@ -486,6 +495,8 @@ private extension TranscriptionFeature {
       transcriptionFeatureLogger.notice("Discarding short recording per decision \(String(describing: decision))")
       return .run { _ in
         let url = await recording.stopRecording()
+        await recording.clearAudioChunkHandler()
+        await transcription.cancelStreaming()
         try? FileManager.default.removeItem(at: url)
       }
     }
@@ -509,10 +520,20 @@ private extension TranscriptionFeature {
       do {
         soundEffect.play(.stopRecording)
         let capturedURL = await recording.stopRecording()
+        await recording.clearAudioChunkHandler()
         audioURL = capturedURL
         transcriptionFeatureLogger.info(
           "Release-to-recording-stop elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - (stateTranscriptionStartUptime ?? ProcessInfo.processInfo.systemUptime)) * 1000), privacy: .public)"
         )
+
+        let streamingResult: String?
+        do {
+          streamingResult = try await transcription.finishStreaming()
+        } catch {
+          transcriptionFeatureLogger.error("Streaming transcription flush failed: \(error.localizedDescription); using batch transcription")
+          await transcription.cancelStreaming()
+          streamingResult = nil
+        }
 
         // Create transcription options with the selected language
         // Note: cap concurrency to avoid audio I/O overloads on some Macs
@@ -522,8 +543,14 @@ private extension TranscriptionFeature {
           chunkingStrategy: .vad,
         )
         
-        let result = try await transcription.transcribe(capturedURL, model, decodeOptions) { _ in }
-        
+        let result: String
+        if let streamingResult, !streamingResult.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          result = streamingResult
+          transcriptionFeatureLogger.notice("Used streaming Parakeet result length=\(result.count)")
+        } else {
+          result = try await transcription.transcribe(capturedURL, model, decodeOptions) { _ in }
+        }
+
         transcriptionFeatureLogger.notice("Transcribed audio from \(capturedURL.lastPathComponent) to text length \(result.count)")
         await send(.transcriptionResult(result, capturedURL))
       } catch {
@@ -632,12 +659,12 @@ private extension TranscriptionFeature {
           resultToUse = try await aiPostProcessing.postProcess(modifiedResult, aiMode, appContext)
           transcriptionFeatureLogger.info("AI post-processing completed with mode: \(aiMode.displayName), app: \(appContext?.appName ?? "unknown"), elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - aiStartedAt) * 1000), privacy: .public)")
         } catch {
-          // Never insert an empty or unvalidated AI result. The post-processor
-          // retries invalid generations; if both attempts fail, stop this
-          // insertion visibly instead of silently pasting raw or empty text.
-          transcriptionFeatureLogger.error("AI post-processing failed: \(error.localizedDescription); refusing unsafe insertion")
-          await send(.transcriptionError(error, audioURL))
-          return
+          // Model loading and runtime failures must not discard a complete
+          // transcription. The deterministic stage still removes fillers,
+          // resolves high-confidence corrections, and formats spoken lists.
+          let deterministic = AIPostProcessingInputNormalizer.normalized(modifiedResult)
+          resultToUse = deterministic.isEmpty ? modifiedResult : deterministic
+          transcriptionFeatureLogger.error("AI post-processing failed: \(error.localizedDescription); completed with deterministic processor")
         }
       }
 

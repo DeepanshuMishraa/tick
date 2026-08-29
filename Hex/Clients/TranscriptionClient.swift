@@ -16,6 +16,22 @@ private let transcriptionLogger = HexLog.transcription
 private let modelsLogger = HexLog.models
 private let parakeetLogger = HexLog.parakeet
 
+final class RecordingAudioChunkSink: @unchecked Sendable {
+  private let continuation: AsyncStream<RecordingAudioChunk>.Continuation
+
+  init(_ continuation: AsyncStream<RecordingAudioChunk>.Continuation) {
+    self.continuation = continuation
+  }
+
+  func yield(_ chunk: RecordingAudioChunk) {
+    continuation.yield(chunk)
+  }
+
+  func finish() {
+    continuation.finish()
+  }
+}
+
 /// A client that downloads and loads WhisperKit models, then transcribes audio files using the loaded model.
 /// Exposes progress callbacks to report overall download-and-load percentage and transcription progress.
 @DependencyClient
@@ -29,6 +45,16 @@ struct TranscriptionClient {
 
   /// Loads an already-downloaded speech model while Hex is idle.
   var warmModel: @Sendable (String) async throws -> Void
+
+  /// Starts streaming Parakeet and returns a synchronous PCM sink when the
+  /// selected speech model supports streaming.
+  var startStreaming: @Sendable (String) async throws -> RecordingAudioChunkSink?
+
+  /// Flushes the active streaming session and returns its complete transcript.
+  var finishStreaming: @Sendable () async throws -> String? = { nil }
+
+  /// Cancels the active streaming session.
+  var cancelStreaming: @Sendable () async -> Void = {}
 
   /// Deletes a model from disk if it exists
   var deleteModel: @Sendable (String) async throws -> Void
@@ -50,6 +76,9 @@ extension TranscriptionClient: DependencyKey {
       transcribe: { try await live.transcribe(url: $0, model: $1, options: $2, progressCallback: $3) },
       downloadModel: { try await live.downloadAndLoadModel(variant: $0, progressCallback: $1) },
       warmModel: { try await live.warmModel(variant: $0) },
+      startStreaming: { try await live.startStreaming(variant: $0) },
+      finishStreaming: { try await live.finishStreaming() },
+      cancelStreaming: { await live.cancelStreaming() },
       deleteModel: { try await live.deleteModel(variant: $0) },
       isModelDownloaded: { await live.isModelDownloaded($0) },
       getRecommendedModels: { await live.getRecommendedModels() },
@@ -140,6 +169,19 @@ actor TranscriptionClientLive {
     // Final progress update
     overallProgress.completedUnitCount = 100
     progressCallback(overallProgress)
+  }
+
+  func startStreaming(variant: String) async throws -> RecordingAudioChunkSink? {
+    guard isParakeet(variant) else { return nil }
+    return try await parakeet.startStreaming(modelName: variant)
+  }
+
+  func finishStreaming() async throws -> String? {
+    try await parakeet.finishStreaming()
+  }
+
+  func cancelStreaming() async {
+    await parakeet.cancelStreaming()
   }
 
   /// Loads an installed model before recording so release-to-transcript latency

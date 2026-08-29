@@ -24,6 +24,10 @@ struct AudioInputDevice: Identifiable, Equatable {
   var name: String
 }
 
+struct RecordingAudioChunk: Sendable {
+  let samples: [Float]
+}
+
 @DependencyClient
 struct RecordingClient {
   var startRecording: @Sendable () async -> Void = {}
@@ -33,6 +37,8 @@ struct RecordingClient {
   var getAvailableInputDevices: @Sendable () async -> [AudioInputDevice] = { [] }
   var getDefaultInputDeviceName: @Sendable () async -> String? = { nil }
   var warmUpRecorder: @Sendable () async -> Void = {}
+  var setAudioChunkHandler: @Sendable (@escaping @Sendable (RecordingAudioChunk) -> Void) async -> Void
+  var clearAudioChunkHandler: @Sendable () async -> Void = {}
   var cleanup: @Sendable () async -> Void = {}
 }
 
@@ -50,6 +56,8 @@ extension RecordingClient: DependencyKey {
       getAvailableInputDevices: { await live.getAvailableInputDevices() },
       getDefaultInputDeviceName: { await live.getDefaultInputDeviceName() },
       warmUpRecorder: { await live.warmUpRecorder() },
+      setAudioChunkHandler: { await live.setAudioChunkHandler($0) },
+      clearAudioChunkHandler: { await live.clearAudioChunkHandler() },
       cleanup: { await live.cleanup() }
     )
   }
@@ -862,6 +870,14 @@ actor RecordingClientLive {
     return deviceID
   }
 
+  func setAudioChunkHandler(_ handler: @escaping @Sendable (RecordingAudioChunk) -> Void) {
+    superFastCapture.setAudioChunkHandler(handler)
+  }
+
+  func clearAudioChunkHandler() {
+    superFastCapture.setAudioChunkHandler(nil)
+  }
+
   func startRecording() async {
     // Guard against re-entrant starts. The hotkey handler can emit a second
     // start while the first recording is still active; re-running the media
@@ -898,21 +914,22 @@ actor RecordingClientLive {
     logRecordingStartRequest(mode: mode, inputDeviceID: activeInputDevice)
     let startRequestAt = Date()
 
-    if hexSettings.superFastModeEnabled {
-      do {
-        try ensureSuperFastCaptureReady(for: activeInputDevice, reason: "startRecording")
-        let recordingURL = makeSuperFastRecordingURL()
-        try superFastCapture.beginRecording(to: recordingURL, requestedAt: startRequestAt)
-        await reapplyOutputMuteIfNeeded(sessionID: sessionID)
-        currentRecordingStartedAt = Date()
-        recordingLogger.notice(
-          "Super fast recording started startup=\(self.formatDuration(self.currentRecordingStartedAt?.timeIntervalSince(startRequestAt)))"
-        )
-        return
-      } catch {
-        recordingLogger.error("Failed to start super fast capture: \(error.localizedDescription); falling back to AVAudioRecorder")
-        stopSuperFastCapture(reason: "super-fast-start-failed")
-      }
+    do {
+      // Standard mode starts the engine on demand; Super Fast mode may keep it
+      // prearmed for pre-roll. Both modes now share one PCM capture path so
+      // streaming ASR and the persisted WAV receive identical samples.
+      try ensureSuperFastCaptureReady(for: activeInputDevice, reason: "startRecording")
+      let recordingURL = makeSuperFastRecordingURL()
+      try superFastCapture.beginRecording(to: recordingURL, requestedAt: startRequestAt)
+      await reapplyOutputMuteIfNeeded(sessionID: sessionID)
+      currentRecordingStartedAt = Date()
+      recordingLogger.notice(
+        "Streaming recording started prearmed=\(self.hexSettings.superFastModeEnabled) startup=\(self.formatDuration(self.currentRecordingStartedAt?.timeIntervalSince(startRequestAt)))"
+      )
+      return
+    } catch {
+      recordingLogger.error("Failed to start streaming capture: \(error.localizedDescription); falling back to AVAudioRecorder")
+      stopSuperFastCapture(reason: "streaming-start-failed")
     }
 
     do {

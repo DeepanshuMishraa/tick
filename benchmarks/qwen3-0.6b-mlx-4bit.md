@@ -55,9 +55,21 @@ The same run exposed a startup race: Core ML and MLX compilation started togethe
 
 Short prose in Ghostty also inherited strict terminal-command instructions, which led the 0.6B model to emit empty two-character artifacts. Terminal context now applies only to command-like dictation, and the prompt no longer mentions `EMPTY` for non-empty input.
 
+## Compact edit-script experiment findings
+
+A first JSON edit-script implementation still reused the full formatting prompt, retried invalid output, and ran four MLX streams concurrently. Runtime traces showed why that design was slower:
+
+- Short inputs: invalid first generations took 1,241–1,299ms; retry raised AI wall time to 2,030–2,581ms.
+- One-minute input: six segments, with four concurrent Metal generations taking 4,522–7,379ms each.
+- Complete AI wall time: 13,458ms. Three invalid segments completed deterministically, so no text was lost.
+- Warm Parakeet remained fast: 141–481ms.
+- Clipboard events posted in 22–48ms; the larger paste transport number was delayed restoration, not insertion latency.
+
+The corrected design uses a dedicated concise edit prompt, one Metal generation at a time, a 96-token hard ceiling, and no synchronous release-path retry. Invalid scripts complete immediately through the deterministic processor. Streaming Parakeet now processes audio during recording through the same on-demand AVAudioEngine path that persists the WAV.
+
 ## Next measurement
 
-Repeat both a short prose input and the same four-sentence input after rebuilding. Capture:
+Repeat both a short prose input and a one-minute input after rebuilding. Capture:
 
 - `Parakeet prewarmed`
 - `Key-release-to-raw-result`

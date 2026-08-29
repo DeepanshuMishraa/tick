@@ -31,6 +31,27 @@ public enum HexThemeColor: String, Codable, CaseIterable, Equatable, Sendable {
 	}
 }
 
+public enum AIPostProcessingOutputContract: Sendable {
+	case finalText
+	case editScript
+
+	var instructions: String {
+		switch self {
+		case .finalText:
+			return "Output only the final text. No reasoning, explanations, markdown code fences, or labels. The source input is always non-empty, so the output must also be non-empty."
+		case .editScript:
+			return """
+Return only compact JSON in this exact shape: {"edits":[{"old":"exact unique source text","new":"replacement text"}]}
+- `old` must be a non-empty, exact, uniquely occurring substring copied from the source.
+- Use the fewest edits needed. Preserve every source passage that does not need a change.
+- Use {"edits":[]} when the source already needs no changes.
+- Encode line breaks inside JSON strings as \\n.
+- Never return the rewritten transcript, reasoning, markdown fences, labels, or keys other than `edits`, `old`, and `new`.
+"""
+		}
+	}
+}
+
 public enum AIPostProcessingMode: String, Codable, CaseIterable, Equatable, Sendable {
 	case off
 	case on
@@ -52,12 +73,20 @@ public enum AIPostProcessingMode: String, Codable, CaseIterable, Equatable, Send
 		}
 	}
 
-	public func systemPrompt(appContext: AppContext? = nil, selectedStyleIndex: Int = 2) -> String {
+	public func systemPrompt(
+		appContext: AppContext? = nil,
+		selectedStyleIndex: Int = 2,
+		outputContract: AIPostProcessingOutputContract = .finalText
+	) -> String {
 		switch self {
 		case .off:
 			return ""
 		case .on:
-			return Self.smartPrompt(appContext: appContext, styleIndex: selectedStyleIndex)
+			return Self.smartPrompt(
+				appContext: appContext,
+				styleIndex: selectedStyleIndex,
+				outputContract: outputContract
+			)
 		}
 	}
 
@@ -102,9 +131,17 @@ SELECTED WRITING STYLE: VERY CASUAL
 		}
 	}
 
-	private static func smartPrompt(appContext: AppContext?, styleIndex: Int) -> String {
+	private static func smartPrompt(
+		appContext: AppContext?,
+		styleIndex: Int,
+		outputContract: AIPostProcessingOutputContract
+	) -> String {
+		if case .editScript = outputContract {
+			return editScriptPrompt(appContext: appContext, styleIndex: styleIndex)
+		}
+
 		let basePrompt = """
-You are Tick's fast, intelligent on-device dictation formatter. Return only the final text intended for typing.
+You are Tick's fast, intelligent on-device dictation formatter. Determine the final text intended for typing.
 
 This is a text-transformation task, not a question-answering task:
 - Never answer, solve, explain, or comment on what the user dictated.
@@ -124,7 +161,6 @@ Intelligent Content & App Adaptation:
 - Chat / Messaging Intent: If the content is a direct conversational message (or the active app/site is Slack, Discord, Messages, Teams, WhatsApp), format as a concise, natural, fluid chat message without formal email headers or sign-offs.
 - Notes / Documents / Code: If the content is structured notes, bullet points, or code/technical commands, preserve exact technical identifiers, syntax, numbers, URLs, and email addresses.
 
-Output only the final text. No reasoning, explanations, markdown code fences, or labels. The source input is always non-empty, so the output must also be non-empty.
 """
 
 		var contextDetails = ""
@@ -143,7 +179,29 @@ Output only the final text. No reasoning, explanations, markdown code fences, or
 			}
 		}
 
-		return basePrompt + contextDetails + styleInstructions(for: styleIndex)
+		return basePrompt + contextDetails + styleInstructions(for: styleIndex) + "\n\n" + outputContract.instructions
+	}
+
+	private static func editScriptPrompt(appContext: AppContext?, styleIndex: Int) -> String {
+		let style: String
+		switch styleIndex {
+		case 0: style = "Formal: standard capitalization, polished grammar, complete punctuation."
+		case 1: style = "Casual: natural capitalization and light punctuation."
+		default: style = "Very casual: lowercase ordinary prose and keep punctuation light; preserve identifiers and proper technical spelling."
+		}
+
+		var context = ""
+		if let appContext {
+			context = " Active app: \(appContext.appName), category: \(appContext.category.displayName)."
+			if let host = appContext.browserURLHost { context += " Site: \(host)." }
+		}
+
+		return """
+Edit the non-empty source dictation using minimal exact replacement operations.
+Fix clear transcription spelling, grammar, punctuation, capitalization, repeated words, hesitation fillers, and self-corrections. Preserve meaning, names, numbers, URLs, commands, and every detail. Convert spoken formatting cues and explicit list structure. Format explicit email requests with greeting, body paragraphs, and closing through exact replacements. Never answer or summarize the dictation.
+Style: \(style)\(context)
+\(AIPostProcessingOutputContract.editScript.instructions)
+"""
 	}
 
 	private static func urlHint(for host: String) -> String {
@@ -231,8 +289,12 @@ public enum OnDeviceAIModel: String, CaseIterable, Codable, Equatable, Hashable,
 /// can process them concurrently. Structured content stays whole because its
 /// formatting depends on global context.
 public enum AIPostProcessingChunker {
-	public static func chunks(for text: String, maximumCount: Int = 4) -> [String] {
-		guard maximumCount > 1, text.count >= 160, isIndependentProse(text) else { return [text] }
+	private static let targetCharacterCount = 240
+	private static let forcedSplitCharacterCount = 800
+
+	public static func chunks(for text: String, maximumCount: Int? = nil) -> [String] {
+		let allowsSemanticSplit = text.count >= 160 && isIndependentProse(text)
+		guard allowsSemanticSplit || text.count >= forcedSplitCharacterCount else { return [text] }
 
 		var sentences: [String] = []
 		text.enumerateSubstrings(
@@ -240,16 +302,19 @@ public enum AIPostProcessingChunker {
 			options: [.bySentences, .substringNotRequired]
 		) { _, range, _, _ in
 			let sentence = text[range].trimmingCharacters(in: .whitespacesAndNewlines)
-			if !sentence.isEmpty { sentences.append(sentence) }
+			if !sentence.isEmpty { sentences.append(contentsOf: Self.splitOversized(sentence)) }
 		}
-		guard sentences.count > 1 else { return [text] }
+		guard sentences.count > 1 else {
+			let pieces = splitOversized(text)
+			return pieces.count > 1 ? pieces : [text]
+		}
 
-		let targetCount = min(maximumCount, sentences.count)
-		let targetLength = max(1, text.count / targetCount)
 		var chunks: [String] = []
 		var current = ""
 		for sentence in sentences {
-			if !current.isEmpty, current.count >= targetLength, chunks.count < targetCount - 1 {
+			let combinedCount = current.isEmpty ? sentence.count : current.count + 1 + sentence.count
+			let reachedLimit = maximumCount.map { chunks.count + 1 >= $0 } ?? false
+			if !current.isEmpty, combinedCount > targetCharacterCount, !reachedLimit {
 				chunks.append(current)
 				current = sentence
 			} else {
@@ -258,6 +323,23 @@ public enum AIPostProcessingChunker {
 		}
 		if !current.isEmpty { chunks.append(current) }
 		return chunks.count > 1 ? chunks : [text]
+	}
+
+	private static func splitOversized(_ text: String) -> [String] {
+		guard text.count > targetCharacterCount else { return [text] }
+		var pieces: [String] = []
+		var current = ""
+		for word in text.split(whereSeparator: \.isWhitespace) {
+			let value = String(word)
+			if !current.isEmpty, current.count + 1 + value.count > targetCharacterCount {
+				pieces.append(current)
+				current = value
+			} else {
+				current += current.isEmpty ? value : " " + value
+			}
+		}
+		if !current.isEmpty { pieces.append(current) }
+		return pieces
 	}
 
 	private static func isIndependentProse(_ text: String) -> Bool {
@@ -397,6 +479,55 @@ public enum AIPostProcessingInputNormalizer {
 	}
 }
 
+/// Applies compact, model-generated edits without asking the model to
+/// autoregressively copy the complete transcript.
+public enum AIPostProcessingEditScript {
+	private struct Payload: Decodable {
+		let edits: [Edit]
+	}
+
+	private struct Edit: Decodable {
+		let old: String
+		let new: String
+	}
+
+	public static func applying(_ output: String, to source: String) -> String? {
+		let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard !trimmed.contains("```"), let data = trimmed.data(using: .utf8),
+			let payload = try? JSONDecoder().decode(Payload.self, from: data),
+			payload.edits.count <= 24
+		else { return nil }
+		guard !payload.edits.isEmpty else { return source }
+
+		var locatedEdits: [(range: Range<String.Index>, replacement: String)] = []
+		for edit in payload.edits {
+			guard !edit.old.isEmpty else { return nil }
+			let matches = ranges(of: edit.old, in: source)
+			guard matches.count == 1, let range = matches.first,
+				!locatedEdits.contains(where: { $0.range.overlaps(range) })
+			else { return nil }
+			locatedEdits.append((range, edit.new))
+		}
+
+		var result = source
+		for edit in locatedEdits.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
+			result.replaceSubrange(edit.range, with: edit.replacement)
+		}
+		return AIPostProcessingOutputValidator.validated(result, sourceText: source)
+	}
+
+	private static func ranges(of needle: String, in text: String) -> [Range<String.Index>] {
+		var matches: [Range<String.Index>] = []
+		var searchStart = text.startIndex
+		while searchStart < text.endIndex,
+			let range = text.range(of: needle, range: searchStart..<text.endIndex) {
+			matches.append(range)
+			searchStart = range.upperBound
+		}
+		return matches
+	}
+}
+
 /// Defensive validation for local model output. A bad completion must never
 /// replace a good raw transcription.
 public enum AIPostProcessingOutputValidator {
@@ -435,6 +566,14 @@ public enum AIPostProcessingOutputValidator {
 		guard !conversationalAnswerPrefixes.contains(where: { prefix in
 			outputLowercased.hasPrefix(prefix) && !sourceLowercased.hasPrefix(prefix)
 		}) else {
+			return nil
+		}
+
+		// A formatter must preserve the complete dictation. Reject severe
+		// truncation before it can silently discard the end of a long segment.
+		let sourceWordCount = sourceText.split(whereSeparator: \.isWhitespace).count
+		let outputWordCount = value.split(whereSeparator: \.isWhitespace).count
+		if sourceWordCount >= 12, outputWordCount * 100 < sourceWordCount * 45 {
 			return nil
 		}
 

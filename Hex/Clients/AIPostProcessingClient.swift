@@ -606,7 +606,11 @@ private actor LocalAIModelManager {
 
 		let normalizedInput = AIPostProcessingInputNormalizer.normalized(text)
 		let effectiveContext = Self.effectiveAppContext(appContext, for: normalizedInput)
-		let prompt = mode.systemPrompt(appContext: effectiveContext, selectedStyleIndex: currentStyleIndex())
+		let prompt = mode.systemPrompt(
+			appContext: effectiveContext,
+			selectedStyleIndex: currentStyleIndex(),
+			outputContract: .editScript
+		)
 		guard !prompt.isEmpty else { return text }
 		guard !normalizedInput.isEmpty else {
 			aiLogger.warning("Qwen rejected empty normalized input")
@@ -624,42 +628,65 @@ private actor LocalAIModelManager {
 			aiLogger.info("Qwen parallel pipeline chunks=\(chunks.count, privacy: .public) inputChars=\(normalizedInput.count, privacy: .public)")
 			let chunkPrompt = prompt + """
 
-You are processing one internal segment of a longer dictation. Correct only this segment. Do not add greetings, closings, headings, list markers, or facts that are not present in this segment. Return a non-empty segment with no label.
+You are processing one internal segment of a longer dictation. Edit only this segment. Do not add greetings, closings, headings, list markers, or facts that are not present in this segment. Return only the required compact JSON edit script.
 """
-			let results = try await withThrowingTaskGroup(of: (Int, String).self) { group in
-				for (index, chunk) in chunks.enumerated() {
-					group.addTask {
-						let output = try await Self.generateValidated(
-							container: container,
-							prompt: chunkPrompt,
-							sourceText: chunk,
-							modelName: modelName,
-							chunkIndex: index
-						)
-						return (index, output)
+			var results = Array(repeating: "", count: chunks.count)
+			var deterministicCompletions = 0
+			// Multiple concurrent generations contend for the same Metal model and
+			// were 4–6x slower in traces. Keep one model stream in flight; rolling
+			// streaming ASR will move earlier segments off the release path.
+			let maximumConcurrentChunks = 1
+			for batchStart in stride(from: 0, to: chunks.count, by: maximumConcurrentChunks) {
+				let batchEnd = min(batchStart + maximumConcurrentChunks, chunks.count)
+				await withTaskGroup(of: (Int, String, Bool).self) { group in
+					for index in batchStart..<batchEnd {
+						let chunk = chunks[index]
+						group.addTask {
+							do {
+								let output = try await Self.generateValidated(
+									container: container,
+									prompt: chunkPrompt,
+									sourceText: chunk,
+									modelName: modelName,
+									chunkIndex: index
+								)
+								return (index, output, false)
+							} catch {
+								let normalized = AIPostProcessingInputNormalizer.normalized(chunk)
+								let completeOutput = normalized.isEmpty ? chunk : normalized
+								aiLogger.error("Qwen chunk=\(index, privacy: .public) returned an invalid edit script; using deterministic processed segment error=\(error.localizedDescription, privacy: .public)")
+								return (index, completeOutput, true)
+							}
+						}
+					}
+					for await (index, output, usedDeterministicCompletion) in group {
+						results[index] = output
+						if usedDeterministicCompletion { deterministicCompletions += 1 }
 					}
 				}
-				var ordered = Array(repeating: "", count: chunks.count)
-				for try await (index, output) in group { ordered[index] = output }
-				return ordered
 			}
 			let output = results.joined(separator: " ")
 			guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
 				throw AIPostProcessingError.invalidOutput
 			}
-			aiLogger.info("Accepted parallel on-device AI output chars=\(output.count, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
+			aiLogger.info("Accepted parallel on-device AI output chars=\(output.count, privacy: .public) chunks=\(chunks.count, privacy: .public) deterministicCompletions=\(deterministicCompletions, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
 			return output
 		}
 
-		let output = try await Self.generateValidated(
-			container: container,
-			prompt: prompt,
-			sourceText: normalizedInput,
-			modelName: modelName,
-			chunkIndex: nil
-		)
-		aiLogger.info("Accepted on-device AI output chars=\(output.count, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
-		return output
+		do {
+			let output = try await Self.generateValidated(
+				container: container,
+				prompt: prompt,
+				sourceText: normalizedInput,
+				modelName: modelName,
+				chunkIndex: nil
+			)
+			aiLogger.info("Accepted on-device AI output chars=\(output.count, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
+			return output
+		} catch {
+			aiLogger.error("Qwen returned an invalid edit script; using deterministic processed transcript error=\(error.localizedDescription, privacy: .public)")
+			return normalizedInput
+		}
 		#else
 		throw AIPostProcessingError.mlXUnavailable
 		#endif
@@ -688,40 +715,37 @@ You are processing one internal segment of a longer dictation. Correct only this
 		modelName: String,
 		chunkIndex: Int?
 	) async throws -> String {
-		let maxOutputTokens = min(2048, max(32, sourceText.utf8.count / 4 + 12))
-		for attempt in 0..<2 {
-			let effectivePrompt = attempt == 0
-				? prompt
-				: prompt + "\nReturn the transformed source text now. Never return EMPTY or a blank response."
-			let input = UserInput(
-				chat: [.system(effectivePrompt), .user(sourceText)],
-				additionalContext: ["enable_thinking": false]
+		// Edit scripts describe only changes, so generation stays bounded instead
+		// of scaling with the complete transcript length.
+		let maxOutputTokens = min(96, max(32, sourceText.utf8.count / 10 + 24))
+		let input = UserInput(
+			chat: [.system(prompt), .user(sourceText)],
+			additionalContext: ["enable_thinking": false]
+		)
+		let prepareStartedAt = ProcessInfo.processInfo.systemUptime
+		let preparedInput = try await container.prepare(input: input)
+		let prepareElapsedMs = Int((ProcessInfo.processInfo.systemUptime - prepareStartedAt) * 1000)
+		let generationStartedAt = ProcessInfo.processInfo.systemUptime
+		let generation = try await container.generate(
+			input: preparedInput,
+			parameters: GenerateParameters(
+				maxTokens: maxOutputTokens,
+				temperature: 0,
+				prefillStepSize: 512
 			)
-			let prepareStartedAt = ProcessInfo.processInfo.systemUptime
-			let preparedInput = try await container.prepare(input: input)
-			let prepareElapsedMs = Int((ProcessInfo.processInfo.systemUptime - prepareStartedAt) * 1000)
-			let generationStartedAt = ProcessInfo.processInfo.systemUptime
-			let generation = try await container.generate(
-				input: preparedInput,
-				parameters: GenerateParameters(
-					maxTokens: maxOutputTokens,
-					temperature: 0,
-					prefillStepSize: 512
-				)
-			)
-			var output = ""
-			for await event in generation {
-				try Task.checkCancellation()
-				if case let .chunk(chunk) = event { output.append(chunk) }
-			}
-			let generationElapsedMs = Int((ProcessInfo.processInfo.systemUptime - generationStartedAt) * 1000)
-			aiLogger.info("Qwen model=\(modelName, privacy: .public) chunk=\(chunkIndex ?? -1, privacy: .public) attempt=\(attempt + 1, privacy: .public) prepareMs=\(prepareElapsedMs, privacy: .public) generationMs=\(generationElapsedMs, privacy: .public) outputChars=\(output.count, privacy: .public)")
-			if let validated = AIPostProcessingOutputValidator.validated(output, sourceText: sourceText),
-				!validated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-				return validated
-			}
-			aiLogger.warning("Rejected invalid Qwen output chunk=\(chunkIndex ?? -1, privacy: .public) attempt=\(attempt + 1, privacy: .public)")
+		)
+		var output = ""
+		for await event in generation {
+			try Task.checkCancellation()
+			if case let .chunk(chunk) = event { output.append(chunk) }
 		}
+		let generationElapsedMs = Int((ProcessInfo.processInfo.systemUptime - generationStartedAt) * 1000)
+		aiLogger.info("Qwen model=\(modelName, privacy: .public) chunk=\(chunkIndex ?? -1, privacy: .public) prepareMs=\(prepareElapsedMs, privacy: .public) generationMs=\(generationElapsedMs, privacy: .public) outputChars=\(output.count, privacy: .public)")
+		if let validated = AIPostProcessingEditScript.applying(output, to: sourceText),
+			!validated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+			return validated
+		}
+		aiLogger.warning("Rejected invalid Qwen edit script chunk=\(chunkIndex ?? -1, privacy: .public)")
 		throw AIPostProcessingError.invalidOutput
 	}
 

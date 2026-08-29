@@ -85,6 +85,7 @@ final class SuperFastCaptureController {
   private var engine: AVAudioEngine?
   private var converter: AVAudioConverter?
   private var activeRecording: ActiveRecording?
+  private var audioChunkHandler: (@Sendable (RecordingAudioChunk) -> Void)?
 
   init(meterContinuation: AsyncStream<Meter>.Continuation) {
     self.meterContinuation = meterContinuation
@@ -100,6 +101,10 @@ final class SuperFastCaptureController {
 
   var isRecording: Bool {
     processingQueue.sync { activeRecording != nil }
+  }
+
+  func setAudioChunkHandler(_ handler: (@Sendable (RecordingAudioChunk) -> Void)?) {
+    processingQueue.sync { audioChunkHandler = handler }
   }
 
   func startIfNeeded(reason: String = "unknown") throws {
@@ -235,6 +240,7 @@ final class SuperFastCaptureController {
     }
 
     guard var recording = activeRecording else { return }
+    audioChunkHandler?(RecordingAudioChunk(samples: Array(UnsafeBufferPointer(start: samples, count: sampleCount))))
     if !recording.didLogFirstBuffer {
       let timeToFirstBuffer = Date().timeIntervalSince(recording.requestedAt)
       logger.notice(

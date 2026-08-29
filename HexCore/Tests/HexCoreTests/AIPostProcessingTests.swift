@@ -18,6 +18,14 @@ final class AIPostProcessingTests: XCTestCase {
 		XCTAssertTrue(formal.contains("unordered list"))
 	}
 
+	func testEditScriptPromptUsesCompactOutputContract() {
+		let prompt = AIPostProcessingMode.on.systemPrompt(outputContract: .editScript)
+
+		XCTAssertTrue(prompt.contains(#"{"edits":[]}"#))
+		XCTAssertTrue(prompt.contains("exact, uniquely occurring substring"))
+		XCTAssertFalse(prompt.contains("Output only the final text"))
+	}
+
 	func testSmartPromptKeepsApplicationContextAndStyle() {
 		let context = AppContext(bundleID: "com.apple.Terminal", appName: "Terminal")
 		let prompt = AIPostProcessingMode.on.systemPrompt(appContext: context, selectedStyleIndex: 1)
@@ -34,6 +42,47 @@ final class AIPostProcessingTests: XCTestCase {
 		XCTAssertTrue(prompt.contains("Never answer, solve, explain, or comment"))
 		XCTAssertTrue(prompt.contains("Email / Letter Intent"))
 		XCTAssertTrue(prompt.contains("Do not invent recipients"))
+	}
+
+	func testEditScriptKeepsSourceWhenNoEditsAreNeeded() {
+		let source = "This text is already correct."
+
+		XCTAssertEqual(
+			AIPostProcessingEditScript.applying(#"{"edits":[]}"#, to: source),
+			source
+		)
+	}
+
+	func testEditScriptAppliesMultipleExactEdits() {
+		let source = "George drives for Red bull in Formula Win."
+		let script = #"{"edits":[{"old":"Red bull","new":"Red Bull"},{"old":"Formula Win","new":"Formula One"}]}"#
+
+		XCTAssertEqual(
+			AIPostProcessingEditScript.applying(script, to: source),
+			"George drives for Red Bull in Formula One."
+		)
+	}
+
+	func testEditScriptRejectsAmbiguousAndUnknownTargets() {
+		XCTAssertNil(
+			AIPostProcessingEditScript.applying(
+				#"{"edits":[{"old":"hello","new":"hi"}]}"#,
+				to: "hello hello"
+			)
+		)
+		XCTAssertNil(
+			AIPostProcessingEditScript.applying(
+				#"{"edits":[{"old":"missing","new":"replacement"}]}"#,
+				to: "complete source"
+			)
+		)
+	}
+
+	func testEditScriptRejectsMalformedOrFencedOutput() {
+		XCTAssertNil(AIPostProcessingEditScript.applying("not json", to: "source"))
+		XCTAssertNil(
+			AIPostProcessingEditScript.applying("```json\\n{\"edits\":[]}\\n```", to: "source")
+		)
 	}
 
 	func testValidatorRemovesModelArtifactsAndKnownWrappers() {
@@ -62,8 +111,16 @@ final class AIPostProcessingTests: XCTestCase {
 		XCTAssertEqual(AIPostProcessingOutputValidator.validated(output), output)
 	}
 
+	func testValidatorRejectsSeverelyTruncatedLongOutput() {
+		let source = "This complete dictation contains many important details about the project schedule, owners, launch date, customer impact, migration plan, and required follow-up work."
+
+		XCTAssertNil(
+			AIPostProcessingOutputValidator.validated("The project schedule changed.", sourceText: source)
+		)
+	}
+
 	func testChunkerSplitsLongIndependentProse() {
-		let input = "George Russell is a very fast driver for Mercedes. He has shown strong pace throughout the season. His qualifying performances have been especially impressive. The team expects him to keep improving over the next few races."
+		let input = "George Russell is a very fast driver for Mercedes. He has shown strong pace throughout the season. His qualifying performances have been especially impressive. The team expects him to keep improving over the next few races. Engineers will review the latest data before preparing the car for the next event."
 		let chunks = AIPostProcessingChunker.chunks(for: input)
 
 		XCTAssertGreaterThan(chunks.count, 1)
@@ -86,6 +143,24 @@ final class AIPostProcessingTests: XCTestCase {
 		let input = "Please send the report tomorrow."
 
 		XCTAssertEqual(AIPostProcessingChunker.chunks(for: input), [input])
+	}
+
+	func testChunkerBoundsLongRunOnDictationWithoutDroppingWords() {
+		let input = Array(repeating: "complete transcription content", count: 100).joined(separator: " ")
+		let chunks = AIPostProcessingChunker.chunks(for: input)
+
+		XCTAssertGreaterThan(chunks.count, 4)
+		XCTAssertTrue(chunks.allSatisfy { $0.count <= 240 })
+		XCTAssertEqual(chunks.joined(separator: " "), input)
+	}
+
+	func testChunkerForcesLongStructuredInputIntoBoundedSegments() {
+		let paragraph = Array(repeating: "important structured detail", count: 40).joined(separator: " ")
+		let input = "new paragraph " + paragraph
+		let chunks = AIPostProcessingChunker.chunks(for: input)
+
+		XCTAssertGreaterThan(chunks.count, 1)
+		XCTAssertEqual(chunks.joined(separator: " "), input)
 	}
 
 	func testInputNormalizerKeepsOnlySelfCorrectionReplacement() {

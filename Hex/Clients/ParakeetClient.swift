@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import HexCore
 
@@ -10,6 +11,9 @@ actor ParakeetClient {
   private var currentVariant: ParakeetModel?
   private var loadTask: Task<Void, Error>?
   private var loadingVariant: ParakeetModel?
+  private var streamingManager: StreamingAsrManager?
+  private var streamingSink: RecordingAudioChunkSink?
+  private var streamingInputTask: Task<Void, Error>?
   private let logger = HexLog.parakeet
   private let vendorDirs = [
     // Our app-specific cache path convention (under XDG or com.dipxsy.Tick/cache)
@@ -120,6 +124,80 @@ actor ParakeetClient {
     logger.notice("Parakeet ensureLoaded completed in \(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
   }
 
+  func startStreaming(modelName: String) async throws -> RecordingAudioChunkSink {
+    try await ensureLoaded(modelName: modelName) { _ in }
+    await cancelStreaming()
+    guard let models else {
+      throw NSError(
+        domain: "Parakeet",
+        code: -5,
+        userInfo: [NSLocalizedDescriptionKey: "Parakeet models are unavailable for streaming."]
+      )
+    }
+
+    let manager = StreamingAsrManager(config: .streaming)
+    let (stream, continuation) = AsyncStream<RecordingAudioChunk>.makeStream(
+      bufferingPolicy: .bufferingNewest(32)
+    )
+    let sink = RecordingAudioChunkSink(continuation)
+    streamingManager = manager
+    streamingSink = sink
+    streamingInputTask = Task {
+      try await manager.start(models: models, source: .microphone)
+      for await chunk in stream {
+        try Task.checkCancellation()
+        guard let buffer = Self.pcmBuffer(from: chunk.samples) else { continue }
+        await manager.streamAudio(buffer)
+      }
+    }
+    logger.notice("Parakeet streaming session prepared")
+    return sink
+  }
+
+  func finishStreaming() async throws -> String? {
+    guard let manager = streamingManager else { return nil }
+    streamingSink?.finish()
+    try await streamingInputTask?.value
+    let result = try await manager.finish()
+    streamingManager = nil
+    streamingSink = nil
+    streamingInputTask = nil
+    logger.notice("Parakeet streaming session finished chars=\(result.count, privacy: .public)")
+    return result
+  }
+
+  func cancelStreaming() async {
+    streamingSink?.finish()
+    streamingInputTask?.cancel()
+    await streamingManager?.cancel()
+    streamingManager = nil
+    streamingSink = nil
+    streamingInputTask = nil
+  }
+
+  private static func pcmBuffer(from samples: [Float]) -> AVAudioPCMBuffer? {
+    guard !samples.isEmpty,
+      let format = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: 16_000,
+        channels: 1,
+        interleaved: false
+      ),
+      let buffer = AVAudioPCMBuffer(
+        pcmFormat: format,
+        frameCapacity: AVAudioFrameCount(samples.count)
+      ),
+      let destination = buffer.floatChannelData?[0]
+    else { return nil }
+
+    buffer.frameLength = AVAudioFrameCount(samples.count)
+    samples.withUnsafeBufferPointer { source in
+      guard let baseAddress = source.baseAddress else { return }
+      destination.update(from: baseAddress, count: samples.count)
+    }
+    return buffer
+  }
+
   private func directorySize(_ dir: URL) -> UInt64? {
     let fm = FileManager.default
     guard let en = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: .skipsHiddenFiles) else { return nil }
@@ -217,6 +295,11 @@ actor ParakeetClient {
       userInfo: [NSLocalizedDescriptionKey: "Parakeet support not linked. Add Swift Package: https://github.com/FluidInference/FluidAudio.git and link FluidAudio to Hex."]
     )
   }
+  func startStreaming(modelName: String) async throws -> RecordingAudioChunkSink {
+    throw NSError(domain: "Parakeet", code: -3, userInfo: [NSLocalizedDescriptionKey: "Parakeet not available"])
+  }
+  func finishStreaming() async throws -> String? { nil }
+  func cancelStreaming() async {}
   func transcribe(_ url: URL) async throws -> String { throw NSError(domain: "Parakeet", code: -3, userInfo: [NSLocalizedDescriptionKey: "Parakeet not available"]) }
   func deleteCaches(modelName: String) async throws {}
 }
