@@ -425,6 +425,8 @@ struct AppView: View {
 
   var body: some View {
     ZStack {
+      WindowThemeBackground()
+
       HStack(spacing: 0) {
         if isSidebarVisible {
           sidebar

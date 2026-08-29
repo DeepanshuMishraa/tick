@@ -770,6 +770,60 @@ enum AppTheme {
     static let border = TickColor.line
 }
 
+// MARK: - Window Theme Background
+
+public struct WindowThemeBackground: View {
+    @Shared(.hexSettings) private var hexSettings: HexSettings
+    @Environment(\.colorScheme) private var colorScheme
+
+    public init() {}
+
+    public var body: some View {
+        let theme = hexSettings.themeColor
+        let isDark = colorScheme == .dark
+
+        ZStack {
+            switch theme {
+            case .monochrome:
+                LinearGradient(
+                    stops: [
+                        .init(color: isDark ? Color.white.opacity(0.035) : Color.white.opacity(0.20), location: 0.0),
+                        .init(color: isDark ? Color.white.opacity(0.010) : Color.white.opacity(0.08), location: 0.40),
+                        .init(color: isDark ? Color.black.opacity(0.06) : Color.black.opacity(0.02), location: 1.0)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .multicolor:
+                LinearGradient(
+                    stops: [
+                        .init(color: isDark ? Color.cyan.opacity(0.09) : Color.cyan.opacity(0.08), location: 0.0),
+                        .init(color: isDark ? Color.purple.opacity(0.07) : Color.purple.opacity(0.06), location: 0.35),
+                        .init(color: isDark ? Color.pink.opacity(0.06) : Color.pink.opacity(0.05), location: 0.70),
+                        .init(color: isDark ? Color.orange.opacity(0.07) : Color.orange.opacity(0.06), location: 1.0)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            default:
+                let accent = theme.swatchColor
+                LinearGradient(
+                    stops: [
+                        .init(color: isDark ? Color.white.opacity(0.05) : Color.white.opacity(0.25), location: 0.0),
+                        .init(color: accent.opacity(isDark ? 0.12 : 0.12), location: 0.20),
+                        .init(color: accent.opacity(isDark ? 0.05 : 0.06), location: 0.65),
+                        .init(color: isDark ? Color.black.opacity(0.08) : Color.black.opacity(0.02), location: 1.0)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        }
+        .ignoresSafeArea()
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: theme)
+    }
+}
+
 private struct HexGlassModifier<S: Shape>: ViewModifier {
     let shape: S
     let tint: Color?
