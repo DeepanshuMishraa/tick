@@ -113,7 +113,10 @@ class InvisibleWindow: NSPanel {
       ?? NSScreen.main
       ?? NSScreen.screens[0]
 
-    let pillFrame = FloatingCopyLayout.pillFrame(onScreen: screen.frame)
+    let pillFrame = FloatingCopyLayout.pillFrame(
+      onScreen: screen.frame,
+      feedback: feedback
+    )
     HexLog.overlay.notice("Showing floating copy pill frame=\(String(describing: pillFrame), privacy: .public)")
 
     if let feedbackButtonWindow {

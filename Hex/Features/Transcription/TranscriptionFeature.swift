@@ -32,13 +32,14 @@ struct TranscriptionFeature {
     var appContext: AppContext?
     var feedback: Feedback?
     var correctionKeystrokeTracker: WordCorrectionKeystrokeTracker?
+    var pendingDictionaryCorrections: [WordCorrection] = []
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
     @Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
 
     enum Feedback: Equatable {
-      case dictionaryAdded(match: String, replacement: String)
+      case dictionaryAdded([WordCorrection])
       case pasteUnavailable(text: String, reason: PasteFailureReason)
       case copied
     }
@@ -72,9 +73,13 @@ struct TranscriptionFeature {
     case pasteCompleted
     case beginCorrectionMonitoring(beforeText: String?, baseline: String?, insertedText: String)
     case correctionKeyEvent(KeyEvent)
+    case correctionMouseClicked
+    case correctionSelectionObserved(String?)
     case evaluateKeystrokeCorrection
     case correctionMonitoringExpired
-    case correctionDetected(WordCorrection)
+    case correctionEditingContinued
+    case correctionsDetected([WordCorrection])
+    case presentDictionaryFeedback
     case pasteUnavailable(String, reason: State.PasteFailureReason)
     case copyFeedback
     case feedbackCopied
@@ -89,6 +94,7 @@ struct TranscriptionFeature {
     case transcription
     case correctionMonitoring
     case correctionTypingSettle
+    case dictionaryFeedbackDebounce
     case feedback
   }
 
@@ -149,10 +155,12 @@ struct TranscriptionFeature {
       case let .startRecording(isLocked):
         state.feedback = nil
         state.correctionKeystrokeTracker = nil
+        state.pendingDictionaryCorrections = []
         return .merge(
           .cancel(id: CancelID.feedback),
           .cancel(id: CancelID.correctionMonitoring),
           .cancel(id: CancelID.correctionTypingSettle),
+          .cancel(id: CancelID.dictionaryFeedbackDebounce),
           handleStartRecording(&state, isLocked: isLocked)
         )
 
@@ -176,6 +184,7 @@ struct TranscriptionFeature {
         return .none
 
       case let .beginCorrectionMonitoring(beforeText, baseline, insertedText):
+        state.pendingDictionaryCorrections = []
         // Keyboard reconstruction is only a fallback for editors that do not
         // expose a complete AX value. When a complete baseline exists, AX is
         // the authority and global keystrokes must not be allowed to create a
@@ -198,23 +207,49 @@ struct TranscriptionFeature {
           return .none
         }
         state.correctionKeystrokeTracker = tracker
-        return .run { send in
-          try await Task.sleep(for: .milliseconds(700))
-          await send(.evaluateKeystrokeCorrection)
+        return .merge(
+          .send(.correctionEditingContinued),
+          .run { send in
+            try await Task.sleep(for: .milliseconds(700))
+            await send(.evaluateKeystrokeCorrection)
+          }
+          .cancellable(id: CancelID.correctionTypingSettle, cancelInFlight: true)
+        )
+
+      case .correctionMouseClicked:
+        guard state.correctionKeystrokeTracker != nil else { return .none }
+        return .run { [pasteboard] send in
+          try await Task.sleep(for: .milliseconds(100))
+          await send(.correctionSelectionObserved(await pasteboard.focusedSelectedText()))
         }
-        .cancellable(id: CancelID.correctionTypingSettle, cancelInFlight: true)
+
+      case let .correctionSelectionObserved(selectedText):
+        guard let selectedText, var tracker = state.correctionKeystrokeTracker else { return .none }
+        _ = tracker.selectWord(selectedText)
+        state.correctionKeystrokeTracker = tracker
+        return .none
 
       case .evaluateKeystrokeCorrection:
-        guard let correction = state.correctionKeystrokeTracker?.correction else { return .none }
-        return .send(.correctionDetected(correction))
+        guard let corrections = state.correctionKeystrokeTracker?.corrections,
+              !corrections.isEmpty else { return .none }
+        return .send(.correctionsDetected(corrections))
 
       case .correctionMonitoringExpired:
         state.correctionKeystrokeTracker = nil
         return .cancel(id: CancelID.correctionTypingSettle)
 
-      case let .correctionDetected(correction):
-        state.correctionKeystrokeTracker = nil
-        return handleCorrectionDetected(&state, correction: correction)
+      case .correctionEditingContinued:
+        guard !state.pendingDictionaryCorrections.isEmpty else { return .none }
+        return scheduleDictionaryFeedbackEffect()
+
+      case let .correctionsDetected(corrections):
+        return handleCorrectionsDetected(&state, corrections: corrections)
+
+      case .presentDictionaryFeedback:
+        guard !state.pendingDictionaryCorrections.isEmpty else { return .none }
+        state.feedback = .dictionaryAdded(state.pendingDictionaryCorrections)
+        state.pendingDictionaryCorrections = []
+        return dismissFeedbackEffect(after: .seconds(5))
 
       case let .pasteUnavailable(text, reason):
         state.feedback = .pasteUnavailable(text: text, reason: reason)
@@ -342,6 +377,7 @@ private extension TranscriptionFeature {
           }
 
         case .mouseClick:
+          Task { await send(.correctionMouseClicked) }
           // Process mouse click - for modifier-only hotkeys, this may cancel/discard
           switch hotKeyProcessor.processMouseClick() {
           case .cancel:
@@ -793,7 +829,7 @@ private extension TranscriptionFeature {
       // The pasted value is already known. Give a multi-key replacement time
       // to finish before comparing the complete field value.
       let settleWindow: TimeInterval = 0.7
-      let observationWindow: TimeInterval = 20
+      let observationWindow: TimeInterval = 60
 
       let startedAt = Date()
       // A transport read-back can itself race with the user's edit. Validate
@@ -803,6 +839,7 @@ private extension TranscriptionFeature {
       }
 
       var lastSeenText: String? = baseline
+      var lastEvaluatedText: String?
       var lastChangedAt = Date()
 
       do {
@@ -829,15 +866,18 @@ private extension TranscriptionFeature {
           }
 
           if currentText != lastSeenText {
-            // Edit in flight: reset the settle timer and keep waiting.
+            // Edit in flight: reset both settle timers and keep waiting.
             lastSeenText = currentText
             lastChangedAt = Date()
+            await send(.correctionEditingContinued)
             continue
           }
 
-          // Identical to the previous poll; only act once the text has held
-          // still for the entire settle window.
-          guard Date().timeIntervalSince(lastChangedAt) >= settleWindow else { continue }
+          // Identical to the previous poll; only evaluate each settled value
+          // once. Later edits reset the value and can add more corrections.
+          guard currentText != lastEvaluatedText,
+                Date().timeIntervalSince(lastChangedAt) >= settleWindow else { continue }
+          lastEvaluatedText = currentText
 
           if let baseline, currentText == baseline {
             // This is also the ordinary idle state immediately after paste.
@@ -845,15 +885,14 @@ private extension TranscriptionFeature {
             continue
           }
 
-          let correction = WordCorrectionDetector.detectObservedCorrection(
+          let corrections = WordCorrectionDetector.detectObservedCorrections(
             beforeInsertion: beforeText,
             baseline: baseline,
             snapshot: currentText,
             insertedText: insertedText
           )
-          if let correction {
-            await send(.correctionDetected(correction))
-            return
+          if !corrections.isEmpty {
+            await send(.correctionsDetected(corrections))
           }
 
           // A user may pause after an intermediate multi-word edit. Keep
@@ -868,40 +907,52 @@ private extension TranscriptionFeature {
     .cancellable(id: CancelID.correctionMonitoring, cancelInFlight: true)
   }
 
-  func handleCorrectionDetected(
+  func handleCorrectionsDetected(
     _ state: inout State,
-    correction: WordCorrection
+    corrections: [WordCorrection]
   ) -> Effect<Action> {
-    guard correction.match.caseInsensitiveCompare(correction.replacement) != .orderedSame else {
-      return .none
-    }
+    var addedCorrections: [WordCorrection] = []
 
-    let didAdd = state.$hexSettings.withLock { settings in
-      let alreadyExists = settings.wordRemappings.contains {
-        $0.isEnabled
-          && $0.match.caseInsensitiveCompare(correction.match) == .orderedSame
-          && $0.replacement.caseInsensitiveCompare(correction.replacement) == .orderedSame
+    state.$hexSettings.withLock { settings in
+      for correction in corrections
+      where correction.match.caseInsensitiveCompare(correction.replacement) != .orderedSame {
+        if let existingIndex = settings.wordRemappings.firstIndex(where: {
+          $0.match.caseInsensitiveCompare(correction.match) == .orderedSame
+        }) {
+          let existing = settings.wordRemappings[existingIndex]
+          guard !existing.isEnabled
+            || existing.replacement.caseInsensitiveCompare(correction.replacement) != .orderedSame
+          else { continue }
+          settings.wordRemappings[existingIndex].isEnabled = true
+          settings.wordRemappings[existingIndex].replacement = correction.replacement
+        } else {
+          settings.wordRemappings.append(
+            WordRemapping(match: correction.match, replacement: correction.replacement)
+          )
+        }
+        addedCorrections.append(correction)
       }
-      guard !alreadyExists else { return false }
-      settings.wordRemappings.append(
-        WordRemapping(match: correction.match, replacement: correction.replacement)
-      )
-      return true
     }
 
-    guard didAdd else { return .cancel(id: CancelID.correctionMonitoring) }
-    transcriptionFeatureLogger.notice(
-      "Learned dictionary correction match=\(correction.match, privacy: .private) replacement=\(correction.replacement, privacy: .private)"
-    )
-    state.feedback = .dictionaryAdded(
-      match: correction.match,
-      replacement: correction.replacement
-    )
+    guard !addedCorrections.isEmpty else { return .none }
+    for correction in addedCorrections {
+      transcriptionFeatureLogger.notice(
+        "Learned dictionary correction match=\(correction.match, privacy: .private) replacement=\(correction.replacement, privacy: .private)"
+      )
+      if !state.pendingDictionaryCorrections.contains(correction) {
+        state.pendingDictionaryCorrections.append(correction)
+      }
+    }
 
-    return .merge(
-      .cancel(id: CancelID.correctionMonitoring),
-      dismissFeedbackEffect(after: .seconds(4))
-    )
+    return scheduleDictionaryFeedbackEffect()
+  }
+
+  func scheduleDictionaryFeedbackEffect() -> Effect<Action> {
+    .run { send in
+      try await Task.sleep(for: .milliseconds(900))
+      await send(.presentDictionaryFeedback)
+    }
+    .cancellable(id: CancelID.dictionaryFeedbackDebounce, cancelInFlight: true)
   }
 
   func dismissFeedbackEffect(after duration: Duration) -> Effect<Action> {

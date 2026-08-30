@@ -429,7 +429,9 @@ struct TranscriptionIndicatorView: View {
     switch feedback {
     case .copied:
       duration = 1.8
-    case .dictionaryAdded, .pasteUnavailable:
+    case .dictionaryAdded:
+      duration = 5.0
+    case .pasteUnavailable:
       duration = 4.0
     case nil:
       duration = 0
@@ -468,8 +470,10 @@ extension TranscriptionFeature.State.Feedback {
 
   var detail: String {
     switch self {
-    case let .dictionaryAdded(match, replacement):
-      return "\u{201c}\(match)\u{201d} → \u{201c}\(replacement)\u{201d}"
+    case let .dictionaryAdded(corrections):
+      return corrections.map {
+        "\u{201c}\($0.match)\u{201d} → \u{201c}\($0.replacement)\u{201d}"
+      }.joined(separator: " · ")
     case let .pasteUnavailable(_, reason):
       switch reason {
       case .noFocusedInput:
@@ -497,22 +501,33 @@ extension TranscriptionFeature.State.Feedback {
 
 @MainActor
 enum FloatingCopyLayout {
-  /// The visible pill dimensions.
-  static let pillSize = CGSize(width: 340, height: 46)
   /// Distance from the bottom edge of the screen to the bottom of the pill.
   static let bottomMargin: CGFloat = 36
   /// Padding around the pill inside the hosting window to allow soft shadows to decay naturally without clipping.
   static let shadowPadding: CGFloat = 20
 
-  /// Total hosting window size.
-  static let windowSize = CGSize(
-    width: pillSize.width + shadowPadding * 2,
-    height: pillSize.height + shadowPadding * 2
-  )
+  static func pillSize(for feedback: TranscriptionFeature.State.Feedback) -> CGSize {
+    if case let .dictionaryAdded(corrections) = feedback, corrections.count > 1 {
+      return CGSize(width: 520, height: 42 + CGFloat(corrections.count) * 12)
+    }
+    return CGSize(width: 340, height: 46)
+  }
+
+  static func windowSize(for feedback: TranscriptionFeature.State.Feedback) -> CGSize {
+    let pillSize = pillSize(for: feedback)
+    return CGSize(
+      width: pillSize.width + shadowPadding * 2,
+      height: pillSize.height + shadowPadding * 2
+    )
+  }
 
   /// The panel's rect on a given screen (AppKit coordinates, origin bottom-left).
-  static func pillFrame(onScreen screenFrame: NSRect) -> NSRect {
-    NSRect(
+  static func pillFrame(
+    onScreen screenFrame: NSRect,
+    feedback: TranscriptionFeature.State.Feedback
+  ) -> NSRect {
+    let windowSize = windowSize(for: feedback)
+    return NSRect(
       x: screenFrame.midX - windowSize.width / 2,
       y: screenFrame.minY + bottomMargin - shadowPadding,
       width: windowSize.width,
@@ -540,13 +555,21 @@ struct FloatingCopyPillView: View {
     return false
   }
 
+  private var dictionaryCorrectionCount: Int {
+    guard case let .dictionaryAdded(corrections) = feedback else { return 0 }
+    return corrections.count
+  }
+
   private var pillTitle: String {
     if isCopiedState {
       return "Copied to clipboard"
     }
     switch feedback {
-    case let .dictionaryAdded(match, _):
-      return "\(match) is turned to"
+    case let .dictionaryAdded(corrections):
+      guard let correction = corrections.first else { return "Added to Dictionary" }
+      return corrections.count == 1
+        ? "\(correction.match) is turned to"
+        : "\(corrections.count) corrections added to Dictionary"
     case let .pasteUnavailable(_, reason):
       switch reason {
       case .noFocusedInput:
@@ -564,8 +587,13 @@ struct FloatingCopyPillView: View {
       return "Ready to paste anywhere"
     }
     switch feedback {
-    case let .dictionaryAdded(_, replacement):
-      return "\u{201c}\(replacement)\u{201d}"
+    case let .dictionaryAdded(corrections):
+      guard corrections.count > 1 else {
+        return corrections.first.map { "\u{201c}\($0.replacement)\u{201d}" } ?? ""
+      }
+      return corrections.map {
+        "\($0.match) → \($0.replacement)"
+      }.joined(separator: "\n")
     case .pasteUnavailable:
       return "Click to copy transcript"
     default:
@@ -574,6 +602,9 @@ struct FloatingCopyPillView: View {
   }
 
   var body: some View {
+    let pillSize = FloatingCopyLayout.pillSize(for: feedback)
+    let windowSize = FloatingCopyLayout.windowSize(for: feedback)
+
     TimelineView(.animation(minimumInterval: 0.04)) { context in
       let elapsed = context.date.timeIntervalSince(startedAt)
       let progress = max(0, min(1, 1 - elapsed / max(duration, 0.1)))
@@ -641,7 +672,8 @@ struct FloatingCopyPillView: View {
                     ? Color(red: 0.20, green: 0.78, blue: 0.45).opacity(0.90)
                     : (isDictionaryState ? Color.white.opacity(0.70) : Color.white.opacity(0.55))
                 )
-                .lineLimit(1)
+                .lineLimit(isDictionaryState ? max(1, dictionaryCorrectionCount) : 1)
+                .fixedSize(horizontal: false, vertical: true)
             }
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isCopiedState)
 
@@ -722,7 +754,7 @@ struct FloatingCopyPillView: View {
           .padding(.horizontal, 14)
           .padding(.bottom, 3)
         }
-        .frame(width: FloatingCopyLayout.pillSize.width, height: FloatingCopyLayout.pillSize.height)
+        .frame(width: pillSize.width, height: pillSize.height)
         .hexGlass(in: Capsule(), interactive: true)
         .shadow(color: Color.black.opacity(0.28), radius: 10, x: 0, y: 3)
         .contentShape(Capsule())
@@ -730,7 +762,7 @@ struct FloatingCopyPillView: View {
       .buttonStyle(.plain)
       .accessibilityLabel(isDictionaryState ? "Added word to dictionary" : "Copy transcription to clipboard")
     }
-    .frame(width: FloatingCopyLayout.windowSize.width, height: FloatingCopyLayout.windowSize.height)
+    .frame(width: windowSize.width, height: windowSize.height)
   }
 }
 }
@@ -967,7 +999,7 @@ struct NotchWaveform: View {
       onCopy: {}
     )
     FloatingCopyPillView(
-      feedback: .dictionaryAdded(match: "teh", replacement: "the"),
+      feedback: .dictionaryAdded([WordCorrection(match: "teh", replacement: "the")]),
       startedAt: Date(),
       duration: 4.0,
       onCopy: {}

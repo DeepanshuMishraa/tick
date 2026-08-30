@@ -27,6 +27,7 @@ struct PasteboardClient {
     var paste: @Sendable (String) async -> PasteboardPasteResult = { _ in .failed }
     var copy: @Sendable (String) async -> Void
     var focusedText: @Sendable () async -> String? = { nil }
+    var focusedSelectedText: @Sendable () async -> String? = { nil }
     var focusedInputAvailable: @Sendable () async -> Bool = { false }
     var sendKeyboardCommand: @Sendable (KeyboardCommand) async -> Void
 }
@@ -43,6 +44,9 @@ extension PasteboardClient: DependencyKey {
             },
             focusedText: {
                 await PasteboardClientLive.focusedText()
+            },
+            focusedSelectedText: {
+                await PasteboardClientLive.focusedSelectedText()
             },
             focusedInputAvailable: {
                 await PasteboardClientLive.focusedInputAvailable()
@@ -447,6 +451,27 @@ struct PasteboardClientLive {
         // cannot be used as a dictionary baseline because an unrelated
         // selection can look like a one-word correction.
         return nil
+    }
+
+    @MainActor
+    static func focusedSelectedText() -> String? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementRef: CFTypeRef?
+        let axError = AXUIElementCopyAttributeValue(
+            systemWideElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedElementRef
+        )
+        guard axError == .success, let focusedElementRef else { return nil }
+        let focusedElement = focusedElementRef as! AXUIElement
+
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            focusedElement,
+            kAXSelectedTextAttribute as CFString,
+            &value
+        ) == .success else { return nil }
+        return value as? String
     }
 
     @MainActor

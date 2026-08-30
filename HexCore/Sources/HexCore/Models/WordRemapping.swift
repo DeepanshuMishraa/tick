@@ -20,10 +20,7 @@ public struct WordRemapping: Codable, Equatable, Identifiable, Sendable {
 	}
 }
 
-/// A single, intentional replacement made to text Hex just inserted.
-///
-/// This is deliberately conservative: dictionary learning only happens when
-/// the user changes exactly one word and leaves the rest of the field intact.
+/// An intentional spelling replacement made to text Hex just inserted.
 public struct WordCorrection: Equatable, Sendable {
 	public var match: String
 	public var replacement: String
@@ -35,23 +32,31 @@ public struct WordCorrection: Equatable, Sendable {
 }
 
 public enum WordCorrectionDetector {
-	/// Finds one word replacement between two snapshots of the same text field.
-	/// Insertions, deletions, multi-word edits, and punctuation-only edits are
-	/// ignored so an accidental edit cannot pollute the dictionary.
+	/// Finds one spelling replacement between two snapshots. Callers that need
+	/// a batch should use `detectAll(before:after:)`.
 	public static func detect(before: String, after: String) -> WordCorrection? {
+		let corrections = detectAll(before: before, after: after)
+		guard corrections.count == 1 else { return nil }
+		return corrections[0]
+	}
+
+	/// Finds every spelling-like word replacement between two snapshots.
+	/// Insertions, deletions, and punctuation-only edits are ignored.
+	public static func detectAll(before: String, after: String) -> [WordCorrection] {
 		let beforeWords = words(in: before)
 		let afterWords = words(in: after)
-		guard beforeWords.count == afterWords.count, !beforeWords.isEmpty else { return nil }
+		guard beforeWords.count == afterWords.count, !beforeWords.isEmpty else { return [] }
 
-		let changedIndices = beforeWords.indices.filter {
-			beforeWords[$0].caseInsensitiveCompare(afterWords[$0]) != .orderedSame
+		return beforeWords.indices.compactMap { index in
+			let match = beforeWords[index]
+			let replacement = afterWords[index]
+			guard match.caseInsensitiveCompare(replacement) != .orderedSame,
+				  match.count > 1,
+				  replacement.count > 1,
+				  isSpellingLikeCorrection(from: match, to: replacement)
+			else { return nil }
+			return WordCorrection(match: match, replacement: replacement)
 		}
-		guard changedIndices.count == 1, let index = changedIndices.first else { return nil }
-
-		let match = beforeWords[index]
-		let replacement = afterWords[index]
-		guard match.count > 1, replacement.count > 1 else { return nil }
-		return WordCorrection(match: match, replacement: replacement)
 	}
 
 	/// Returns true when a snapshot contains the text Hex inserted. This is
@@ -82,35 +87,106 @@ public enum WordCorrectionDetector {
 		snapshot: String,
 		insertedText: String
 	) -> WordCorrection? {
-		guard snapshot != beforeInsertion else { return nil }
-		guard let baseline, containsInsertedText(baseline, insertedText: insertedText) else { return nil }
-		guard let correction = detect(before: baseline, after: snapshot) else { return nil }
+		let corrections = detectObservedCorrections(
+			beforeInsertion: beforeInsertion,
+			baseline: baseline,
+			snapshot: snapshot,
+			insertedText: insertedText
+		)
+		guard corrections.count == 1 else { return nil }
+		return corrections[0]
+	}
 
-		// The changed token must be inside the exact phrase Hex inserted. A
-		// change elsewhere in a long document is ordinary typing, not a
-		// correction of this transcription.
+	/// Finds spelling corrections inside the exact phrase Hex inserted while
+	/// ignoring edits elsewhere in the field and semantic word replacements.
+	public static func detectObservedCorrections(
+		beforeInsertion: String?,
+		baseline: String?,
+		snapshot: String,
+		insertedText: String
+	) -> [WordCorrection] {
+		guard snapshot != beforeInsertion,
+			  let baseline,
+			  containsInsertedText(baseline, insertedText: insertedText)
+		else { return [] }
+
 		let baselineWords = words(in: baseline)
 		let snapshotWords = words(in: snapshot)
 		let insertedWords = words(in: insertedText)
-		let changedIndices = baselineWords.indices.filter {
-			baselineWords[$0].caseInsensitiveCompare(snapshotWords[$0]) != .orderedSame
-		}
-		guard changedIndices.count == 1, let changedIndex = changedIndices.first else { return nil }
+		guard baselineWords.count == snapshotWords.count else { return [] }
 
-		let isInsideInsertedPhrase = baselineWords.indices.contains { start in
-			guard start + insertedWords.count <= baselineWords.count,
-				  changedIndex >= start,
-				  changedIndex < start + insertedWords.count else { return false }
-			return zip(baselineWords[start..<(start + insertedWords.count)], insertedWords)
-				.allSatisfy { $0.caseInsensitiveCompare($1) == .orderedSame }
+		guard let insertedRange = baselineWords.indices.compactMap({ start -> Range<Int>? in
+			guard start + insertedWords.count <= baselineWords.count else { return nil }
+			let range = start..<(start + insertedWords.count)
+			return zip(baselineWords[range], insertedWords).allSatisfy {
+				$0.caseInsensitiveCompare($1) == .orderedSame
+			} ? range : nil
+		}).first else { return [] }
+
+		return insertedRange.compactMap { index in
+			let match = baselineWords[index]
+			let replacement = snapshotWords[index]
+			guard match.caseInsensitiveCompare(replacement) != .orderedSame,
+				  match.count > 1,
+				  replacement.count > 1,
+				  isSpellingLikeCorrection(from: match, to: replacement)
+			else { return nil }
+			return WordCorrection(match: match, replacement: replacement)
 		}
-		return isInsideInsertedPhrase ? correction : nil
 	}
 
 	private static func words(in text: String) -> [String] {
 		text.split { character in
 			!character.isLetter && !character.isNumber && character != "'"
 		}.map(String.init)
+	}
+
+	/// Dictionary learning cannot infer intent from an arbitrary word swap.
+	/// Only accept words close enough to look like a spelling correction.
+	private static func isSpellingLikeCorrection(from source: String, to replacement: String) -> Bool {
+		let sourceCharacters = Array(source.lowercased())
+		let replacementCharacters = Array(replacement.lowercased())
+		let shorterLength = min(sourceCharacters.count, replacementCharacters.count)
+		let allowedDistance = shorterLength >= 5 ? 2 : 1
+		return editDistance(sourceCharacters, replacementCharacters) <= allowedDistance
+	}
+
+	/// Optimal string alignment distance counts an adjacent transposition as
+	/// one edit, which covers common spelling fixes such as `form` to `from`.
+	private static func editDistance(_ source: [Character], _ replacement: [Character]) -> Int {
+		guard !source.isEmpty else { return replacement.count }
+		guard !replacement.isEmpty else { return source.count }
+
+		var previousPrevious: [Int]?
+		var previous = Array(0...replacement.count)
+
+		for sourceIndex in 1...source.count {
+			var current = Array(repeating: 0, count: replacement.count + 1)
+			current[0] = sourceIndex
+			for replacementIndex in 1...replacement.count {
+				let substitutionCost = source[sourceIndex - 1] == replacement[replacementIndex - 1] ? 0 : 1
+				current[replacementIndex] = min(
+					previous[replacementIndex] + 1,
+					current[replacementIndex - 1] + 1,
+					previous[replacementIndex - 1] + substitutionCost
+				)
+
+				if let previousPrevious,
+				   sourceIndex > 1,
+				   replacementIndex > 1,
+				   source[sourceIndex - 1] == replacement[replacementIndex - 2],
+				   source[sourceIndex - 2] == replacement[replacementIndex - 1]
+				{
+					current[replacementIndex] = min(
+						current[replacementIndex],
+						previousPrevious[replacementIndex - 2] + 1
+					)
+				}
+			}
+			previousPrevious = previous
+			previous = current
+		}
+		return previous[replacement.count]
 	}
 }
 
@@ -136,6 +212,34 @@ public struct WordCorrectionKeystrokeTracker: Equatable, Sendable {
 
 	public var correction: WordCorrection? {
 		WordCorrectionDetector.detect(before: originalText, after: currentText)
+	}
+
+	public var corrections: [WordCorrection] {
+		WordCorrectionDetector.detectAll(before: originalText, after: currentText)
+	}
+
+	/// Updates the reconstructed selection after a mouse-selected word becomes
+	/// visible through Accessibility. This keeps learning working in editors
+	/// that expose selected text but not the complete field value.
+	public mutating func selectWord(_ selectedText: String) -> Bool {
+		let selectedCharacters = Array(selectedText)
+		guard !selectedCharacters.isEmpty,
+			  selectedCharacters.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "'" })
+		else { return false }
+
+		guard let range = characters.indices.first(where: { start in
+			let end = start + selectedCharacters.count
+			guard end <= characters.count,
+				  Array(characters[start..<end]).elementsEqual(selectedCharacters)
+			else { return false }
+			let startsAtBoundary = start == 0 || !characters[start - 1].isLetter && !characters[start - 1].isNumber
+			let endsAtBoundary = end == characters.count || !characters[end].isLetter && !characters[end].isNumber
+			return startsAtBoundary && endsAtBoundary
+		}) else { return false }
+
+		selectionAnchor = range
+		caret = range + selectedCharacters.count
+		return true
 	}
 
 	/// Applies one key-down event. Returns true only when the reconstructed text

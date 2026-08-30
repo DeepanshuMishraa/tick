@@ -24,6 +24,36 @@ struct WordRemappingTests {
 	}
 
 	@Test
+	func detectsRepeatedLetterSpellingCorrection() {
+		let correction = WordCorrectionDetector.detect(
+			before: "Use crook in this sentence",
+			after: "Use crok in this sentence"
+		)
+
+		#expect(correction == WordCorrection(match: "crook", replacement: "crok"))
+	}
+
+	@Test
+	func detectsAdjacentLetterTransposition() {
+		let correction = WordCorrectionDetector.detect(
+			before: "Use form here",
+			after: "Use from here"
+		)
+
+		#expect(correction == WordCorrection(match: "form", replacement: "from"))
+	}
+
+	@Test
+	func ignoresSemanticWordReplacement() {
+		let correction = WordCorrectionDetector.detect(
+			before: "I made the change",
+			after: "I might the change"
+		)
+
+		#expect(correction == nil)
+	}
+
+	@Test
 	func delayedBaselineMustContainInsertedText() {
 		#expect(WordCorrectionDetector.containsInsertedText(
 			"hello, how are you?",
@@ -57,6 +87,21 @@ struct WordRemappingTests {
 		)
 
 		#expect(correction == WordCorrection(match: "hello", replacement: "helo"))
+	}
+
+	@Test
+	func detectsMultipleCorrectionsInsideInsertedPhrase() {
+		let corrections = WordCorrectionDetector.detectObservedCorrections(
+			beforeInsertion: "Prefix ",
+			baseline: "Prefix open kurzor and teh file Suffix",
+			snapshot: "Prefix open cursor and the file Suffix",
+			insertedText: "open kurzor and teh file"
+		)
+
+		#expect(corrections == [
+			WordCorrection(match: "kurzor", replacement: "cursor"),
+			WordCorrection(match: "teh", replacement: "the")
+		])
 	}
 
 	@Test
@@ -112,10 +157,50 @@ struct WordRemappingTests {
 	}
 
 	@Test
-	func ignoresMultipleWordCorrections() {
+	func reconstructsMouseSelectedWordReplacement() {
+		var tracker = WordCorrectionKeystrokeTracker(insertedText: "Use crook in this sentence")
+		let didSelectWord = tracker.selectWord("crook")
+		#expect(didSelectWord)
+		_ = tracker.apply(key: .c, text: "c", modifiers: [])
+		_ = tracker.apply(key: .r, text: "r", modifiers: [])
+		_ = tracker.apply(key: .o, text: "o", modifiers: [])
+		_ = tracker.apply(key: .k, text: "k", modifiers: [])
+
+		#expect(tracker.currentText == "Use crok in this sentence")
+		#expect(tracker.correction == WordCorrection(match: "crook", replacement: "crok"))
+	}
+
+	@Test
+	func detectsMultipleSpellingCorrections() {
+		let corrections = WordCorrectionDetector.detectAll(
+			before: "open kurzor and fix teh label",
+			after: "open cursor and fix the label"
+		)
+
+		#expect(corrections == [
+			WordCorrection(match: "kurzor", replacement: "cursor"),
+			WordCorrection(match: "teh", replacement: "the")
+		])
+	}
+
+	@Test
+	func filtersSemanticChangesFromMultipleCorrections() {
+		let corrections = WordCorrectionDetector.detectAll(
+			before: "I made teh change in kurzor",
+			after: "I might the change in cursor"
+		)
+
+		#expect(corrections == [
+			WordCorrection(match: "teh", replacement: "the"),
+			WordCorrection(match: "kurzor", replacement: "cursor")
+		])
+	}
+
+	@Test
+	func singleCorrectionAPIStillIgnoresMultipleChanges() {
 		let correction = WordCorrectionDetector.detect(
-			before: "open kurzor now",
-			after: "open cursor please"
+			before: "open kurzor and teh file",
+			after: "open cursor and the file"
 		)
 
 		#expect(correction == nil)
