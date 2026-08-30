@@ -1156,7 +1156,7 @@ actor RecordingClientLive {
         let peakPower = r.peakPower(forChannel: 0)
         let peakNormalized = pow(10, peakPower / 20.0)
         meterContinuation.yield(Meter(averagePower: Double(averageNormalized), peakPower: Double(peakNormalized)))
-        try? await Task.sleep(for: .milliseconds(30))
+        try? await Task.sleep(for: .milliseconds(50))
       }
     }
   }

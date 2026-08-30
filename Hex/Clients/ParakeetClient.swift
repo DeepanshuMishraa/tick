@@ -100,7 +100,7 @@ actor ParakeetClient {
     let faDir = support?.appendingPathComponent("FluidAudio/Models/\(variant.identifier)", isDirectory: true)
     let pollTask = Task {
       while p.completedUnitCount < 95 {
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        try? await Task.sleep(for: .seconds(1))
         if let dir = faDir, let size = directorySize(dir) {
           let target: Double = 650 * 1024 * 1024 // ~650MB
           let frac = max(0.0, min(1.0, Double(size) / target))

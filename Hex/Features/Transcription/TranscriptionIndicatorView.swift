@@ -198,17 +198,6 @@ struct TranscriptionIndicatorView: View {
   var feedback: TranscriptionFeature.State.Feedback? = nil
   var onCopy: () -> Void = {}
 
-  private var appIcon: NSImage? {
-    guard let bundleID = sourceAppBundleID else { return nil }
-    if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-      return app.icon
-    }
-    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-      return NSWorkspace.shared.icon(forFile: url.path)
-    }
-    return nil
-  }
-
   // MARK: - Sizing
   private let extensionWidth: CGFloat = 52
   private let maxBarHeight: CGFloat = 16
@@ -216,6 +205,7 @@ struct TranscriptionIndicatorView: View {
 
   @State private var geometry = NotchGeometry(hasNotch: false, notchWidth: 120, notchHeight: 32, menuBarHeight: 24)
   @State private var feedbackStartedAt = Date()
+  @State private var appIcon: NSImage?
 
   var body: some View {
     let baseNotchHeight = max(geometry.notchHeight + 14, 48)
@@ -398,10 +388,14 @@ struct TranscriptionIndicatorView: View {
     .animation(.spring(response: 0.35, dampingFraction: 0.78), value: isLocked)
     .onAppear {
       updateGeometry()
+      updateAppIcon()
       updateFeedbackInteraction()
     }
     .onChange(of: status) {
       updateGeometry()
+    }
+    .onChange(of: sourceAppBundleID) {
+      updateAppIcon()
     }
     .onChange(of: feedback) {
       feedbackStartedAt = Date()
@@ -417,6 +411,20 @@ struct TranscriptionIndicatorView: View {
 
   private func updateGeometry() {
     geometry = getNotchGeometry()
+  }
+
+  private func updateAppIcon() {
+    guard let bundleID = sourceAppBundleID else {
+      appIcon = nil
+      return
+    }
+    if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+      appIcon = app.icon
+    } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+      appIcon = NSWorkspace.shared.icon(forFile: url.path)
+    } else {
+      appIcon = nil
+    }
   }
 
   private func updateFeedbackInteraction() {
@@ -877,8 +885,6 @@ struct NotchWaveform: View {
   @State private var smoothedLevels: [Double] = []
   @State private var phase: Double = 0
 
-  private let timer = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
-
   var body: some View {
     HStack(spacing: barSpacing) {
       ForEach(0..<barCount, id: \.self) { index in
@@ -893,8 +899,11 @@ struct NotchWaveform: View {
         updateLevels(for: newMeter)
       }
     }
-    .onReceive(timer) { _ in
-      if isTranscribing {
+    .task(id: isTranscribing) {
+      guard isTranscribing else { return }
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .milliseconds(50))
+        guard !Task.isCancelled else { return }
         phase += 0.15
       }
     }

@@ -72,9 +72,8 @@ public struct InsightsTabView: View {
   }
 
   private var visibleRangeLabel: String {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "MMM yyyy"
-    return "\(formatter.string(from: visibleStartMonth)) – \(formatter.string(from: visibleEndMonth))"
+    let format = Date.FormatStyle.dateTime.month(.abbreviated).year()
+    return "\(visibleStartMonth.formatted(format)) – \(visibleEndMonth.formatted(format))"
   }
 
   private var wordsByDay: [Date: Int] {
@@ -822,7 +821,9 @@ private struct AppIconBadge: View {
   let appName: String
   var bundleID: String? = nil
 
-  private var appIcon: NSImage? {
+  @State private var appIcon: NSImage?
+
+  private func resolveAppIcon() -> NSImage? {
     // 1. Try bundle ID if available
     if let bundleID, !bundleID.isEmpty {
       if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first, let icon = running.icon {
@@ -889,6 +890,9 @@ private struct AppIconBadge: View {
             .foregroundStyle(TickColor.brand)
         }
       }
+    }
+    .task(id: "\(bundleID ?? "")\u{0}\(appName)") {
+      appIcon = resolveAppIcon()
     }
   }
 }

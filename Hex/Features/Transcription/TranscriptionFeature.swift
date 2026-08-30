@@ -844,7 +844,7 @@ private extension TranscriptionFeature {
 
       do {
         while Date().timeIntervalSince(startedAt) < observationWindow {
-          try await Task.sleep(for: .milliseconds(80))
+          try await Task.sleep(for: .milliseconds(150))
           guard let currentText = await pasteboard.focusedText() else { continue }
 
           // AX can briefly return the value from before Cmd-V. It is neither a
