@@ -18,25 +18,28 @@ public enum SoundEffect: String, CaseIterable {
   case pasteTranscript
   case startRecording
   case stopRecording
+  case startContinuous
+  case stopContinuous
   case cancel
   case error
 
   public var fileName: String {
     switch self {
+    case .startRecording:
+      return "push"
+    case .stopRecording, .stopContinuous:
+      return "enda"
+    case .startContinuous:
+      return "continous"
     case .cancel, .error:
-      return "end"
-    default:
+      return "enda"
+    case .pasteTranscript:
       return self.rawValue
     }
   }
 
   var fileExtension: String {
-    switch self {
-    case .startRecording:
-      return "aac"
-    default:
-      return "mp3"
-    }
+    "mp3"
   }
 }
 
@@ -79,32 +82,34 @@ actor SoundEffectsClientLive {
   private let logger = HexLog.sound
   private let baselineVolume = HexSettings.baseSoundEffectsVolume
 
-  private let engine = AVAudioEngine()
   @Shared(.hexSettings) var hexSettings: HexSettings
-  private var playerNodes: [SoundEffect: AVAudioPlayerNode] = [:]
-  private var audioBuffers: [SoundEffect: AVAudioPCMBuffer] = [:]
-  private var isEngineRunning = false
+  private var players: [SoundEffect: AVAudioPlayer] = [:]
 
   func play(_ soundEffect: SoundEffect) {
-	guard hexSettings.soundEffectsEnabled else { return }
-	guard let player = playerNodes[soundEffect], let buffer = audioBuffers[soundEffect] else {
-		logger.error("Requested sound \(soundEffect.rawValue) not preloaded")
-		return
-	}
-	prepareEngineIfNeeded()
-	let clampedVolume = min(max(hexSettings.soundEffectsVolume, 0), baselineVolume)
-	player.volume = Float(clampedVolume)
-	player.stop()
-	player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
-	player.play()
+    guard hexSettings.soundEffectsEnabled else { return }
+
+    // Playback can race app startup. Load the requested cue on demand so the
+    // first hotkey press never depends on preload timing.
+    if players[soundEffect] == nil {
+      loadSound(soundEffect)
+    }
+    guard let player = players[soundEffect] else {
+      logger.error("Requested sound \(soundEffect.rawValue) could not be loaded")
+      return
+    }
+    let clampedVolume = min(max(hexSettings.soundEffectsVolume, 0), baselineVolume)
+    player.volume = Float(clampedVolume)
+    player.stop()
+    player.currentTime = 0
+    player.play()
   }
 
   func stop(_ soundEffect: SoundEffect) {
-    playerNodes[soundEffect]?.stop()
+    players[soundEffect]?.stop()
   }
 
   func stopAll() {
-    playerNodes.values.forEach { $0.stop() }
+    players.values.forEach { $0.stop() }
   }
 
   func preloadSounds() async {
@@ -113,7 +118,6 @@ actor SoundEffectsClientLive {
     for soundEffect in SoundEffect.allCases {
       loadSound(soundEffect)
     }
-    prepareEngineIfNeeded()
 
     isSetup = true
   }
@@ -130,35 +134,11 @@ actor SoundEffectsClientLive {
     }
 
     do {
-      let file = try AVAudioFile(forReading: url)
-      let frameCount = AVAudioFrameCount(file.length)
-      guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frameCount) else {
-        logger.error("Failed to allocate buffer for \(soundEffect.rawValue)")
-        return
-      }
-      try file.read(into: buffer)
-      audioBuffers[soundEffect] = buffer
-
-      let player = AVAudioPlayerNode()
-      engine.attach(player)
-      engine.connect(player, to: engine.mainMixerNode, format: buffer.format)
-      playerNodes[soundEffect] = player
+      let player = try AVAudioPlayer(contentsOf: url)
+      player.prepareToPlay()
+      players[soundEffect] = player
     } catch {
       logger.error("Failed to load sound \(soundEffect.rawValue): \(error.localizedDescription)")
-    }
-  }
-  private func prepareEngineIfNeeded() {
-    if !isEngineRunning || !engine.isRunning {
-      engine.prepare()
-      if #available(macOS 13.0, *) {
-        engine.isAutoShutdownEnabled = false
-      }
-      do {
-        try engine.start()
-        isEngineRunning = true
-      } catch {
-        logger.error("Failed to start AVAudioEngine: \(error.localizedDescription)")
-      }
     }
   }
 }

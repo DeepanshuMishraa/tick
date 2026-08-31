@@ -463,8 +463,8 @@ private extension TranscriptionFeature {
 
     // Prevent system sleep during recording
     return .run { [sleepManagement, preventSleep = state.hexSettings.preventSystemSleep] send in
-      // Play sound immediately for instant feedback
-      soundEffect.play(.startRecording)
+      // Distinguish push-to-talk from continuous mode immediately.
+      soundEffect.play(isLocked ? .startContinuous : .startRecording)
 
       if preventSleep {
         await sleepManagement.preventSleep(reason: "Hex Voice Recording")
@@ -501,6 +501,7 @@ private extension TranscriptionFeature {
   }
 
   func handleStopRecording(_ state: inout State) -> Effect<Action> {
+    let wasLocked = state.isLocked
     state.isRecording = false
     state.isLocked = false
     
@@ -554,7 +555,7 @@ private extension TranscriptionFeature {
 
       var audioURL: URL?
       do {
-        soundEffect.play(.stopRecording)
+        soundEffect.play(wasLocked ? .stopContinuous : .stopRecording)
         let capturedURL = await recording.stopRecording()
         await recording.clearAudioChunkHandler()
         audioURL = capturedURL
