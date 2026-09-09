@@ -56,6 +56,7 @@ struct MenuBarMicrophoneMenu: View {
     @Shared(.hexSettings) private var hexSettings: HexSettings
 
     @State private var inputDevices: [AudioInputDevice] = []
+    @State private var unavailableBluetoothInputDevices: [AudioInputDevice] = []
     @State private var defaultInputDeviceName: String?
 
     var body: some View {
@@ -86,9 +87,24 @@ struct MenuBarMicrophoneMenu: View {
                 Text("No microphones found")
                     .foregroundStyle(.secondary)
             }
+
+            if !unavailableBluetoothInputDevices.isEmpty {
+                Divider()
+                ForEach(unavailableBluetoothInputDevices) { device in
+                    Button {} label: {
+                        Label("\(device.name) (mic profile unavailable)", systemImage: "headphones")
+                    }
+                    .disabled(true)
+                }
+            }
         }
-        .onAppear {
-            refreshDevices()
+        .task {
+            for await snapshot in await recording.observeInputDevices() {
+                guard !Task.isCancelled else { return }
+                inputDevices = snapshot.devices
+                unavailableBluetoothInputDevices = snapshot.unavailableBluetoothDevices
+                defaultInputDeviceName = snapshot.defaultDeviceName
+            }
         }
     }
 
@@ -106,14 +122,6 @@ struct MenuBarMicrophoneMenu: View {
         $hexSettings.withLock { $0.selectedMicrophoneID = id }
     }
 
-    private func refreshDevices() {
-        Task {
-            async let devices = recording.getAvailableInputDevices()
-            async let defaultName = recording.getDefaultInputDeviceName()
-            inputDevices = await devices
-            defaultInputDeviceName = await defaultName
-        }
-    }
 }
 
 // MARK: - Animated Menu Bar Recording Icon
@@ -133,6 +141,14 @@ struct MenuBarRecordingIcon: View {
         Image(nsImage: .tickMenuBarIcon(isRecording: isRecording, phase: phase))
             .onReceive(timer) { _ in
                 let recordingNow = HexApp.appStore.state.transcription.isRecording
+                guard recordingNow != isRecording else {
+                    // While recording, keep animating; while idle, skip the
+                    // NSImage redraw entirely so the menu bar costs ~nothing.
+                    if recordingNow {
+                        phase = (phase + 0.35).truncatingRemainder(dividingBy: .pi * 2)
+                    }
+                    return
+                }
                 isRecording = recordingNow
                 if isRecording {
                     phase = (phase + 0.35).truncatingRemainder(dividingBy: .pi * 2)

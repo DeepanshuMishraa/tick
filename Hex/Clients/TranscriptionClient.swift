@@ -108,11 +108,16 @@ actor TranscriptionClientLive {
   private var parakeet: ParakeetClient = ParakeetClient()
 
   /// The base folder under which we store model data (e.g., ~/Library/Application Support/...).
+  /// Never crashes: falls back to a temporary directory so a sandbox or disk
+  /// failure degrades to a download error instead of killing the app.
   private lazy var modelsBaseFolder: URL = {
     do {
       return try URL.hexModelsDirectory
     } catch {
-      fatalError("Could not create Application Support folder: \(error)")
+      modelsLogger.error("Could not create Application Support folder: \(error.localizedDescription); using temporary models folder")
+      let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("com.dipxsy.Tick/models", isDirectory: true)
+      try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+      return fallback
     }
   }()
 

@@ -567,6 +567,7 @@ private extension TranscriptionFeature {
         do {
           streamingResult = try await transcription.finishStreaming()
         } catch {
+          try Task.checkCancellation()
           transcriptionFeatureLogger.error("Streaming transcription flush failed: \(error.localizedDescription); using batch transcription")
           await transcription.cancelStreaming()
           streamingResult = nil
@@ -588,9 +589,11 @@ private extension TranscriptionFeature {
           result = try await transcription.transcribe(capturedURL, model, decodeOptions) { _ in }
         }
 
+        try Task.checkCancellation()
         transcriptionFeatureLogger.notice("Transcribed audio from \(capturedURL.lastPathComponent) to text length \(result.count)")
         await send(.transcriptionResult(result, capturedURL))
       } catch {
+        guard !Task.isCancelled else { return }
         transcriptionFeatureLogger.error("Transcription failed: \(error.localizedDescription)")
         await send(.transcriptionError(error, audioURL))
       }
@@ -696,6 +699,7 @@ private extension TranscriptionFeature {
           resultToUse = try await aiPostProcessing.postProcess(modifiedResult, aiMode, appContext)
           transcriptionFeatureLogger.info("AI post-processing completed with mode: \(aiMode.displayName), app: \(appContext?.appName ?? "unknown"), elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - aiStartedAt) * 1000), privacy: .public)")
         } catch {
+          try Task.checkCancellation()
           // Model loading and runtime failures must not discard a complete
           // transcription. The deterministic stage still removes fillers,
           // resolves high-confidence corrections, and formats spoken lists.
@@ -710,6 +714,7 @@ private extension TranscriptionFeature {
         return
       }
 
+      try Task.checkCancellation()
       let pasteStartedAt = ProcessInfo.processInfo.systemUptime
       let pasteResult = await pasteboard.paste(resultToUse)
       transcriptionFeatureLogger.info("Paste transport elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - pasteStartedAt) * 1000), privacy: .public) totalKeyReleaseToPasteMs=\(Int((ProcessInfo.processInfo.systemUptime - requestStartUptime) * 1000), privacy: .public)")
@@ -845,7 +850,10 @@ private extension TranscriptionFeature {
 
       do {
         while Date().timeIntervalSince(startedAt) < observationWindow {
-          try await Task.sleep(for: .milliseconds(150))
+          // Back off after the first 10s: corrections are usually immediate,
+          // and 400 AX queries per paste costs battery + main-thread time.
+          let elapsed = Date().timeIntervalSince(startedAt)
+          try await Task.sleep(for: .milliseconds(elapsed < 10 ? 150 : 500))
           guard let currentText = await pasteboard.focusedText() else { continue }
 
           // AX can briefly return the value from before Cmd-V. It is neither a

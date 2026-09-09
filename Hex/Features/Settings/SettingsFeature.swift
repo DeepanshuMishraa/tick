@@ -51,6 +51,7 @@ struct SettingsFeature {
     
     // Available microphones
     var availableInputDevices: [AudioInputDevice] = []
+    var unavailableBluetoothInputDevices: [AudioInputDevice] = []
     var defaultInputDeviceName: String?
 
     // Model Management
@@ -66,6 +67,7 @@ struct SettingsFeature {
     var aiModelDownloadProgress: Double = 0
     var aiModelError: String?
     var activeAIModelDownloadID: UUID?
+    var groqAPIKey = ""
   }
 
   enum Action: BindableAction {
@@ -89,8 +91,7 @@ struct SettingsFeature {
     case requestInputMonitoring
 
     // Microphone selection
-    case loadAvailableInputDevices
-    case availableInputDevicesLoaded([AudioInputDevice], String?)
+    case inputDeviceSnapshotChanged(AudioInputDeviceSnapshot)
 
     // Model Management
     case modelDownload(ModelDownloadFeature.Action)
@@ -111,6 +112,9 @@ struct SettingsFeature {
     // AI Post-Processing
     case setAIPostProcessingMode(AIPostProcessingMode)
     case selectAIModel(OnDeviceAIModel)
+    case selectGroqModel(GroqAIModel)
+    case groqAPIKeyLoaded(String?)
+    case setGroqAPIKey(String)
     case fetchAIModel
     case aiModelStatusLoaded(isDownloaded: Bool, size: Int64?)
     case downloadAIModel
@@ -147,7 +151,6 @@ struct SettingsFeature {
   }
 
   @Dependency(\.keyEventMonitor) var keyEventMonitor
-  @Dependency(\.continuousClock) var clock
   @Dependency(\.transcription) var transcription
   @Dependency(\.recording) var recording
   @Dependency(\.permissions) var permissions
@@ -273,66 +276,32 @@ struct SettingsFeature {
           settingsLogger.error("Failed to load languages JSON from bundle")
         }
 
-        // Listen for key events and load microphones (existing + new)
         return .run { send in
           await send(.modelDownload(.fetchModels))
           await send(.fetchAIModel)
-          await send(.loadAvailableInputDevices)
-          
-          // Set up periodic refresh of available devices (every 120 seconds)
-          // Using a longer interval to reduce resource usage
-          let deviceRefreshTask = Task { @MainActor in
-            for await _ in clock.timer(interval: .seconds(120)) {
-              // Only refresh when the app is active to save resources
-              if NSApplication.shared.isActive {
-                send(.loadAvailableInputDevices)
-              }
-            }
-          }
-          
-          // Listen for device connection/disconnection notifications
-          // Using a simpler debounced approach with a single task
-          var deviceUpdateTask: Task<Void, Never>?
-          
-          // Helper function to debounce device updates
-          func debounceDeviceUpdate() {
-            deviceUpdateTask?.cancel()
-            deviceUpdateTask = Task {
-              try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
-              if !Task.isCancelled {
-                await send(.loadAvailableInputDevices)
-              }
-            }
-          }
-          
-          let deviceConnectionObserver = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name(rawValue: "AVCaptureDeviceWasConnected"),
-            object: nil,
-            queue: .main
-          ) { _ in
-            debounceDeviceUpdate()
-          }
-          
-          let deviceDisconnectionObserver = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name(rawValue: "AVCaptureDeviceWasDisconnected"),
-            object: nil,
-            queue: .main
-          ) { _ in
-            debounceDeviceUpdate()
-          }
-          
-          // Be sure to clean up resources when the task is finished
-          defer {
-            deviceUpdateTask?.cancel()
-            NotificationCenter.default.removeObserver(deviceConnectionObserver)
-            NotificationCenter.default.removeObserver(deviceDisconnectionObserver)
-          }
+          await send(.groqAPIKeyLoaded(aiPostProcessing.groqAPIKey()))
 
-          for try await keyEvent in await keyEventMonitor.listenForKeyPress() {
-            await send(.keyEvent(keyEvent))
+          await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+              for await snapshot in await recording.observeInputDevices() {
+                guard !Task.isCancelled else { return }
+                await send(.inputDeviceSnapshotChanged(snapshot))
+              }
+            }
+            group.addTask {
+              do {
+                for try await keyEvent in await keyEventMonitor.listenForKeyPress() {
+                  try Task.checkCancellation()
+                  await send(.keyEvent(keyEvent))
+                }
+              } catch is CancellationError {
+                return
+              } catch {
+                settingsLogger.error("Hotkey settings listener failed: \(error.localizedDescription)")
+              }
+            }
+            await group.waitForAll()
           }
-          
-          deviceRefreshTask.cancel()
         }
 
       case .startSettingHotKey:
@@ -457,16 +426,10 @@ struct SettingsFeature {
         return .none
       
       // Microphone device selection
-      case .loadAvailableInputDevices:
-        return .run { send in
-          let devices = await recording.getAvailableInputDevices()
-          let defaultName = await recording.getDefaultInputDeviceName()
-          await send(.availableInputDevicesLoaded(devices, defaultName))
-        }
-        
-      case let .availableInputDevicesLoaded(devices, defaultName):
-        state.availableInputDevices = devices
-        state.defaultInputDeviceName = defaultName
+      case let .inputDeviceSnapshotChanged(snapshot):
+        state.availableInputDevices = snapshot.devices
+        state.unavailableBluetoothInputDevices = snapshot.unavailableBluetoothDevices
+        state.defaultInputDeviceName = snapshot.defaultDeviceName
         return .none
         
       case let .toggleSaveTranscriptionHistory(enabled):
@@ -503,6 +466,18 @@ struct SettingsFeature {
         state.aiModelIsDownloaded = false
         state.aiModelSize = nil
         return .send(.fetchAIModel)
+
+      case let .selectGroqModel(model):
+        state.$hexSettings.withLock { $0.selectedGroqModel = model }
+        return .none
+
+      case let .groqAPIKeyLoaded(key):
+        state.groqAPIKey = key ?? ""
+        return .none
+
+      case let .setGroqAPIKey(key):
+        state.groqAPIKey = key
+        return .run { _ in aiPostProcessing.setGroqAPIKey(key.isEmpty ? nil : key) }
 
       case .fetchAIModel:
         guard !state.isLoadingAIModel else { return .none }

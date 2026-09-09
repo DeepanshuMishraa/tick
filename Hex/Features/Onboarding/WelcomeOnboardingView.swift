@@ -45,6 +45,14 @@ public struct WelcomeOnboardingView: View {
     return accessibilityPermission == .denied ? "Open Settings" : "Enable Accessibility"
   }
 
+  /// The user's theme accent, resolved from this view's own @Shared settings
+  /// storage. Passed explicitly into the onboarding buttons so every button
+  /// renders with the exact same color as the welcome screen, instead of each
+  /// button re-reading (and potentially falling back from) TickColor.brand.
+  private var accentColor: Color {
+    hexSettings.themeColor.accentColor
+  }
+
   private var canProceedFromPermissions: Bool {
     isMicrophoneGranted && isAccessibilityGranted
   }
@@ -276,6 +284,7 @@ public struct WelcomeOnboardingView: View {
           subtitle: "Allows audio recording while you hold your dictation hotkey.",
           isGranted: isMicrophoneGranted,
           buttonTitle: microphonePermission == .denied ? "Open Settings" : "Enable Microphone",
+          accent: accentColor,
           action: {
             Task {
               if microphonePermission == .denied {
@@ -296,6 +305,7 @@ public struct WelcomeOnboardingView: View {
           subtitle: "Required to detect your hotkey and insert transcriptions into active apps.",
           isGranted: isAccessibilityGranted,
           buttonTitle: accessibilityButtonTitle,
+          accent: accentColor,
           action: {
             Task {
               // PermissionFlow shows a single floating panel at a time, so
@@ -337,6 +347,7 @@ public struct WelcomeOnboardingView: View {
             title: "Continue",
             icon: "arrow.right",
             isEnabled: true,
+            tint: accentColor,
             action: {
               withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) {
                 currentStep = 1
@@ -373,9 +384,16 @@ public struct WelcomeOnboardingView: View {
             ElevatedTactileButton(
               title: isPermissionRepair ? "Done" : "Enter Tick",
               icon: "checkmark.circle.fill",
-              isEnabled: canProceedFromPermissions,
+              // Always render in the enabled brand style (matching the
+              // welcome screen); the action itself stays guarded so the
+              // button just does nothing until permissions are granted.
+              isEnabled: true,
+              tint: accentColor,
               action: {
-                guard canProceedFromPermissions else { return }
+                guard canProceedFromPermissions else {
+                  refreshPermissions()
+                  return
+                }
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
                   $hexSettings.withLock {
                     $0.hasCompletedWelcomeOnboarding = true
@@ -397,11 +415,21 @@ public struct WelcomeOnboardingView: View {
 
   // MARK: - Helpers & Polling
 
+  @State private var wasAllPermissionsGranted = false
+
   private func refreshPermissions() {
     Task { @MainActor in
       microphonePermission = await permissions.microphoneStatus()
       accessibilityPermission = permissions.accessibilityStatus()
       inputMonitoringPermission = permissions.inputMonitoringStatus()
+
+      let allGranted = isMicrophoneGranted && isAccessibilityGranted
+      if allGranted && !wasAllPermissionsGranted {
+        // The user just finished granting permissions - dismiss any
+        // PermissionFlow floating drag panel still on screen.
+        await permissions.dismissPermissionPanels()
+      }
+      wasAllPermissionsGranted = allGranted
     }
   }
 
@@ -681,6 +709,7 @@ private struct ElevatedPermissionCard: View {
   let subtitle: String
   let isGranted: Bool
   let buttonTitle: String
+  var accent: Color = TickColor.brand
   let action: () -> Void
 
   @State private var isHovered = false
@@ -692,8 +721,8 @@ private struct ElevatedPermissionCard: View {
           .fill(
             LinearGradient(
               colors: [
-                isGranted ? TickColor.success.opacity(0.20) : TickColor.brand.opacity(0.16),
-                isGranted ? TickColor.success.opacity(0.08) : TickColor.brand.opacity(0.06)
+                isGranted ? TickColor.success.opacity(0.20) : accent.opacity(0.16),
+                isGranted ? TickColor.success.opacity(0.08) : accent.opacity(0.06)
               ],
               startPoint: .top,
               endPoint: .bottom
@@ -704,7 +733,7 @@ private struct ElevatedPermissionCard: View {
             RoundedRectangle(cornerRadius: 11)
               .stroke(
                 LinearGradient(
-                  colors: [Color.white.opacity(0.35), (isGranted ? TickColor.success : TickColor.brand).opacity(0.30)],
+                  colors: [Color.white.opacity(0.35), (isGranted ? TickColor.success : accent).opacity(0.30)],
                   startPoint: .topLeading,
                   endPoint: .bottomTrailing
                 ),
@@ -714,7 +743,7 @@ private struct ElevatedPermissionCard: View {
 
         Image(systemName: icon)
           .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(isGranted ? TickColor.success : TickColor.brand)
+          .foregroundStyle(isGranted ? TickColor.success : accent)
       }
 
       VStack(alignment: .leading, spacing: 3) {
@@ -757,6 +786,7 @@ private struct ElevatedPermissionCard: View {
           icon: "arrow.up.right",
           isCompact: true,
           isEnabled: true,
+          tint: accent,
           action: action
         )
       }
@@ -795,7 +825,7 @@ private struct ElevatedPermissionCard: View {
             colors: isGranted
               ? [Color.white.opacity(0.20), Color.white.opacity(0.06)]
               : (isHovered
-                  ? [TickColor.brand.opacity(0.55), Color.white.opacity(0.18)]
+                  ? [accent.opacity(0.55), Color.white.opacity(0.18)]
                   : [Color.white.opacity(0.22), Color.white.opacity(0.05)]),
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -818,6 +848,7 @@ private struct ElevatedTactileButton: View {
   let icon: String?
   var isCompact: Bool = false
   var isEnabled: Bool = true
+  var tint: Color = TickColor.brand
   let action: () -> Void
 
   @State private var isHovered = false
@@ -843,8 +874,8 @@ private struct ElevatedTactileButton: View {
             // Elevated physical gradient
             LinearGradient(
               colors: [
-                TickColor.brand.opacity(isHovered ? 1.0 : 0.92),
-                TickColor.brand.opacity(0.80)
+                tint.opacity(isHovered ? 1.0 : 0.92),
+                tint.opacity(0.80)
               ],
               startPoint: .top,
               endPoint: .bottom
@@ -875,7 +906,7 @@ private struct ElevatedTactileButton: View {
           .stroke(
             isEnabled
               ? LinearGradient(
-                  colors: [Color.white.opacity(0.55), TickColor.brand.opacity(0.35)],
+                  colors: [Color.white.opacity(0.55), tint.opacity(0.35)],
                   startPoint: .top,
                   endPoint: .bottom
                 )
@@ -895,7 +926,7 @@ private struct ElevatedTactileButton: View {
         y: isHovered ? 3 : 1.5
       )
       .shadow(
-        color: isEnabled ? TickColor.brand.opacity(isHovered ? 0.45 : 0.28) : Color.clear,
+        color: isEnabled ? tint.opacity(isHovered ? 0.45 : 0.28) : Color.clear,
         radius: isHovered ? 12 : 6,
         x: 0,
         y: isHovered ? 5 : 3

@@ -75,6 +75,12 @@ public struct PermissionClient: Sendable {
   /// Open System Settings to the Input Monitoring privacy panel.
   public var openInputMonitoringSettings: @Sendable () async -> Void = {}
 
+  /// Dismiss any PermissionFlow floating drag panel currently on screen.
+  ///
+  /// Called once permissions are granted so the helper panel doesn't linger
+  /// after the user finishes the drag-to-authorize flow.
+  public var dismissPermissionPanels: @Sendable () async -> Void = {}
+
   /// Observe app activation events.
   ///
   /// Returns an `AsyncStream` that yields `AppActivation` events when the app

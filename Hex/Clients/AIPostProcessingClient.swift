@@ -8,6 +8,8 @@ import Dependencies
 import DependenciesMacros
 import Foundation
 import HexCore
+import Network
+import Security
 
 #if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
 import MLXLLM
@@ -159,11 +161,14 @@ struct AIPostProcessingClient {
 	var downloadModel: @Sendable (@escaping @Sendable (Progress) -> Void) async throws -> Void
 	var warmModel: @Sendable () async throws -> Void
 	var deleteModel: @Sendable () async throws -> Void
+	var groqAPIKey: @Sendable () -> String?
+	var setGroqAPIKey: @Sendable (String?) -> Void
 }
 
 extension AIPostProcessingClient: DependencyKey {
 	static var liveValue: Self {
-		let manager = LocalAIModelManager()
+		let reachability = NetworkReachability()
+		let manager = LocalAIModelManager(reachability: reachability)
 		return .init(
 			postProcess: { text, mode, appContext in
 				try await manager.postProcess(text: text, mode: mode, appContext: appContext)
@@ -182,7 +187,9 @@ extension AIPostProcessingClient: DependencyKey {
 			},
 			deleteModel: {
 				try await manager.deleteModel()
-			}
+			},
+			groqAPIKey: { GroqKeychain.value },
+			setGroqAPIKey: { GroqKeychain.set($0) }
 		)
 	}
 }
@@ -194,15 +201,64 @@ extension DependencyValues {
 	}
 }
 
+private final class NetworkReachability: @unchecked Sendable {
+	private let lock = NSLock()
+	private var reachable = true
+	private let monitor = NWPathMonitor()
+
+	init() {
+		monitor.pathUpdateHandler = { [weak self] path in
+			self?.lock.lock()
+			self?.reachable = path.status == .satisfied
+			self?.lock.unlock()
+		}
+		monitor.start(queue: DispatchQueue(label: "com.dipxsy.Hex.network-monitor"))
+	}
+
+	var isReachable: Bool {
+		lock.lock()
+		defer { lock.unlock() }
+		return reachable
+	}
+}
+
+private enum GroqKeychain {
+	private static let service = "com.dipxsy.Hex.groq"
+	private static let account = "api-key"
+
+	static var value: String? {
+		let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecReturnData as String: true]
+		var result: CFTypeRef?
+		guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+			let data = result as? Data,
+			let key = String(data: data, encoding: .utf8), !key.isEmpty else { return nil }
+		return key
+	}
+
+	static func set(_ value: String?) {
+		let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+		SecItemDelete(query as CFDictionary)
+		guard let value, !value.isEmpty, let data = value.data(using: .utf8) else { return }
+		var item = query
+		item[kSecValueData as String] = data
+		SecItemAdd(item as CFDictionary, nil)
+	}
+}
+
 private actor LocalAIModelManager {
+	private let reachability: NetworkReachability
+	@Shared(.hexSettings) private var hexSettings: HexSettings
+
+	init(reachability: NetworkReachability) {
+		self.reachability = reachability
+	}
+
 	#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
 	private var modelContainer: ModelContainer?
 	private var loadedModel: OnDeviceAIModel?
 	private var metalKernelsWarmed = false
 	private var warmedModel: OnDeviceAIModel?
 	private var warmTask: Task<Void, Error>?
-	@Shared(.hexSettings) private var hexSettings: HexSettings
-
 	private let parallelDownloadThreshold: Int64 = 32 * 1024 * 1024
 	// R2 supports byte ranges. More, smaller chunks saturate fast connections
 	// better than six 64 MB requests, especially when one edge connection is
@@ -214,6 +270,34 @@ private actor LocalAIModelManager {
 		hexSettings.selectedAIModel
 	}
 
+	private var downloadedCache: [String: (result: Bool, at: Date)] = [:]
+
+	func isModelDownloaded() -> Bool {
+		let key = selectedModel.rawValue
+		if let cached = downloadedCache[key], Date().timeIntervalSince(cached.at) < 30 {
+			return cached.result
+		}
+		guard let directory = try? modelDirectory,
+			FileManager.default.fileExists(atPath: directory.path)
+		else {
+			downloadedCache[key] = (false, Date())
+			return false
+		}
+
+		let fileManager = FileManager.default
+		let requiredFiles = ["config.json", "tokenizer.json", "tokenizer_config.json"]
+		guard requiredFiles.allSatisfy({ fileManager.fileExists(atPath: directory.appendingPathComponent($0).path) }) else {
+			downloadedCache[key] = (false, Date())
+			return false
+		}
+
+		let result = fileManager.enumerator(at: directory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)?
+			.compactMap { $0 as? URL }
+			.contains(where: { $0.pathExtension == "safetensors" }) ?? false
+		downloadedCache[key] = (result, Date())
+		return result
+	}
+
 	private var modelDirectory: URL {
 		get throws {
 			try URL.hexAIModelsDirectory.appendingPathComponent(selectedModel.rawValue, isDirectory: true)
@@ -222,22 +306,6 @@ private actor LocalAIModelManager {
 
 	private var modelDirectoryName: String {
 		selectedModel.rawValue
-	}
-
-	func isModelDownloaded() -> Bool {
-		guard let directory = try? modelDirectory,
-			FileManager.default.fileExists(atPath: directory.path)
-		else { return false }
-
-		let fileManager = FileManager.default
-		let requiredFiles = ["config.json", "tokenizer.json", "tokenizer_config.json"]
-		guard requiredFiles.allSatisfy({ fileManager.fileExists(atPath: directory.appendingPathComponent($0).path) }) else {
-			return false
-		}
-
-		return fileManager.enumerator(at: directory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)?
-			.compactMap { $0 as? URL }
-			.contains(where: { $0.pathExtension == "safetensors" }) ?? false
 	}
 
 	func modelSize() -> Int64? {
@@ -318,6 +386,7 @@ private actor LocalAIModelManager {
 		guard isModelDownloaded() else {
 			throw AIPostProcessingError.incompleteModel
 		}
+		downloadedCache[selectedModel.rawValue] = (true, Date())
 		try? fileManager.removeItem(at: stagingDirectory)
 		aiLogger.notice("On-device AI model download completed")
 	}
@@ -360,7 +429,11 @@ private actor LocalAIModelManager {
 			}
 			lock.unlock()
 			if shouldNotify {
-				handler(progress)
+				// Progress is not thread-safe to observe from 12 concurrent
+				// download tasks; always deliver UI updates on main.
+				let handler = handler
+				let progress = progress
+				DispatchQueue.main.async { handler(progress) }
 			}
 		}
 
@@ -370,7 +443,9 @@ private actor LocalAIModelManager {
 			lastNotifiedBytes = value
 			lastNotificationUptime = ProcessInfo.processInfo.systemUptime
 			lock.unlock()
-			handler(progress)
+			let handler = handler
+			let progress = progress
+			DispatchQueue.main.async { handler(progress) }
 		}
 
 		func notify() {
@@ -378,7 +453,9 @@ private actor LocalAIModelManager {
 			lastNotifiedBytes = progress.completedUnitCount
 			lastNotificationUptime = ProcessInfo.processInfo.systemUptime
 			lock.unlock()
-			handler(progress)
+			let handler = handler
+			let progress = progress
+			DispatchQueue.main.async { handler(progress) }
 		}
 	}
 
@@ -585,6 +662,7 @@ private actor LocalAIModelManager {
 		warmedModel = nil
 		loadedModel = nil
 		modelContainer = nil
+		downloadedCache.removeAll()
 		let fileManager = FileManager.default
 		let destination = try modelDirectory
 		if fileManager.fileExists(atPath: destination.path) {
@@ -598,11 +676,8 @@ private actor LocalAIModelManager {
 
 	func postProcess(text: String, mode: AIPostProcessingMode, appContext: AppContext?) async throws -> String {
 		let startedAt = ProcessInfo.processInfo.systemUptime
+		try Task.checkCancellation()
 		guard mode != .off else { return text }
-		guard isModelDownloaded() else {
-			aiLogger.warning("On-device AI is enabled but its model is unavailable")
-			throw AIPostProcessingError.modelUnavailable
-		}
 
 		let normalizedInput = AIPostProcessingInputNormalizer.normalized(text)
 		let effectiveContext = Self.effectiveAppContext(appContext, for: normalizedInput)
@@ -613,8 +688,30 @@ private actor LocalAIModelManager {
 		)
 		guard !prompt.isEmpty else { return text }
 		guard !normalizedInput.isEmpty else {
-			aiLogger.warning("Qwen rejected empty normalized input")
+			aiLogger.warning("AI rejected empty normalized input")
 			throw AIPostProcessingError.invalidOutput
+		}
+
+		if let apiKey = GroqKeychain.value {
+			guard reachability.isReachable else {
+				aiLogger.warning("Groq is configured but the network is unavailable; returning the deterministic transcript")
+				throw AIPostProcessingError.remoteProcessingFailed
+			}
+
+			do {
+				let output = try await Self.postProcessWithGroq(input: normalizedInput, prompt: prompt, apiKey: apiKey, model: hexSettings.selectedGroqModel)
+				aiLogger.info("Groq AI post-processing completed model=\(self.hexSettings.selectedGroqModel.rawValue, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
+				return output
+			} catch {
+				try Task.checkCancellation()
+				aiLogger.warning("Groq post-processing failed within its deadline; returning the deterministic transcript error=\(error.localizedDescription, privacy: .public)")
+				throw error
+			}
+		}
+
+		guard isModelDownloaded() else {
+			aiLogger.warning("Local AI fallback is enabled but its model is unavailable")
+			throw AIPostProcessingError.modelUnavailable
 		}
 
 		#if canImport(MLXLLM) && canImport(MLXLMCommon) && canImport(Tokenizers)
@@ -625,7 +722,7 @@ private actor LocalAIModelManager {
 		let chunks = AIPostProcessingChunker.chunks(for: normalizedInput)
 		let modelName = self.selectedModel.rawValue
 		if chunks.count > 1 {
-			aiLogger.info("Qwen parallel pipeline chunks=\(chunks.count, privacy: .public) inputChars=\(normalizedInput.count, privacy: .public)")
+			aiLogger.info("Qwen serial pipeline chunks=\(chunks.count, privacy: .public) inputChars=\(normalizedInput.count, privacy: .public)")
 			let chunkPrompt = prompt + """
 
 You are processing one internal segment of a longer dictation. Edit only this segment. Do not add greetings, closings, headings, list markers, or facts that are not present in this segment. Return only the required compact JSON edit script.
@@ -635,41 +732,29 @@ You are processing one internal segment of a longer dictation. Edit only this se
 			// Multiple concurrent generations contend for the same Metal model and
 			// were 4–6x slower in traces. Keep one model stream in flight; rolling
 			// streaming ASR will move earlier segments off the release path.
-			let maximumConcurrentChunks = 1
-			for batchStart in stride(from: 0, to: chunks.count, by: maximumConcurrentChunks) {
-				let batchEnd = min(batchStart + maximumConcurrentChunks, chunks.count)
-				await withTaskGroup(of: (Int, String, Bool).self) { group in
-					for index in batchStart..<batchEnd {
-						let chunk = chunks[index]
-						group.addTask {
-							do {
-								let output = try await Self.generateValidated(
-									container: container,
-									prompt: chunkPrompt,
-									sourceText: chunk,
-									modelName: modelName,
-									chunkIndex: index
-								)
-								return (index, output, false)
-							} catch {
-								let normalized = AIPostProcessingInputNormalizer.normalized(chunk)
-								let completeOutput = normalized.isEmpty ? chunk : normalized
-								aiLogger.error("Qwen chunk=\(index, privacy: .public) returned an invalid edit script; using deterministic processed segment error=\(error.localizedDescription, privacy: .public)")
-								return (index, completeOutput, true)
-							}
-						}
-					}
-					for await (index, output, usedDeterministicCompletion) in group {
-						results[index] = output
-						if usedDeterministicCompletion { deterministicCompletions += 1 }
-					}
+			for (index, chunk) in chunks.enumerated() {
+				try Task.checkCancellation()
+				do {
+					results[index] = try await Self.generateValidated(
+						container: container,
+						prompt: chunkPrompt,
+						sourceText: chunk,
+						modelName: modelName,
+						chunkIndex: index
+					)
+				} catch {
+					try Task.checkCancellation()
+					let normalized = AIPostProcessingInputNormalizer.normalized(chunk)
+					results[index] = normalized.isEmpty ? chunk : normalized
+					deterministicCompletions += 1
+					aiLogger.error("Qwen chunk=\(index, privacy: .public) returned an invalid edit script; using deterministic processed segment error=\(error.localizedDescription, privacy: .public)")
 				}
 			}
 			let output = results.joined(separator: " ")
 			guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
 				throw AIPostProcessingError.invalidOutput
 			}
-			aiLogger.info("Accepted parallel on-device AI output chars=\(output.count, privacy: .public) chunks=\(chunks.count, privacy: .public) deterministicCompletions=\(deterministicCompletions, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
+			aiLogger.info("Accepted serial on-device AI output chars=\(output.count, privacy: .public) chunks=\(chunks.count, privacy: .public) deterministicCompletions=\(deterministicCompletions, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
 			return output
 		}
 
@@ -684,12 +769,44 @@ You are processing one internal segment of a longer dictation. Edit only this se
 			aiLogger.info("Accepted on-device AI output chars=\(output.count, privacy: .public) durationMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000), privacy: .public)")
 			return output
 		} catch {
+			try Task.checkCancellation()
 			aiLogger.error("Qwen returned an invalid edit script; using deterministic processed transcript error=\(error.localizedDescription, privacy: .public)")
 			return normalizedInput
 		}
 		#else
 		throw AIPostProcessingError.mlXUnavailable
 		#endif
+	}
+
+	private struct GroqRequest: Encodable {
+		struct Message: Encodable { let role: String; let content: String }
+		let model: String
+		let messages: [Message]
+		let temperature: Double
+		let max_tokens: Int
+		let reasoning_effort: String?
+	}
+
+	private struct GroqResponse: Decodable {
+		struct Choice: Decodable { struct Message: Decodable { let content: String? }; let message: Message }
+		let choices: [Choice]
+	}
+
+	private static func postProcessWithGroq(input: String, prompt: String, apiKey: String, model: GroqAIModel) async throws -> String {
+		var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/chat/completions")!)
+		request.httpMethod = "POST"
+		request.timeoutInterval = 1
+		request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+		request.httpBody = try JSONEncoder().encode(GroqRequest(model: model.rawValue, messages: [.init(role: "system", content: prompt), .init(role: "user", content: input)], temperature: 0.1, max_tokens: 2048, reasoning_effort: model == .qwen36 || model == .qwen38 ? "none" : nil))
+		let (data, response) = try await AIPostProcessingHTTPTransport.data(for: request)
+		guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else { throw AIPostProcessingError.remoteProcessingFailed }
+		let result = try JSONDecoder().decode(GroqResponse.self, from: data)
+		guard let content = result.choices.first?.message.content,
+			let output = AIPostProcessingEditScript.applying(content, to: input) else {
+			throw AIPostProcessingError.invalidOutput
+		}
+		return output
 	}
 
 	private static func effectiveAppContext(_ context: AppContext?, for text: String) -> AppContext? {
@@ -726,25 +843,31 @@ You are processing one internal segment of a longer dictation. Edit only this se
 		let preparedInput = try await container.prepare(input: input)
 		let prepareElapsedMs = Int((ProcessInfo.processInfo.systemUptime - prepareStartedAt) * 1000)
 		let generationStartedAt = ProcessInfo.processInfo.systemUptime
-		let generation = try await container.generate(
-			input: preparedInput,
-			parameters: GenerateParameters(
-				maxTokens: maxOutputTokens,
-				temperature: 0,
-				prefillStepSize: 512
+		try Task.checkCancellation()
+		// Keep the producer handle so a valid script can stop decoding before
+		// EOS, and join it before the next segment uses the Metal model.
+		let (generation, generationTask) = try await container.perform(nonSendable: preparedInput) { context, input in
+			let iterator = try TokenIterator(
+				input: input,
+				model: context.model,
+				parameters: GenerateParameters(maxTokens: maxOutputTokens, temperature: 0, prefillStepSize: 512)
 			)
-		)
-		var output = ""
-		for await event in generation {
-			try Task.checkCancellation()
-			if case let .chunk(chunk) = event { output.append(chunk) }
+			return MLXLMCommon.generateTask(
+				promptTokenCount: input.text.tokens.size,
+				modelConfiguration: context.configuration,
+				tokenizer: context.tokenizer,
+				iterator: iterator
+			)
+		}
+		let output = try await AIPostProcessingGeneration.validatedOutput(
+			from: generation, source: sourceText, generationTask: generationTask
+		) { event in
+			if case let .chunk(chunk) = event { return chunk }
+			return nil
 		}
 		let generationElapsedMs = Int((ProcessInfo.processInfo.systemUptime - generationStartedAt) * 1000)
-		aiLogger.info("Qwen model=\(modelName, privacy: .public) chunk=\(chunkIndex ?? -1, privacy: .public) prepareMs=\(prepareElapsedMs, privacy: .public) generationMs=\(generationElapsedMs, privacy: .public) outputChars=\(output.count, privacy: .public)")
-		if let validated = AIPostProcessingEditScript.applying(output, to: sourceText),
-			!validated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-			return validated
-		}
+		aiLogger.info("Qwen model=\(modelName, privacy: .public) chunk=\(chunkIndex ?? -1, privacy: .public) prepareMs=\(prepareElapsedMs, privacy: .public) generationMs=\(generationElapsedMs, privacy: .public) outputChars=\(output?.count ?? 0, privacy: .public)")
+		if let output { return output }
 		aiLogger.warning("Rejected invalid Qwen edit script chunk=\(chunkIndex ?? -1, privacy: .public)")
 		throw AIPostProcessingError.invalidOutput
 	}
@@ -790,6 +913,7 @@ enum AIPostProcessingError: Error, LocalizedError {
 	case incompleteModel
 	case rangeDownloadsUnavailable
 	case remoteDownloadFailed
+	case remoteProcessingFailed
 	case modelUnavailable
 	case invalidOutput
 	case mlXUnavailable
@@ -804,6 +928,8 @@ enum AIPostProcessingError: Error, LocalizedError {
 			return "The model server does not support parallel downloads."
 		case .remoteDownloadFailed:
 			return "The on-device AI model could not be downloaded from the model server."
+		case .remoteProcessingFailed:
+			return "Groq did not return a successful response."
 		case .modelUnavailable:
 			return "The on-device AI model is not downloaded."
 		case .invalidOutput:

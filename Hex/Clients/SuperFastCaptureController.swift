@@ -75,15 +75,22 @@ final class SuperFastCaptureController {
   private let ringBuffer = FloatRingBuffer(
     capacity: Int(SuperFastCaptureConstants.sampleRate * SuperFastCaptureConstants.ringBufferDuration)
   )
-  private let targetFormat = AVAudioFormat(
-    commonFormat: .pcmFormatFloat32,
-    sampleRate: SuperFastCaptureConstants.sampleRate,
-    channels: 1,
-    interleaved: false
-  )!
+  private lazy var targetFormat: AVAudioFormat = {
+    if let format = AVAudioFormat(
+      commonFormat: .pcmFormatFloat32,
+      sampleRate: SuperFastCaptureConstants.sampleRate,
+      channels: 1,
+      interleaved: false
+    ) {
+      return format
+    }
+    // 16kHz mono is universally supported; this fallback never fails in practice.
+    // Kept as a single contained fallback so audio init can never crash the app.
+    return AVAudioFormat(standardFormatWithSampleRate: SuperFastCaptureConstants.sampleRate, channels: 1)!
+  }()
 
   private var engine: AVAudioEngine?
-  private var converter: AVAudioConverter?
+  private var activeGeneration: UUID?
   private var activeRecording: ActiveRecording?
   private var audioChunkHandler: (@Sendable (RecordingAudioChunk) -> Void)?
 
@@ -126,35 +133,64 @@ final class SuperFastCaptureController {
       )
     }
 
-    self.converter = converter
+    let generation = UUID()
+    processingQueue.sync {
+      activeGeneration = generation
+    }
 
     inputNode.installTap(onBus: 0, bufferSize: SuperFastCaptureConstants.tapBufferSize, format: inputFormat) {
-      [weak self] buffer, _ in
-      self?.enqueue(buffer)
+      [weak self, converter] buffer, _ in
+      self?.enqueue(buffer, converter: converter, generation: generation)
     }
 
     engine.prepare()
-    try engine.start()
-    self.engine = engine
+    do {
+      try engine.start()
+      self.engine = engine
+    } catch {
+      inputNode.removeTap(onBus: 0)
+      processingQueue.sync {
+        if activeGeneration == generation {
+          activeGeneration = nil
+        }
+      }
+      processingQueue.asyncAfter(deadline: .now() + 2) {
+        withExtendedLifetime(engine) {}
+      }
+      throw error
+    }
     logger.notice(
       "Super fast capture armed reason=\(reason) sampleRate=\(String(format: "%.0f", inputFormat.sampleRate))Hz ringBuffer=\(String(format: "%.2f", SuperFastCaptureConstants.ringBufferDuration))s preRoll=\(String(format: "%.2f", SuperFastCaptureConstants.preRollDuration))s"
     )
   }
 
   func stop(reason: String = "unknown") {
-    if engine != nil {
-      logger.notice("Super fast capture stopped reason=\(reason)")
+    guard let engine else {
+      processingQueue.sync {
+        activeGeneration = nil
+        activeRecording = nil
+        ringBuffer.clear()
+      }
+      return
     }
-    if let inputNode = engine?.inputNode {
-      inputNode.removeTap(onBus: 0)
-    }
-    engine?.stop()
-    engine = nil
-    converter = nil
+
+    logger.notice("Super fast capture stopped reason=\(reason)")
+    engine.inputNode.removeTap(onBus: 0)
+    engine.stop()
+    engine.reset()
+    self.engine = nil
 
     processingQueue.sync {
+      activeGeneration = nil
       activeRecording = nil
       ringBuffer.clear()
+    }
+
+    // Core Audio can still be unwinding a property callback after stop().
+    // Retain the stopped engine briefly so AVAudioIOUnit is not deallocated on
+    // HAL's listener stack during a route or wake transition.
+    processingQueue.asyncAfter(deadline: .now() + 2) {
+      withExtendedLifetime(engine) {}
     }
   }
 
@@ -217,15 +253,24 @@ final class SuperFastCaptureController {
     }
   }
 
-  private func enqueue(_ buffer: AVAudioPCMBuffer) {
+  private func enqueue(
+    _ buffer: AVAudioPCMBuffer,
+    converter: AVAudioConverter,
+    generation: UUID
+  ) {
     guard let copy = clone(buffer) else { return }
-    processingQueue.async { [weak self] in
-      self?.process(copy)
+    processingQueue.async { [weak self, converter] in
+      self?.process(copy, converter: converter, generation: generation)
     }
   }
 
-  private func process(_ buffer: AVAudioPCMBuffer) {
-    guard let converted = convert(buffer),
+  private func process(
+    _ buffer: AVAudioPCMBuffer,
+    converter: AVAudioConverter,
+    generation: UUID
+  ) {
+    guard activeGeneration == generation,
+          let converted = convert(buffer, converter: converter),
           converted.frameLength > 0,
           let samples = converted.floatChannelData?[0]
     else {
@@ -258,9 +303,10 @@ final class SuperFastCaptureController {
     }
   }
 
-  private func convert(_ inputBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-    guard let converter else { return nil }
-
+  private func convert(
+    _ inputBuffer: AVAudioPCMBuffer,
+    converter: AVAudioConverter
+  ) -> AVAudioPCMBuffer? {
     let sampleRateRatio = targetFormat.sampleRate / inputBuffer.format.sampleRate
     let frameCapacity = AVAudioFrameCount(
       max(1, (Double(inputBuffer.frameLength) * sampleRateRatio).rounded(.up) + 32)

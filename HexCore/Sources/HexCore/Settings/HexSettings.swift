@@ -240,6 +240,26 @@ Style: \(style)\(context)
 }
 
 /// Local Qwen models available for optional on-device post-processing.
+public enum GroqAIModel: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+	case gptOSS20B = "openai/gpt-oss-20b"
+	case gptOSS120B = "openai/gpt-oss-120b"
+	case qwen36 = "qwen/qwen3.6-27b"
+	case qwen38 = "qwen/qwen3.8-27b"
+	case compoundMini = "groq/compound-mini"
+
+	public static let defaultModel: Self = .gptOSS20B
+
+	public var displayName: String {
+		switch self {
+		case .gptOSS20B: return "GPT-OSS 20B"
+		case .gptOSS120B: return "GPT-OSS 120B"
+		case .qwen36: return "Qwen 3.6 27B"
+		case .qwen38: return "Qwen 3.8 27B"
+		case .compoundMini: return "Groq Compound Mini"
+		}
+	}
+}
+
 public enum OnDeviceAIModel: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
 	case qwen3_17b = "Qwen3-1.7B-MLX-4bit"
 	case qwen3_06b = "Qwen3-0.6B-MLX-4bit"
@@ -710,6 +730,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var wordRemappings: [WordRemapping]
 	public var aiPostProcessingMode: AIPostProcessingMode
 	public var selectedAIModel: OnDeviceAIModel
+	public var selectedGroqModel: GroqAIModel
 	public var selectedStyleIndex: Int
 	public var hasSelectedStyle: Bool
 	public var snippets: [SnippetSetting]
@@ -749,6 +770,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		wordRemappings: [WordRemapping] = [],
 		aiPostProcessingMode: AIPostProcessingMode = .off,
 		selectedAIModel: OnDeviceAIModel = .defaultModel,
+		selectedGroqModel: GroqAIModel = .defaultModel,
 		selectedStyleIndex: Int = 2,
 		hasSelectedStyle: Bool = false,
 		snippets: [SnippetSetting] = [
@@ -785,6 +807,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.wordRemappings = wordRemappings
 		self.aiPostProcessingMode = aiPostProcessingMode
 		self.selectedAIModel = selectedAIModel
+		self.selectedGroqModel = selectedGroqModel
 		self.selectedStyleIndex = selectedStyleIndex
 		self.hasSelectedStyle = hasSelectedStyle
 		self.snippets = snippets
@@ -843,6 +866,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case wordRemappings
 	case aiPostProcessingMode
 	case selectedAIModel
+	case selectedGroqModel
 	case selectedStyleIndex
 	case hasSelectedStyle
 	case snippets
@@ -991,6 +1015,7 @@ private enum HexSettingsSchema {
 		).eraseToAny(),
 		SettingsField(.aiPostProcessingMode, keyPath: \.aiPostProcessingMode, default: defaults.aiPostProcessingMode).eraseToAny(),
 		SettingsField(.selectedAIModel, keyPath: \.selectedAIModel, default: defaults.selectedAIModel).eraseToAny(),
+		SettingsField(.selectedGroqModel, keyPath: \.selectedGroqModel, default: defaults.selectedGroqModel).eraseToAny(),
 		SettingsField(.selectedStyleIndex, keyPath: \.selectedStyleIndex, default: defaults.selectedStyleIndex).eraseToAny(),
 		SettingsField(.hasSelectedStyle, keyPath: \.hasSelectedStyle, default: defaults.hasSelectedStyle).eraseToAny(),
 		SettingsField(.snippets, keyPath: \.snippets, default: defaults.snippets).eraseToAny(),

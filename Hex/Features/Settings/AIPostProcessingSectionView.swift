@@ -72,6 +72,40 @@ struct AIPostProcessingSectionView: View {
 	@ViewBuilder
 	private var modelManagement: some View {
 		VStack(alignment: .leading, spacing: 16) {
+			VStack(alignment: .leading, spacing: 8) {
+				Text("CLOUD MODEL (WHEN ONLINE)")
+					.font(TickFont.eyebrow)
+					.tracking(0.8)
+					.foregroundStyle(TickColor.textTertiary)
+				Picker("Groq model", selection: Binding(
+					get: { store.hexSettings.selectedGroqModel },
+					set: { store.send(.selectGroqModel($0)) }
+				)) {
+					ForEach(GroqAIModel.allCases, id: \.self) { model in
+						Text(model.displayName).tag(model)
+					}
+				}
+				.pickerStyle(.menu)
+				Text("Groq free tier · reasoning disabled for Qwen models")
+					.font(TickFont.caption)
+					.foregroundStyle(TickColor.textTertiary)
+			}
+
+			VStack(alignment: .leading, spacing: 6) {
+				Text("GROQ API KEY")
+					.font(TickFont.eyebrow)
+					.tracking(0.8)
+					.foregroundStyle(TickColor.textTertiary)
+				SecureField("Paste your Groq API key", text: Binding(
+					get: { store.groqAPIKey },
+					set: { store.send(.setGroqAPIKey($0)) }
+				))
+				.textFieldStyle(.roundedBorder)
+				Text("Online post-processing uses Groq with a one-second deadline. If it cannot finish, Hex pastes the deterministic cleanup immediately instead of waiting for the local model.")
+					.font(TickFont.caption)
+					.foregroundStyle(TickColor.textSecondary)
+			}
+
 			VStack(alignment: .leading, spacing: 4) {
 				Text("SELECT ON-DEVICE MODEL")
 					.font(TickFont.eyebrow)
@@ -114,7 +148,7 @@ struct AIPostProcessingSectionView: View {
 				Image(systemName: "lock.shield.fill")
 					.font(.system(size: 11))
 					.foregroundStyle(TickColor.textTertiary)
-				Text("All post-processing runs 100% on Apple Silicon. Audio and text never leave your device.")
+				Text(store.groqAPIKey.isEmpty ? "Local post-processing stays on your Mac." : "Groq receives transcript text for online post-processing. Audio stays on your Mac.")
 					.font(TickFont.caption)
 					.foregroundStyle(TickColor.textTertiary)
 			}

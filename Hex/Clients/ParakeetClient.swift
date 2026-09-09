@@ -15,6 +15,8 @@ actor ParakeetClient {
   private var streamingSink: RecordingAudioChunkSink?
   private var streamingInputTask: Task<Void, Error>?
   private let logger = HexLog.parakeet
+  private var availabilityCache: [String: (result: Bool, at: Date)] = [:]
+  private let availabilityCacheTTL: TimeInterval = 30
   private let vendorDirs = [
     // Our app-specific cache path convention (under XDG or com.dipxsy.Tick/cache)
     "fluidaudio/Models",
@@ -27,21 +29,45 @@ actor ParakeetClient {
       return false
     }
     if currentVariant == variant, asr != nil { return true }
+    if let cached = availabilityCache[modelName], Date().timeIntervalSince(cached.at) < availabilityCacheTTL {
+      return cached.result
+    }
 
     logger.debug("Checking Parakeet availability variant=\(variant.identifier)")
     for dir in modelDirectories(variant) {
       if directoryContainsMLModelC(dir) {
         logger.notice("Found Parakeet cache at \(dir.path)")
+        availabilityCache[modelName] = (true, Date())
         return true
       }
     }
     logger.debug("No Parakeet cache detected variant=\(variant.identifier)")
+    availabilityCache[modelName] = (false, Date())
     return false
+  }
+
+  private func invalidateAvailabilityCache(_ modelName: String? = nil) {
+    if let modelName { availabilityCache[modelName] = nil }
+    else { availabilityCache.removeAll() }
   }
 
   private func directoryContainsMLModelC(_ dir: URL) -> Bool {
     let fm = FileManager.default
     guard fm.fileExists(atPath: dir.path) else { return false }
+    // Fast path: compiled Core ML bundles usually sit 1-2 levels deep.
+    // A shallow listing avoids a full recursive walk over ~650MB on every
+    // availability check (warm/transcribe path).
+    if let children = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles) {
+      for child in children {
+        let name = child.lastPathComponent
+        if name.hasSuffix(".mlmodelc") { return true }
+        if (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+           let nested = try? fm.contentsOfDirectory(at: child, includingPropertiesForKeys: nil, options: .skipsHiddenFiles),
+           nested.contains(where: { $0.lastPathComponent.hasSuffix(".mlmodelc") }) {
+          return true
+        }
+      }
+    }
     if let en = fm.enumerator(at: dir, includingPropertiesForKeys: nil) {
       for case let url as URL in en {
         if url.pathExtension == "mlmodelc" || url.lastPathComponent.hasSuffix(".mlmodelc") { return true }
@@ -100,7 +126,7 @@ actor ParakeetClient {
     let faDir = support?.appendingPathComponent("FluidAudio/Models/\(variant.identifier)", isDirectory: true)
     let pollTask = Task {
       while p.completedUnitCount < 95 {
-        try? await Task.sleep(for: .seconds(1))
+        try? await Task.sleep(for: .seconds(2))
         if let dir = faDir, let size = directorySize(dir) {
           let target: Double = 650 * 1024 * 1024 // ~650MB
           let frac = max(0.0, min(1.0, Double(size) / target))
@@ -119,6 +145,7 @@ actor ParakeetClient {
     try await manager.initialize(models: models)
     self.asr = manager
     self.currentVariant = variant
+    invalidateAvailabilityCache(variant.identifier)
     p.completedUnitCount = 100
     progress(p)
     logger.notice("Parakeet ensureLoaded completed in \(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
@@ -239,6 +266,7 @@ actor ParakeetClient {
       if currentVariant == variant {
         currentVariant = nil
       }
+      invalidateAvailabilityCache(variant.identifier)
     }
   }
 

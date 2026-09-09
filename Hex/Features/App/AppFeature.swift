@@ -169,6 +169,11 @@ struct AppFeature {
         if allGranted && state.isPermissionRepairMode {
           state.isPermissionRepairMode = false
           HexLog.app.notice("All permissions restored - exiting repair mode")
+          return .run { send in
+            // Close any PermissionFlow floating drag panel left on screen.
+            await permissions.dismissPermissionPanels()
+            await send(.checkPermissions)
+          }
         }
         return .none
 

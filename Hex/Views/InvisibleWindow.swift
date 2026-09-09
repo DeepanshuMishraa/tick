@@ -171,7 +171,7 @@ class InvisibleWindow: NSPanel {
 private final class FeedbackButtonWindow: NSPanel {
   override var canBecomeKey: Bool { false }
   override var canBecomeMain: Bool { false }
-  private var hostingView: NSHostingView<AnyView>!
+  private var hostingView: NSHostingView<AnyView>?
 
   init(
     frame: NSRect,
@@ -208,8 +208,10 @@ private final class FeedbackButtonWindow: NSPanel {
       ).id(startedAt)
     )
     hostingView = NSHostingView(rootView: initialView)
-    hostingView.frame = NSRect(origin: .zero, size: frame.size)
-    hostingView.autoresizingMask = [.width, .height]
+    if let hostingView {
+      hostingView.frame = NSRect(origin: .zero, size: frame.size)
+      hostingView.autoresizingMask = [.width, .height]
+    }
 
     // The pill owns its material in SwiftUI via `hexGlass`. Wrapping it in a
     // second AppKit material double-composites the blur and makes Liquid Glass
@@ -233,6 +235,7 @@ private final class FeedbackButtonWindow: NSPanel {
     onCopy: @escaping () -> Void
   ) {
     setFrame(frame, display: true)
+    guard let hostingView else { return }
     hostingView.rootView = AnyView(
       FloatingCopyPillView(
         feedback: feedback,

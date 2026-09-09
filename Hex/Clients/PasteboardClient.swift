@@ -244,6 +244,15 @@ struct PasteboardClientLive {
         case failedToInsertText
     }
 
+    static func focusedElement() -> AXUIElement? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementRef: CFTypeRef?
+        let axError = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElementRef)
+        guard axError == .success, let focusedElementRef else { return nil }
+        guard CFGetTypeID(focusedElementRef) == AXUIElementGetTypeID() else { return nil }
+        return unsafeDowncast(focusedElementRef as AnyObject, to: AXUIElement.self)
+    }
+
     static func insertTextAtCursor(_ text: String) throws {
         // Get the system-wide accessibility element
         let systemWideElement = AXUIElementCreateSystemWide()
@@ -252,12 +261,16 @@ struct PasteboardClientLive {
         var focusedElementRef: CFTypeRef?
         let axError = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElementRef)
 
-        guard axError == .success, let focusedElementRef = focusedElementRef else {
+        guard axError == .success, let focusedElementRef else {
             pasteboardLogger.error("Focused element lookup failed; AXError.rawValue=\(axError.rawValue, privacy: .public)")
             throw PasteError.focusedElementNotFound
         }
 
-        let focusedElement = focusedElementRef as! AXUIElement
+        guard CFGetTypeID(focusedElementRef) == AXUIElementGetTypeID() else {
+            pasteboardLogger.error("Focused element is not an AXUIElement; typeID mismatch")
+            throw PasteError.focusedElementNotFound
+        }
+        let focusedElement = unsafeDowncast(focusedElementRef as AnyObject, to: AXUIElement.self)
 
         var value: CFTypeRef?
         let hasValue = AXUIElementCopyAttributeValue(
@@ -334,7 +347,7 @@ struct PasteboardClientLive {
         }
 
         var range = CFRange()
-        guard AXValueGetValue(rangeValue as! AXValue, .cfRange, &range) else {
+        guard AXValueGetValue(unsafeDowncast(rangeValue as AnyObject, to: AXValue.self), .cfRange, &range) else {
             return nil
         }
         return range
@@ -431,15 +444,7 @@ struct PasteboardClientLive {
     /// An empty string is a valid value for a focused, empty text field.
     @MainActor
     static func focusedText() -> String? {
-        let systemWideElement = AXUIElementCreateSystemWide()
-        var focusedElementRef: CFTypeRef?
-        let axError = AXUIElementCopyAttributeValue(
-            systemWideElement,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedElementRef
-        )
-        guard axError == .success, let focusedElementRef else { return nil }
-        let focusedElement = focusedElementRef as! AXUIElement
+        guard let focusedElement = focusedElement() else { return nil }
 
         var value: CFTypeRef?
         if AXUIElementCopyAttributeValue(focusedElement, kAXValueAttribute as CFString, &value) == .success,
@@ -455,15 +460,7 @@ struct PasteboardClientLive {
 
     @MainActor
     static func focusedSelectedText() -> String? {
-        let systemWideElement = AXUIElementCreateSystemWide()
-        var focusedElementRef: CFTypeRef?
-        let axError = AXUIElementCopyAttributeValue(
-            systemWideElement,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedElementRef
-        )
-        guard axError == .success, let focusedElementRef else { return nil }
-        let focusedElement = focusedElementRef as! AXUIElement
+        guard let focusedElement = focusedElement() else { return nil }
 
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
@@ -476,15 +473,7 @@ struct PasteboardClientLive {
 
     @MainActor
     static func focusedInputAvailable() -> Bool {
-        let systemWideElement = AXUIElementCreateSystemWide()
-        var focusedElementRef: CFTypeRef?
-        let axError = AXUIElementCopyAttributeValue(
-            systemWideElement,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedElementRef
-        )
-        guard axError == .success, let focusedElementRef else { return false }
-        let focusedElement = focusedElementRef as! AXUIElement
+        guard let focusedElement = focusedElement() else { return false }
         var value: CFTypeRef?
         let supportsText = AXUIElementCopyAttributeValue(
             focusedElement,

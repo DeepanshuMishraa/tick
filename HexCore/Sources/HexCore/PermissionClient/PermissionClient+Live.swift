@@ -22,6 +22,7 @@ extension PermissionClient: DependencyKey {
       openMicrophoneSettings: { await live.openMicrophoneSettings() },
       openAccessibilitySettings: { await live.openAccessibilitySettings() },
       openInputMonitoringSettings: { await live.openInputMonitoringSettings() },
+      dismissPermissionPanels: { await live.dismissPermissionPanels() },
       observeAppActivation: { live.observeAppActivation() }
     )
   }
@@ -115,6 +116,19 @@ actor PermissionClientLive {
     return CGRect(x: location.x - 16, y: location.y - 16, width: 32, height: 32)
   }
 
+  /// The most recently created flow controller; kept so the panel can be
+  /// dismissed programmatically once permissions are granted. Only touched
+  /// from @MainActor contexts.
+  private nonisolated(unsafe) var activeFlowController: PermissionFlowController?
+
+  /// Dismisses the floating drag panel if one is showing.
+  func dismissPermissionPanels() async {
+    await MainActor.run {
+      activeFlowController?.closePanel()
+      activeFlowController = nil
+    }
+  }
+
   /// Opens a drag-based privacy pane via PermissionFlow, which shows a floating
   /// helper panel that tracks the System Settings window and lets the user drag
   /// the Hex app bundle into the permission list.
@@ -129,6 +143,7 @@ actor PermissionClientLive {
         promptForAccessibilityTrust: false
       )
     )
+    activeFlowController = controller
     controller.authorize(
       pane: pane,
       suggestedAppURLs: [Bundle.main.bundleURL],

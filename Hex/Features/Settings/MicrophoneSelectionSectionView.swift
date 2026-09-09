@@ -50,6 +50,20 @@ struct MicrophoneSelectionSectionView: View {
 					.padding(TickSpacing.m)
 					.hexGlass(cornerRadius: 8, tint: TickColor.warning.opacity(0.08))
 				}
+
+				if !store.unavailableBluetoothInputDevices.isEmpty {
+					HStack(alignment: .top, spacing: TickSpacing.s) {
+						Image(systemName: "headphones")
+							.foregroundStyle(TickColor.textSecondary)
+							.font(TickFont.captionFunc(12))
+						Text("Microphone profile unavailable in macOS: \(store.unavailableBluetoothInputDevices.map(\.name).joined(separator: ", ")). The headset has a microphone, but macOS currently exposes only its stereo output profile. Hex will add the microphone automatically if the hands-free profile appears.")
+							.font(TickFont.caption)
+							.foregroundStyle(TickColor.textSecondary)
+							.fixedSize(horizontal: false, vertical: true)
+					}
+					.padding(TickSpacing.m)
+					.hexGlass(cornerRadius: 8)
+				}
 			}
 			.padding(TickSpacing.l)
 			.hexGlass(cornerRadius: TickRadius.card)
