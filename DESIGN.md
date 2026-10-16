@@ -1,4 +1,4 @@
-# DESIGN.md: mc1ane-inspired Hex hero
+# DESIGN.md: mc1ane-inspired Tick hero
 
 ## Source
 
@@ -10,7 +10,7 @@
 
 ![Reference screenshot of mc1ane.com](./.firecrawl/mc1ane-visual-capture.png)
 
-Use this screenshot as the visual source of truth for the hero's scale, whitespace, centered hierarchy, and quiet feel. The source's portfolio content is not being copied; only the visual language is being adapted for Hex.
+Use this screenshot as the visual source of truth for the hero's scale, whitespace, centered hierarchy, and quiet feel. The source's portfolio content is not being copied; only the visual language is being adapted for Tick.
 
 ## Design Summary
 
@@ -28,7 +28,7 @@ The reference is a full-viewport, pale-gray canvas with one centered statement i
 ### Typography
 
 - Source family: `TWKLausannePan` (observed)
-- Local fallback for Hex: `ClashGrotesk-Variable.ttf`
+- Local fallback for Tick: `ClashGrotesk-Variable.ttf`
 - Hero statement: approximately `34px`, weight `300`, line-height `1.18` on desktop (observed)
 - Keep copy centered, short, and sentence case. Avoid display effects, gradients, and all-caps labels.
 
@@ -42,7 +42,7 @@ The reference is a full-viewport, pale-gray canvas with one centered statement i
 
 ## Components
 
-- Minimal top bar: retained Hex mark on the left and GitHub icon/link on the right
+- Minimal top bar: retained Tick mark on the left and GitHub icon/link on the right
 - Centered hero statement: one short paragraph describing the product
 - Inline download action: Apple logo plus text, treated as a quiet text link rather than a large button
 
@@ -55,11 +55,11 @@ The reference is a full-viewport, pale-gray canvas with one centered statement i
 
 ## Content Style
 
-Plain, confident, and specific. The copy should describe what Hex does in one sentence and avoid marketing cliches, feature lists, and repeated calls to action.
+Plain, confident, and specific. The copy should describe what Tick does in one sentence and avoid marketing cliches, feature lists, and repeated calls to action.
 
 ## Agent Build Instructions
 
-Recreate the source's quiet composition rather than its portfolio content. Keep the page almost empty on purpose: a pale gray background, one centered Hex statement, and a small top bar. Use local typography, inline SVG logos, no external imagery, no gradients, no pill buttons, no heavy shadows, and no additional sections.
+Recreate the source's quiet composition rather than its portfolio content. Keep the page almost empty on purpose: a pale gray background, one centered Tick statement, and a small top bar. Use local typography, inline SVG logos, no external imagery, no gradients, no pill buttons, no heavy shadows, and no additional sections.
 
 ## Rerun Inputs
 

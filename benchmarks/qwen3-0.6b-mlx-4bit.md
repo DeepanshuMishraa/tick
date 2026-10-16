@@ -29,14 +29,14 @@
 
 The serial pipeline spends 64% of measured latency autoregressively rewriting independent sentences. Reducing model size alone does not remove that dependency chain. The revised pipeline therefore:
 
-1. Preloads the selected speech model while Hex is idle, removing model initialization from key-release latency.
+1. Preloads the selected speech model while Tick is idle, removing model initialization from key-release latency.
 2. Detects ordinary multi-sentence prose and balances it into at most four independent chunks.
 3. Runs chunk generations concurrently against the already-loaded MLX container.
 4. Validates every chunk independently and retries only the failed chunk.
 5. Keeps emails, lists, explicit layout commands, and multiline input on the single global-context path.
 6. Joins validated chunks in source order and performs one final insertion.
 
-This is not optimistic/raw insertion: Hex still inserts exactly one final AI-processed transcript.
+This is not optimistic/raw insertion: Tick still inserts exactly one final AI-processed transcript.
 
 ## First post-pipeline measurements
 

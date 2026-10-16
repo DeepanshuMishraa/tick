@@ -13,7 +13,7 @@ on-demand AVAudioEngine capture
 → WAV persistence + FluidAudio streaming ASR
 → key release flushes only the ASR tail
 → deterministic normalization
-→ online: Groq edit script with a one-second total HTTP deadline
+→ online: Groq edit script with a 5-second total HTTP deadline
 → no cloud key: adaptive semantic segments targeting 240 characters
 → compact local Qwen edit scripts, one Metal generation at a time
 → exact-substring edit validation
@@ -28,19 +28,19 @@ Qwen returns only changes:
 {"edits":[{"old":"Formula Win","new":"Formula One"}]}
 ```
 
-When no change is needed it returns `{"edits":[]}`. The model no longer copies the full transcript token by token. Local generation now stops at the first complete script accepted by the existing exact-edit and output validators, rather than waiting for EOS or the remaining token budget. Hex explicitly cancels and joins the MLX producer before processing the next segment. Invalid or incomplete JSON does not trigger early completion.
+When no change is needed it returns `{"edits":[]}`. The model no longer copies the full transcript token by token. Local generation now stops at the first complete script accepted by the existing exact-edit and output validators, rather than waiting for EOS or the remaining token budget. Tick explicitly cancels and joins the MLX producer before processing the next segment. Invalid or incomplete JSON does not trigger early completion.
 
-Groq retains the selected model. Its HTTP transport has a one-second total deadline, replacing the five-second inactivity timeout. Expiry cancels the URLSession data task and returns without waiting for its callback. Partial response bytes cannot extend the deadline. Parent cancellation propagates instead of proceeding to paste. Groq still uses non-streaming responses; no provisional text is inserted.
+Groq retains the selected model. Its HTTP transport has a 5-second total deadline so slow cloud responses are awaited instead of abandoned, while a stall can never hold the paste path hostage. Expiry cancels the URLSession data task and returns without waiting for its callback. Partial response bytes cannot extend the deadline. Parent cancellation propagates instead of proceeding to paste. Groq still uses non-streaming responses; no provisional text is inserted.
 
-When a Groq key is configured, a cloud failure returns control to the transcription feature instead of starting unbounded local generation. The feature then uses the existing deterministic cleanup and proceeds to paste. This bounds cloud post-processing to one second. ASR and paste time are additional, so it does not guarantee one-second release-to-paste latency.
+When a Groq key is configured, a genuine cloud failure returns control to the transcription feature instead of starting unbounded local generation. The feature then uses the existing deterministic cleanup and proceeds to paste. ASR and paste time are additional, so the deadline does not guarantee a fixed release-to-paste latency.
 
-Each edit target must occur exactly once in its source segment. Overlapping edits, malformed JSON, unknown targets, severe truncation, reasoning output, and wrapper text are rejected. Hex does not retry an invalid script on the release path because deterministic retries doubled latency in measured runs. It applies deterministic filler, correction, and list normalization to that segment instead. Other valid segments remain intact, and the final insertion still contains the complete dictation.
+Each edit target must occur exactly once in its source segment. Overlapping edits, malformed JSON, unknown targets, severe truncation, reasoning output, and wrapper text are rejected. Tick does not retry an invalid script on the release path because deterministic retries doubled latency in measured runs. It applies deterministic filler, correction, and list normalization to that segment instead. Other valid segments remain intact, and the final insertion still contains the complete dictation.
 
-Long input creates as many bounded segments as needed. Hex runs one Metal generation at a time. Four concurrent streams made individual generations 4–6 times slower in measured runs because they contended for the same model.
+Long input creates as many bounded segments as needed. Tick runs one Metal generation at a time. Four concurrent streams made individual generations 4–6 times slower in measured runs because they contended for the same model.
 
 ## Streaming and rolling work
 
-Hex now uses one 16 kHz mono AVAudioEngine capture path for WAV persistence and FluidAudio `StreamingAsrManager`. Standard mode starts the engine only when the hotkey is pressed. Super Fast Capture keeps its optional prearmed behavior and remains disabled by default. If streaming setup or flush fails, the complete WAV remains available for batch ASR.
+Tick now uses one 16 kHz mono AVAudioEngine capture path for WAV persistence and FluidAudio `StreamingAsrManager`. Standard mode starts the engine only when the hotkey is pressed. Super Fast Capture keeps its optional prearmed behavior and remains disabled by default. If streaming setup or flush fails, the complete WAV remains available for batch ASR.
 
 The remaining long-dictation optimization is rolling AI processing of confirmed ASR segments during recording:
 

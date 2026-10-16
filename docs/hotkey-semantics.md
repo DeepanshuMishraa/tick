@@ -1,8 +1,8 @@
-# Hex HotKey Semantics
+# Tick HotKey Semantics
 
 ## Overview
 
-Hex uses a **threshold-based recording system** that behaves differently depending on whether your hotkey is **modifier-only** (e.g., Option) or **a regular hotkey** (e.g., Cmd+A).
+Tick uses a **threshold-based recording system** that behaves differently depending on whether your hotkey is **modifier-only** (e.g., Option) or **a regular hotkey** (e.g., Cmd+A).
 
 The key insight: **Modifier-only hotkeys need protection from accidental triggers** (like quick Option taps for special characters), while regular hotkeys are inherently intentional.
 
@@ -313,7 +313,7 @@ Now recording is locked on:
 
 ## Key Interception
 
-**When does Hex intercept (block) key events from reaching other apps?**
+**When does Tick intercept (block) key events from reaching other apps?**
 
 **Key Interception Rules:**
 
@@ -329,7 +329,7 @@ User: Press Option (0.2s) → Press A
       ↓
   START → DISCARD (passes through)
   
-Result: Hex discards recording silently
+Result: Tick discards recording silently
         macOS sees Option+A
         Special character dialog appears ✅
 ```
@@ -447,7 +447,7 @@ Timeline:
   
 macOS sees: Option+A
 Result: Special character dialog appears ✅
-Hex: Silent discard, no transcription
+Tick: Silent discard, no transcription
 ```
 
 **Why this works:**
@@ -484,7 +484,7 @@ Timeline:
   
 Finder sees: Option+Click
 Result: File duplicated ✅
-Hex: Silent discard
+Tick: Silent discard
 ```
 
 ---
@@ -507,7 +507,7 @@ Result: Audio transcribed ✅
         Typing worked ✅
 ```
 
-**Why:** After 0.3s, Hex assumes you're intentionally recording and ignores other input (except ESC).
+**Why:** After 0.3s, Tick assumes you're intentionally recording and ignores other input (except ESC).
 
 ---
 
@@ -565,10 +565,9 @@ Result: Recording cancelled ✅
 
 ## Implementation Files
 
-- **Core Logic**: `HexCore/Sources/HexCore/Logic/HotKeyProcessor.swift`
-- **Recording Decision**: `HexCore/Sources/HexCore/Logic/RecordingDecision.swift`
-- **Feature Integration**: `Hex/Features/Transcription/TranscriptionFeature.swift`
-- **Tests**: `HexCore/Tests/HexCoreTests/HotKeyProcessorTests.swift`
+- **Core Logic**: `crates/tick-core/src/hotkey_processor.rs` (`HotKeyProcessor`, `should_transcribe`)
+- **App Integration**: `crates/tick-app/src/hotkeys.rs`, `crates/tick-app/src/state/dictation.rs`
+- **Tests**: `crates/tick-core/tests/hotkey_processor.rs`
 
 ---
 

@@ -12,8 +12,6 @@ bin
 scripts
 tools
 ExportOptions.plist
-HexCore/.build
-HexCore/.swiftpm/xcode/xcuserdata/kit.xcuserdatad/xcschemes
 FluidAudio/
 node_modules/
 .npm-cache/
@@ -27,3 +25,6 @@ node_modules/
 # Ignore local installer packages
 *.dmg
 
+
+# Rust build output
+target/

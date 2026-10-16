@@ -1,5 +1,5 @@
 ---
-"hex-app": patch
+"tick-app": patch
 ---
 
 Fix dictionary learning after delayed or normalized paste updates

@@ -1,0 +1,16 @@
+[package]
+name = "tick-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-independent domain logic for Tick: settings, hotkeys, text processing, history."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+fancy-regex.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+unicode-segmentation = "1"
+percent-encoding = "2"

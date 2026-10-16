@@ -1,0 +1,42 @@
+[package]
+name = "tick-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tick"
+path = "src/main.rs"
+
+[dependencies]
+chrono.workspace = true
+block2 = "0.6"
+core-foundation = "0.10"
+core-graphics = "0.24"
+cpal = "0.16"
+crossbeam-channel = "0.5"
+dirs = "6"
+gpui-kit = "=0.7.0"
+hound = "3.5"
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+objc2-av-foundation = "0.3"
+objc2-core-audio = "0.3"
+objc2-core-audio-types = "0.3"
+objc2-core-foundation = "0.3"
+objc2-foundation = "0.3"
+objc2-service-management = "0.3"
+parking_lot = "0.12"
+raw-window-handle = "0.6"
+rubato = "0.16"
+rustfft = "6"
+security-framework = "3"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tick-core.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+ureq = "3"
+uuid.workspace = true
+futures = "0.3"
