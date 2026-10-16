@@ -2,13 +2,13 @@
 
 Press-and-hold a hotkey to transcribe your voice and paste the result wherever you're typing.
 
-**[Download Tick for macOS](https://hex-updates.s3.us-east-1.amazonaws.com/hex-latest.dmg)**
+**[Download Tick for macOS](https://github.com/DeepanshuMishraa/tick/releases/latest/download/tick.dmg)**
 
 > **Note:** Tick only runs on **Apple Silicon** Macs.
 
 Or install with Homebrew:
 ```bash
-brew install --cask dipxsy-tick
+brew install --cask deepanshumishraa/tap/tick
 ```
 
 Tick is a native Rust app built with [GPUI](https://www.gpui.rs). Transcription runs on-device with [Parakeet TDT v3](https://github.com/FluidInference/FluidAudio) (the default: fast and multilingual) or [WhisperKit](https://github.com/argmaxinc/WhisperKit).
@@ -33,7 +33,7 @@ cargo test -p tick-core      # unit tests
 
 ## Contributing
 
-**Issue reports are welcome!** If you hit a bug or want a feature, please [open an issue](https://github.com/dipxsy/Tick/issues).
+**Issue reports are welcome!** If you hit a bug or want a feature, please [open an issue](https://github.com/DeepanshuMishraa/tick/issues).
 
 For pull requests, please open an issue first so we can discuss the change before you invest time in it.
 

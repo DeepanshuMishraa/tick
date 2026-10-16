@@ -1,0 +1,139 @@
+# Builds tick.dmg when a GitHub release is published and attaches it to that
+# release. Tag releases as vX.Y.Z; the version in the app comes from the tag.
+#
+# Secrets:
+#   SPARKLE_PRIVATE_KEY  EdDSA key matching SUPublicEDKey in scripts/bundle.sh
+#                        (export with Sparkle's `generate_keys -x`); signs the
+#                        update and publishes appcast.xml. Required.
+#   HOMEBREW_TAP_TOKEN   fine-grained PAT with contents:write on
+#                        DeepanshuMishraa/homebrew-tap; bumps Casks/tick.rb.
+#                        Optional.
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and attach (e.g. v1.0.0)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  dmg:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Resolve version
+        run: |
+          version="${TAG#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag '$TAG' is not vX.Y.Z. Nothing was built; re-tag the release as e.g. v1.0.0 and publish again."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install Metal toolchain
+        # MLX compiles Metal shaders; Xcode 26+ ships the toolchain separately.
+        run: xcodebuild -downloadComponent MetalToolchain || echo "Metal toolchain already present"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            !target/bundle
+          key: release-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'native/TickNative/Package.resolved') }}
+          restore-keys: release-${{ runner.os }}-
+
+      - name: Build DMG
+        env:
+          TICK_VERSION: ${{ env.VERSION }}
+        run: scripts/build-dmg.sh
+
+      - name: Attach DMG to release
+        run: |
+          sha=$(shasum -a 256 tick.dmg | cut -d' ' -f1)
+          echo "SHA256=$sha" >> "$GITHUB_ENV"
+          gh release upload "$TAG" tick.dmg --clobber
+
+          body=$(gh release view "$TAG" --json body -q .body)
+          if [[ "$body" != *"<!-- dmg -->"* ]]; then
+            url="https://github.com/${{ github.repository }}/releases/download/$TAG/tick.dmg"
+            printf '%s\n\n<!-- dmg -->\n**Download:** [tick.dmg](%s) (Apple Silicon, macOS 15+)\n\nSHA-256: `%s`\n' \
+              "$body" "$url" "$sha" > notes.md
+            gh release edit "$TAG" --notes-file notes.md
+          fi
+
+      - name: Publish Sparkle appcast
+        # The app's SUFeedURL is releases/latest/download/appcast.xml, so each
+        # release carries a one-item appcast pointing at its own DMG.
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "::error::SPARKLE_PRIVATE_KEY is not set, so no appcast.xml was attached and installed copies will not see $TAG. The DMG is attached. Add the secret, then re-run this workflow for $TAG."
+            exit 1
+          fi
+          sign_update=target/native/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update
+          signature=$(echo "$SPARKLE_PRIVATE_KEY" | "$sign_update" --ed-key-file - -p tick.dmg)
+          length=$(stat -f%z tick.dmg)
+          base="https://github.com/${{ github.repository }}/releases"
+          pub_date=$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S +0000")
+          cat > appcast.xml <<XML
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>tick</title>
+              <item>
+                <title>$VERSION</title>
+                <pubDate>$pub_date</pubDate>
+                <sparkle:version>$VERSION</sparkle:version>
+                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+                <sparkle:fullReleaseNotesLink>$base/tag/$TAG</sparkle:fullReleaseNotesLink>
+                <enclosure url="$base/download/$TAG/tick.dmg" length="$length" type="application/octet-stream" sparkle:edSignature="$signature"/>
+              </item>
+            </channel>
+          </rss>
+          XML
+          xmllint --noout appcast.xml
+          gh release upload "$TAG" appcast.xml --clobber
+
+      - name: Bump Homebrew cask
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set, so Casks/tick.rb was not bumped. The DMG is attached; update the cask by hand to version $VERSION, sha256 $SHA256."
+            exit 0
+          fi
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            echo "Prerelease; leaving the cask on the last stable version."
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:$TAP_TOKEN@github.com/DeepanshuMishraa/homebrew-tap.git" tap
+          cd tap
+          sed -i '' -E "s/^  version \".*\"/  version \"$VERSION\"/; s/^  sha256 .*/  sha256 \"$SHA256\"/" Casks/tick.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "tick $VERSION" || { echo "Cask already at $VERSION"; exit 0; }
+          git push

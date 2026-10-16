@@ -22,6 +22,8 @@ scripts/bundle.sh [release]      # assemble + sign the .app under target/bundle/
 scripts/build-dmg.sh             # release bundle → tick.dmg
 ```
 
+Releases: publishing a GitHub release tagged `vX.Y.Z` runs `.github/workflows/release.yml`, which builds `tick.dmg`, attaches it plus a signed Sparkle `appcast.xml` (the app's feed is `releases/latest/download/appcast.xml`), and bumps the cask in `DeepanshuMishraa/homebrew-tap`.
+
 ## Implementation Notes
 
 1. **Hotkeys**: press-and-hold and double-tap lock, in `crates/tick-core/src/hotkey_processor.rs`. See `docs/hotkey-semantics.md`. Modifier-only hotkeys use a 0.3 s threshold; regular hotkeys use the `minimumKeyTime` setting.

@@ -5,6 +5,7 @@
 #   scripts/bundle.sh            # debug build → "tick Debug.app" (com.dipxsy.tick.debug)
 #   scripts/bundle.sh release    # release build → "tick.app" (com.dipxsy.tick)
 #
+# Version: $TICK_VERSION, else the workspace version in Cargo.toml.
 # Signing identity: $TICK_SIGN_IDENTITY, else the first "Apple Development"
 # identity (stable TCC grants while developing), else ad-hoc.
 set -euo pipefail
@@ -28,8 +29,8 @@ fi
 PRODUCTS="$ROOT/target/native/Build/Products/Release"
 APP="$ROOT/target/bundle/$CONFIG/$APP_NAME.app"
 CONTENTS="$APP/Contents"
-VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-BUILD_NUMBER="${TICK_BUILD_NUMBER:-82}"
+VERSION="${TICK_VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)}"
+BUILD_NUMBER="${TICK_BUILD_NUMBER:-$VERSION}"
 
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Frameworks" "$CONTENTS/Resources"
@@ -87,8 +88,9 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 	<key>NSAppleEventsUsageDescription</key><string>tick reads the current browser tab and the system volume to format and record cleanly.</string>
 	<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 	<key>SUEnableInstallerLauncherService</key><true/>
-	<key>SUFeedURL</key><string>https://hex-updates.s3.amazonaws.com/appcast.xml</string>
-	<key>SUPublicEDKey</key><string>mIek27lttJe8cIBqVZFhh6reRKjpTx1h9ZY9OKWPtuM=</string>
+	<key>SUFeedURL</key><string>https://github.com/DeepanshuMishraa/tick/releases/latest/download/appcast.xml</string>
+	<key>SUEnableAutomaticChecks</key><true/>
+	<key>SUPublicEDKey</key><string>Co9AWWnH9corrdbp+CB3kMHaiYYprk5tw/o9rGsRiVQ=</string>
 </dict>
 </plist>
 PLIST
