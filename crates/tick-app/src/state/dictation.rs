@@ -29,8 +29,21 @@ use crate::storage;
 pub enum Phase {
     Idle,
     Recording { started: Instant },
-    /// From key release until the text is in the target app.
+    /// Recording a walkthrough: screen, voice and marks.
+    Walkthrough { started: Instant },
+    /// From key release (or a finished walkthrough) until the text is in the
+    /// target app.
     Transcribing,
+}
+
+impl Phase {
+    /// When the current recording of either kind began.
+    pub fn recording_since(self) -> Option<Instant> {
+        match self {
+            Phase::Recording { started } | Phase::Walkthrough { started } => Some(started),
+            Phase::Idle | Phase::Transcribing => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +57,10 @@ pub enum Feedback {
     DictionaryAdded(Vec<WordCorrection>),
     PasteUnavailable { text: String, reason: PasteFailure },
     Copied,
+    /// A walkthrough began; `finish` is the shortcut that ends it.
+    WalkthroughStarted { finish: String },
+    ScreenRecordingNeeded,
+    WalkthroughFailed(String),
 }
 
 #[derive(Default)]
@@ -57,7 +74,7 @@ pub(super) struct Session {
 }
 
 /// Lets platform code wait on the GPUI timer without owning a context.
-fn sleeper(cx: &AsyncApp) -> impl Fn(Duration) -> BoxFuture<'static, ()> + use<> {
+pub(super) fn sleeper(cx: &AsyncApp) -> impl Fn(Duration) -> BoxFuture<'static, ()> + use<> {
     let executor = cx.background_executor().clone();
     move |duration| executor.timer(duration).boxed()
 }
@@ -71,21 +88,29 @@ fn app_context(bundle_id: &str, name: &str) -> AppContext {
 }
 
 impl AppState {
+    /// False, after pointing the user at the model picker, when no speech
+    /// model is usable.
+    pub(super) fn require_model(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.models.ready {
+            return true;
+        }
+        self.sound.play(Cue::Warning);
+        self.tab = Tab::Settings;
+        self.flash_model_section = true;
+        workspace::activate_app();
+        self.tasks.flash = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(2)).await;
+            let _ = this.update(cx, |state, cx| {
+                state.flash_model_section = false;
+                cx.notify();
+            });
+        }));
+        cx.notify();
+        false
+    }
+
     pub(super) fn start_recording(&mut self, locked: bool, cx: &mut Context<Self>) {
-        if !self.models.ready {
-            // No usable model: point the user at the model picker.
-            self.sound.play(Cue::Warning);
-            self.tab = Tab::Settings;
-            self.flash_model_section = true;
-            workspace::activate_app();
-            self.tasks.flash = Some(cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(Duration::from_secs(2)).await;
-                let _ = this.update(cx, |state, cx| {
-                    state.flash_model_section = false;
-                    cx.notify();
-                });
-            }));
-            cx.notify();
+        if !self.require_model(cx) {
             return;
         }
         self.notice = None;
@@ -209,6 +234,7 @@ impl AppState {
             return;
         }
         self.tasks.transcription = None;
+        self.discard_walkthrough(cx);
         self.phase = Phase::Idle;
         self.locked = false;
         self.sleep = None;
@@ -451,19 +477,19 @@ impl AppState {
     }
 }
 
-fn stop_recorder(recorder: &crate::audio::recorder::Recorder) -> Option<PathBuf> {
+pub(super) fn stop_recorder(recorder: &crate::audio::recorder::Recorder) -> Option<PathBuf> {
     recorder.set_streaming(false);
     recorder.stop()
 }
 
-fn remove_file(path: Option<PathBuf>) {
+pub(super) fn remove_file(path: Option<PathBuf>) {
     if let Some(path) = path {
         let _ = std::fs::remove_file(path);
     }
 }
 
 /// Deterministic text stages: removals, dictionary, snippets.
-fn apply_text_rules(raw: &str, settings: &Settings) -> String {
+pub(super) fn apply_text_rules(raw: &str, settings: &Settings) -> String {
     let mut output = raw.to_string();
     if settings.word_removals_enabled {
         output = text::apply_removals(&output, &settings.word_removals);

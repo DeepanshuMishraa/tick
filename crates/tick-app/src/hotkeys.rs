@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use futures::channel::mpsc::UnboundedSender;
 use parking_lot::Mutex;
-use tick_core::hotkey::{HotKey, InputEvent, Key, KeyEvent};
+use tick_core::hotkey::{HotKey, InputEvent, Key, KeyEvent, ModifierKind, Modifiers, MouseEvent, MousePhase};
 use tick_core::hotkey_processor::{HotKeyProcessor, ProcessorOutput, ProcessorState};
 use tick_core::settings::Settings;
 
@@ -18,9 +18,29 @@ use crate::platform::keyboard::EventTap;
 pub enum CaptureTarget {
     Recording,
     PasteLast,
+    Walkthrough,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What the tap intercepts for a walkthrough.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WalkthroughTap {
+    Off,
+    /// Recording: ⇧-drags draw instead of reaching apps, and ⌘Z undoes the
+    /// last mark while there is one.
+    Recording { undoable: bool },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WalkthroughInput {
+    Toggle,
+    Undo,
+    /// A ⇧-held stroke starting, extending or ending at a global point.
+    Ink(MousePhase, f64, f64),
+    /// A plain click at a global point.
+    Click(f64, f64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum HotkeyEvent {
     Pressed,
     Released,
@@ -33,11 +53,16 @@ pub enum HotkeyEvent {
     MouseClick,
     PasteLast,
     Capture(KeyEvent),
+    Walkthrough(WalkthroughInput),
 }
 
 struct Bridge {
     processor: HotKeyProcessor,
     paste_last: Option<HotKey>,
+    walkthrough_hotkey: Option<HotKey>,
+    walkthrough: WalkthroughTap,
+    /// A ⇧-drag began while recording a walkthrough; its events are swallowed.
+    drawing: bool,
     capture: Option<CaptureTarget>,
     tracking_corrections: bool,
     epoch: Instant,
@@ -56,6 +81,9 @@ impl Hotkeys {
             bridge: Arc::new(Mutex::new(Bridge {
                 processor: HotKeyProcessor::new(settings.hotkey.clone()),
                 paste_last: None,
+                walkthrough_hotkey: None,
+                walkthrough: WalkthroughTap::Off,
+                drawing: false,
                 capture: None,
                 tracking_corrections: false,
                 epoch: Instant::now(),
@@ -73,10 +101,19 @@ impl Hotkeys {
         bridge.processor.use_double_tap_only = settings.effective_double_tap_only();
         bridge.processor.minimum_key_time = settings.minimum_key_time;
         bridge.paste_last = settings.paste_last_transcript_hotkey.clone();
+        bridge.walkthrough_hotkey = settings.walkthrough_hotkey.clone();
     }
 
     pub fn set_capture(&self, target: Option<CaptureTarget>) {
         self.bridge.lock().capture = target;
+    }
+
+    pub fn set_walkthrough(&self, tap: WalkthroughTap) {
+        let mut bridge = self.bridge.lock();
+        bridge.walkthrough = tap;
+        if tap == WalkthroughTap::Off {
+            bridge.drawing = false;
+        }
     }
 
     pub fn set_tracking_corrections(&self, tracking: bool) {
@@ -105,29 +142,71 @@ fn handle(bridge: &mut Bridge, events: &UnboundedSender<HotkeyEvent>, event: Inp
             if bridge.tracking_corrections && key_event.is_key_down {
                 send(HotkeyEvent::Key(key_event.clone()));
             }
-            let paste_last = bridge.paste_last.as_ref().is_some_and(|hotkey| {
-                key_event.key.is_some()
-                    && key_event.key == hotkey.key
-                    && key_event.modifiers.matches_exactly(&hotkey.modifiers)
-            });
+            if matches_shortcut(&key_event, bridge.walkthrough_hotkey.as_ref()) {
+                send(HotkeyEvent::Walkthrough(WalkthroughInput::Toggle));
+                return true;
+            }
+            if bridge.walkthrough == (WalkthroughTap::Recording { undoable: true })
+                && key_event.key == Some(Key::Z)
+                && key_event.modifiers.matches_exactly(&Modifiers::of(&[ModifierKind::Command]))
+            {
+                send(HotkeyEvent::Walkthrough(WalkthroughInput::Undo));
+                return true;
+            }
+            let paste_last = matches_shortcut(&key_event, bridge.paste_last.as_ref());
             if paste_last {
                 send(HotkeyEvent::PasteLast);
             }
             let processed = process_key(bridge, &key_event, now, &send);
             paste_last || processed
         }
-        InputEvent::MouseClick => {
+        InputEvent::Mouse(mouse) => {
+            if mouse.phase != MousePhase::Down {
+                // Drags arrive constantly; only a walkthrough cares about them.
+                return walkthrough_mouse(bridge, &mouse, &send);
+            }
             send(HotkeyEvent::MouseClick);
             match bridge.processor.process_mouse_click(now) {
                 Some(ProcessorOutput::Cancel) => send(HotkeyEvent::Cancel),
                 Some(ProcessorOutput::Discard) => send(HotkeyEvent::Discard),
                 _ => {}
             }
-            false
+            walkthrough_mouse(bridge, &mouse, &send)
         }
     };
     send(HotkeyEvent::Locked(bridge.processor.state() == ProcessorState::DoubleTapLock));
     intercept
+}
+
+fn matches_shortcut(event: &KeyEvent, shortcut: Option<&HotKey>) -> bool {
+    shortcut.is_some_and(|hotkey| {
+        event.key.is_some() && event.key == hotkey.key && event.modifiers.matches_exactly(&hotkey.modifiers)
+    })
+}
+
+/// Turns mouse events into walkthrough input; true swallows the event.
+fn walkthrough_mouse(bridge: &mut Bridge, mouse: &MouseEvent, send: &dyn Fn(HotkeyEvent)) -> bool {
+    if bridge.walkthrough == WalkthroughTap::Off {
+        return false;
+    }
+    let ink = |phase| HotkeyEvent::Walkthrough(WalkthroughInput::Ink(phase, mouse.x, mouse.y));
+    match mouse.phase {
+        MousePhase::Down => {
+            bridge.drawing = mouse.modifiers.matches_exactly(&Modifiers::of(&[ModifierKind::Shift]));
+            send(if bridge.drawing { ink(MousePhase::Down) } else { HotkeyEvent::Walkthrough(WalkthroughInput::Click(mouse.x, mouse.y)) });
+            bridge.drawing
+        }
+        MousePhase::Dragged if bridge.drawing => {
+            send(ink(MousePhase::Dragged));
+            true
+        }
+        MousePhase::Up if bridge.drawing => {
+            bridge.drawing = false;
+            send(ink(MousePhase::Up));
+            true
+        }
+        MousePhase::Dragged | MousePhase::Up => false,
+    }
 }
 
 fn process_key(bridge: &mut Bridge, event: &KeyEvent, now: f64, send: &dyn Fn(HotkeyEvent)) -> bool {

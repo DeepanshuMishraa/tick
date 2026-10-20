@@ -1,6 +1,6 @@
 {
   "name": "tick-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Release metadata + changelog automation for the Tick macOS app.",
   "private": true,
   "license": "MIT",

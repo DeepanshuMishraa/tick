@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use core_foundation::base::{CFType, TCFType};
 use core_foundation::string::CFString;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardTypeString};
+use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardTypePNG, NSPasteboardTypeString};
 use objc2_foundation::{NSArray, NSData, NSString};
 
 use super::sys::*;
@@ -205,6 +205,50 @@ async fn paste_through_clipboard(text: &str, before: Option<String>, sleep: &dyn
         snapshot.restore(&pasteboard);
     }
     if posted { PasteResult::Pasted { before, after: None } } else { PasteResult::Failed }
+}
+
+/// Pastes a walkthrough into the frontmost app as two ⌘V presses: the
+/// contact sheet, then the summary. Terminals get the sheet's path instead
+/// of the image, which agent CLIs attach as an image. Restores the user's
+/// clipboard afterwards unless they changed it.
+pub async fn paste_walkthrough(sheet: &std::path::Path, summary: &str, sleep: &dyn Fn(Duration) -> futures::future::BoxFuture<'static, ()>) -> PasteResult {
+    let frontmost = workspace::frontmost_app();
+    let own = workspace::own_bundle_id();
+    let target = frontmost.filter(|app| Some(&app.bundle_id) != own.as_ref() && app.bundle_id != "com.apple.finder");
+    let Some(target) = target else { return PasteResult::NoFocusedInput };
+    let terminal = target.bundle_id == GHOSTTY
+        || tick_core::app_context::AppCategory::from_bundle_id(&target.bundle_id) == tick_core::app_context::AppCategory::Terminal;
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let snapshot = Snapshot::capture(&pasteboard);
+    pasteboard.clearContents();
+    let image = if terminal { None } else { std::fs::read(sheet).ok() };
+    // SAFETY: the pasteboard type names are constants.
+    let staged = match image {
+        Some(bytes) => pasteboard.setData_forType(Some(&NSData::with_bytes(&bytes)), unsafe { NSPasteboardTypePNG }),
+        None => pasteboard.setString_forType(&NSString::from_str(&sheet.to_string_lossy()), unsafe { NSPasteboardTypeString }),
+    };
+    if !staged {
+        snapshot.restore(&pasteboard);
+        return PasteResult::Failed;
+    }
+    sleep(Duration::from_millis(20)).await;
+    let mut posted = keyboard::post_command_v();
+    // The target reads the pasteboard after the event returns.
+    sleep(Duration::from_millis(250)).await;
+    pasteboard.clearContents();
+    // SAFETY: as above.
+    if !pasteboard.setString_forType(&NSString::from_str(summary), unsafe { NSPasteboardTypeString }) {
+        snapshot.restore(&pasteboard);
+        return PasteResult::Failed;
+    }
+    let temporary = pasteboard.changeCount();
+    sleep(Duration::from_millis(20)).await;
+    posted &= keyboard::post_command_v();
+    sleep(Duration::from_millis(200)).await;
+    if pasteboard.changeCount() == temporary {
+        snapshot.restore(&pasteboard);
+    }
+    if posted { PasteResult::Pasted { before: None, after: None } } else { PasteResult::Failed }
 }
 
 /// Inserts `text` into the focused field of the frontmost app.

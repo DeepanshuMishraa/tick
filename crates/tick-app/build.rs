@@ -45,6 +45,8 @@ fn main() {
     // Bundled app layout first, then the build products for `cargo run`.
     println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", frameworks.display());
+    // The OS Swift runtime, which screencapturekit's bridge links via @rpath.
+    println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
     if let Some(toolchain) = swift_runtime_dir() {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", toolchain.display());
     }

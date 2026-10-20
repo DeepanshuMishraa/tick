@@ -9,6 +9,7 @@ mod sound;
 mod state;
 mod storage;
 mod ui;
+mod walkthrough;
 
 fn main() {
     tracing_subscriber::fmt()

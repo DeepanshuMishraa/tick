@@ -100,7 +100,7 @@ impl Render for OverlayView {
             Kind::Notice => notice.is_some(),
         };
         if showing && self.kind != Kind::Notice {
-            self.sample(if matches!(phase, Phase::Recording { .. }) { meter.average } else { 0.0 });
+            self.sample(if phase.recording_since().is_some() { meter.average } else { 0.0 });
             self.animate_until = Instant::now() + EXIT;
         }
         if self.kind != Kind::Notice && Instant::now() < self.animate_until {
@@ -207,11 +207,8 @@ impl OverlayView {
     fn pill(&self, phase: Phase, locked: bool, showing: bool, cx: &App) -> impl IntoElement {
         let p = palette(cx);
         let level = self.levels.last().copied().unwrap_or(0.0);
-        let recording = matches!(phase, Phase::Recording { .. });
-        let elapsed = match phase {
-            Phase::Recording { started } => Some(started.elapsed().as_secs()),
-            _ => None,
-        };
+        let recording = phase.recording_since().is_some();
+        let elapsed = phase.recording_since().map(|started| started.elapsed().as_secs());
         let levels = self.levels.clone();
         let quiet = p.alpha(p.hud_text, 0.55);
         let wave = if recording { p.accent } else { quiet };
@@ -319,6 +316,17 @@ fn notice_copy(notice: &Notice) -> (Icon, String, String) {
             },
             "Copy the transcript and paste it yourself".into(),
         ),
+        Feedback::WalkthroughStarted { finish } => (
+            Icon::Mic,
+            "Recording a walkthrough".into(),
+            format!("Talk and click · ⇧ drag to draw · ⇧ click to pin · {finish} to finish"),
+        ),
+        Feedback::ScreenRecordingNeeded => (
+            Icon::Warning,
+            "Tick needs Screen Recording".into(),
+            "Allow Tick in System Settings › Screen Recording, then try again".into(),
+        ),
+        Feedback::WalkthroughFailed(reason) => (Icon::Warning, "Walkthrough failed".into(), reason.clone()),
     }
 }
 
@@ -400,8 +408,34 @@ pub struct Overlays {
     notch: Option<OverlayWindow>,
     pill: Option<OverlayWindow>,
     notice: Option<OverlayWindow>,
+    ink: Option<OverlayWindow>,
     _observe: Option<Subscription>,
+    _observe_sketch: Option<Subscription>,
     notice_height: f64,
+}
+
+fn open_ink(state: &Entity<AppState>, cx: &mut App) -> Option<OverlayWindow> {
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(Bounds::new(point(px(0.), px(0.)), size(px(10.), px(10.))))),
+        titlebar: None::<TitlebarOptions>,
+        focus: false,
+        show: false,
+        kind: WindowKind::PopUp,
+        is_movable: false,
+        is_resizable: false,
+        is_minimizable: false,
+        window_background: WindowBackgroundAppearance::Transparent,
+        ..WindowOptions::default()
+    };
+    let sketch = state.read(cx).sketch.clone();
+    let view_sketch = sketch.clone();
+    let handle = cx.open_window(options, move |_, cx| cx.new(|cx| super::ink::InkView::new(view_sketch, cx))).ok()?;
+    let native = handle.update(cx, |_, window, _| windows::ns_window(window)).ok().flatten()?;
+    windows::configure_overlay(&native, OverlayLevel::Shielding, true);
+    windows::hide(&native);
+    let number = u32::try_from(native.windowNumber()).ok();
+    sketch.update(cx, |sketch, _| sketch.window = number);
+    Some(OverlayWindow { handle: handle.into(), native })
 }
 
 impl gpui_kit::Global for Overlays {}
@@ -460,11 +494,36 @@ impl Overlays {
             notch: open(Kind::Notch, state, cx),
             pill: open(Kind::Pill, state, cx),
             notice: open(Kind::Notice, state, cx),
+            ink: open_ink(state, cx),
             _observe: None,
+            _observe_sketch: None,
             notice_height: 0.0,
         };
         overlays._observe = Some(cx.observe(state, |state, cx| Overlays::sync(&state, cx)));
+        let sketch = state.read(cx).sketch.clone();
+        overlays._observe_sketch = Some(cx.observe(&sketch, |sketch, cx| Overlays::sync_ink(&sketch, cx)));
         cx.set_global(overlays);
+    }
+
+    /// Covers the recorded screen while a walkthrough runs.
+    fn sync_ink(sketch: &Entity<crate::state::Sketch>, cx: &mut App) {
+        let screen = sketch.read(cx).screen;
+        let Some(window) = &cx.global::<Overlays>().ink else { return };
+        let (native, handle) = (window.native.clone(), window.handle);
+        let visible = windows::is_visible(&native);
+        let change = match screen {
+            Some(screen) if !visible => Change::Show(screen, (0.0, 0.0, screen.width, screen.height)),
+            None if visible => Change::Hide,
+            _ => return,
+        };
+        // Frame changes re-enter GPUI; apply them on the next turn (see `sync`).
+        cx.spawn(async move |cx| {
+            apply(&native, &change);
+            cx.update(|cx| {
+                let _ = handle.update(cx, |_, window, _| window.refresh());
+            });
+        })
+        .detach();
     }
 
     fn sync(state: &Entity<AppState>, cx: &mut App) {

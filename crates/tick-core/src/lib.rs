@@ -12,3 +12,4 @@ pub mod models;
 pub mod settings;
 pub mod stats;
 pub mod text;
+pub mod walkthrough;

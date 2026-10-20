@@ -467,10 +467,30 @@ impl KeyEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MousePhase {
+    /// Any button went down.
+    Down,
+    /// The left button moved while held.
+    Dragged,
+    /// The left button came up.
+    Up,
+}
+
+/// One mouse transition reported by the global event tap.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MouseEvent {
+    pub phase: MousePhase,
+    /// Global position in points, origin at the top-left of the main display.
+    pub x: f64,
+    pub y: f64,
+    pub modifiers: Modifiers,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum InputEvent {
     Keyboard(KeyEvent),
-    MouseClick,
+    Mouse(MouseEvent),
 }
 
 #[cfg(test)]

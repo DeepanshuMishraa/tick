@@ -13,7 +13,8 @@ use crate::ui::icons::Icon;
 use crate::ui::main_view::MainView;
 use crate::ui::theme::{size, space};
 
-const FAQ: [(&str, &str); 4] = [
+const FAQ: [(&str, &str); 5] = [
+    ("How do I show an AI agent a problem on screen?", "Press ⌥⇧S (Settings → Hotkey → Walkthrough) and talk while you click around. Hold ⇧ and drag to draw, ⇧-click to drop a numbered pin, ⌘Z to undo a mark, Esc to cancel. Press ⌥⇧S again: Tick pastes a contact sheet of keyframes and a timestamped transcript into the app in front. Needs Screen Recording permission."),
     ("How do I change the recording hotkey?", "Open Settings → Hotkey, click the keys, then press the combination you want. A single modifier such as ⌥ works best for push-to-talk."),
     ("Does Tick process audio offline?", "Yes. Speech recognition runs on your Mac with Core ML. AI formatting runs locally too, unless you add a Groq key in Settings → Intelligence."),
     ("Where are my recordings kept?", "In ~/Library/Application Support/com.dipxsy.Tick/Recordings. Settings → History controls how long audio is kept; transcripts are never auto-deleted."),

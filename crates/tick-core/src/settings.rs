@@ -351,8 +351,16 @@ fn default_paste_last() -> Option<HotKey> {
 }
 
 /// Distinguishes an explicitly cleared shortcut (`null`) from a missing key.
-fn nullable_paste_last<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<HotKey>, D::Error> {
+fn nullable_hotkey<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<HotKey>, D::Error> {
     Option::<HotKey>::deserialize(deserializer)
+}
+
+pub fn default_walkthrough_hotkey() -> HotKey {
+    HotKey::new(Some(Key::S), Modifiers::of(&[ModifierKind::Option, ModifierKind::Shift]))
+}
+
+fn default_walkthrough() -> Option<HotKey> {
+    Some(default_walkthrough_hotkey())
 }
 
 fn default_removals() -> Vec<WordRemoval> {
@@ -413,8 +421,11 @@ pub struct Settings {
     pub max_history_entries: Option<i64>,
     #[serde(default)]
     pub recording_retention: RecordingRetention,
-    #[serde(default = "default_paste_last", deserialize_with = "nullable_paste_last")]
+    #[serde(default = "default_paste_last", deserialize_with = "nullable_hotkey")]
     pub paste_last_transcript_hotkey: Option<HotKey>,
+    /// Starts and finishes a walkthrough recording.
+    #[serde(default = "default_walkthrough", deserialize_with = "nullable_hotkey")]
+    pub walkthrough_hotkey: Option<HotKey>,
     #[serde(default)]
     pub has_completed_model_bootstrap: bool,
     #[serde(default)]
@@ -578,6 +589,15 @@ mod tests {
         let decoded = Settings::from_json(&s.to_json().unwrap()).unwrap();
         assert_eq!(decoded.paste_last_transcript_hotkey, None);
         assert_eq!(Settings::default().paste_last_transcript_hotkey, Some(default_paste_last_hotkey()));
+    }
+
+    #[test]
+    fn walkthrough_shortcut_defaults_and_stays_cleared() {
+        assert_eq!(Settings::default().walkthrough_hotkey, Some(default_walkthrough_hotkey()));
+        assert_eq!(Settings::from_json(V1.as_bytes()).unwrap().walkthrough_hotkey, Some(default_walkthrough_hotkey()));
+        let mut s = Settings::default();
+        s.walkthrough_hotkey = None;
+        assert_eq!(Settings::from_json(&s.to_json().unwrap()).unwrap().walkthrough_hotkey, None);
     }
 
     #[test]

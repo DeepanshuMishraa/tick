@@ -6,6 +6,7 @@ mod dictation;
 mod history;
 mod models;
 mod permissions;
+mod walkthrough;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -29,6 +30,7 @@ use crate::storage;
 
 pub use dictation::{Feedback, Phase, PasteFailure};
 pub use models::{AiModelState, ModelState};
+pub use walkthrough::{Mark, Sketch, RIPPLE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tab {
@@ -89,6 +91,8 @@ pub struct AppState {
     pub languages: Vec<Language>,
     pub user_name: String,
     pub wizard_open: bool,
+    /// Marks drawn during a walkthrough, shown by the ink overlay.
+    pub sketch: Entity<Sketch>,
 
     pub(crate) recorder: Recorder,
     pub(crate) sound: Sound,
@@ -96,6 +100,7 @@ pub struct AppState {
     tap: Option<EventTap>,
     sleep: Option<SleepAssertion>,
     dictation: dictation::Session,
+    walkthrough: Option<walkthrough::Walkthrough>,
     tasks: Tasks,
 }
 
@@ -178,12 +183,14 @@ impl AppState {
             languages: languages(),
             user_name: workspace::user_first_name(),
             wizard_open: false,
+            sketch: cx.new(|_| Sketch::default()),
             recorder,
             sound,
             hotkeys,
             tap: None,
             sleep: None,
             dictation: dictation::Session::default(),
+            walkthrough: None,
             tasks,
             settings,
             history,
@@ -290,7 +297,7 @@ impl AppState {
         let modifiers = event.modifiers.union(&self.capture_modifiers);
         self.capture_modifiers = modifiers.clone();
         cx.notify();
-        if target == CaptureTarget::PasteLast && event.key.is_some() && modifiers.is_empty() {
+        if target != CaptureTarget::Recording && event.key.is_some() && modifiers.is_empty() {
             return;
         }
         if let Some(key) = event.key {
@@ -298,6 +305,7 @@ impl AppState {
             self.update_settings(cx, |settings| match target {
                 CaptureTarget::Recording => settings.hotkey = hotkey,
                 CaptureTarget::PasteLast => settings.paste_last_transcript_hotkey = Some(hotkey),
+                CaptureTarget::Walkthrough => settings.walkthrough_hotkey = Some(hotkey),
             });
             self.sound.play(Cue::Success);
             workspace::haptic(workspace::Haptic::Alignment);
@@ -314,6 +322,10 @@ impl AppState {
     }
 
     fn handle_hotkey(&mut self, event: HotkeyEvent, cx: &mut Context<Self>) {
+        // The microphone belongs to the walkthrough until it is pasted.
+        if self.walkthrough.is_some() && matches!(event, HotkeyEvent::Pressed | HotkeyEvent::StartLocked | HotkeyEvent::Released) {
+            return;
+        }
         match event {
             HotkeyEvent::Pressed => {
                 if self.phase == Phase::Transcribing {
@@ -342,6 +354,7 @@ impl AppState {
             HotkeyEvent::MouseClick => self.correction_click(cx),
             HotkeyEvent::PasteLast => self.paste_last_transcript(cx),
             HotkeyEvent::Capture(key) => self.handle_capture(key, cx),
+            HotkeyEvent::Walkthrough(input) => self.walkthrough_input(input, cx),
         }
     }
 
@@ -351,7 +364,8 @@ impl AppState {
         let duration = match feedback {
             Feedback::Copied => Duration::from_millis(1800),
             Feedback::DictionaryAdded(_) => Duration::from_secs(5),
-            Feedback::PasteUnavailable { .. } => Duration::from_secs(4),
+            Feedback::PasteUnavailable { .. } | Feedback::WalkthroughStarted { .. } => Duration::from_secs(4),
+            Feedback::ScreenRecordingNeeded | Feedback::WalkthroughFailed(_) => Duration::from_secs(6),
         };
         self.notice = Some(Notice { feedback, shown_at: Instant::now(), duration });
         self.tasks.notice = Some(cx.spawn(async move |this, cx| {

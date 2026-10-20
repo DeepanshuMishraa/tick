@@ -359,6 +359,17 @@ fn hotkey_section(view: &MainView, cx: &mut Context<MainView>) -> impl IntoEleme
                 .into_any_element(),
         );
     }
+    rows.push(
+        shortcut_row(
+            &entity,
+            CaptureTarget::Walkthrough,
+            ("Walkthrough", "Record your screen while you talk, then paste it into an AI agent"),
+            state.settings.walkthrough_hotkey.clone(),
+            |settings| settings.walkthrough_hotkey = None,
+            cx,
+        )
+        .into_any_element(),
+    );
     section("Hotkey", rows, cx)
 }
 
@@ -628,13 +639,10 @@ fn general_section(state: &Entity<AppState>, cx: &App) -> impl IntoElement {
 }
 
 fn history_section(view: &MainView, cx: &mut Context<MainView>) -> impl IntoElement {
-    let p = palette(cx);
     let entity = view.state.clone();
     let view_entity = cx.entity();
     let state = view.state.read(cx);
     let settings = state.settings.clone();
-    let capturing = state.capture == Some(CaptureTarget::PasteLast);
-    let capture_modifiers = state.capture_modifiers.clone();
     let count = state.history.history.len();
     let confirm = view.confirm_delete_all;
     let save_entity = entity.clone();
@@ -663,44 +671,16 @@ fn history_section(view: &MainView, cx: &mut Context<MainView>) -> impl IntoElem
             })
             .collect();
         rows.push(row("Auto-delete", "Keep recordings for", Some("Transcripts are always kept; only audio is deleted.".into()), picker("retention", settings.recording_retention.display_name(), retention), cx).into_any_element());
-        let shortcut = settings.paste_last_transcript_hotkey.clone();
-        let shown: Vec<AnyElement> = if capturing {
-            capture_modifiers.sorted().iter().map(|m| keycap(m.kind.symbol(), true, cx).into_any_element()).collect()
-        } else {
-            shortcut.as_ref().map_or_else(Vec::new, |hk| {
-                let mut caps: Vec<AnyElement> = hk.modifiers.sorted().iter().map(|m| keycap(m.kind.symbol(), false, cx).into_any_element()).collect();
-                if let Some(key) = hk.key {
-                    caps.push(keycap(key.label(), false, cx).into_any_element());
-                }
-                caps
-            })
-        };
-        let (capture, clear) = (entity.clone(), entity.clone());
         rows.push(
-            h_flex()
-                .py(space::M)
-                .gap(space::L)
-                .items_center()
-                .child(v_flex().flex_1().min_w_0().gap(px(3.)).child(eyebrow("Paste last transcript", cx)).child(body("Shortcut to paste your latest transcript", cx)).child(muted(if capturing { "Hold at least one modifier, then press a key · Esc cancels" } else { "Click the keys to change." }, cx)))
-                .child(
-                    h_flex()
-                        .id("paste-last-capture")
-                        .gap(space::XS)
-                        .min_w(px(80.))
-                        .min_h(px(34.))
-                        .items_center()
-                        .justify_end()
-                        .when(shown.is_empty(), |el| el.child(div().px(space::M).h(px(34.)).flex().items_center().border_1().border_color(if capturing { p.accent } else { p.line_strong }).text_size(size::CAPTION).text_color(p.muted).child(if capturing { "Press keys" } else { "Not set" })))
-                        .children(shown)
-                        .on_click(move |_, _, cx| capture.update(cx, |s, cx| s.begin_capture(CaptureTarget::PasteLast, cx))),
-                )
-                .when(shortcut.is_some() && !capturing, |el| {
-                    el.child(crate::ui::components::icon_button("paste-last-clear", Icon::Close, p.muted, cx).on_click(move |_, _, cx| {
-                        cue(cx, Cue::Close);
-                        clear.update(cx, |s, cx| s.update_settings(cx, |x| x.paste_last_transcript_hotkey = None))
-                    }))
-                })
-                .into_any_element(),
+            shortcut_row(
+                &entity,
+                CaptureTarget::PasteLast,
+                ("Paste last transcript", "Shortcut to paste your latest transcript"),
+                settings.paste_last_transcript_hotkey.clone(),
+                |settings| settings.paste_last_transcript_hotkey = None,
+                cx,
+            )
+            .into_any_element(),
         );
         if count > 0 {
             let (ask, cancel, confirm_entity, delete) = (view_entity.clone(), view_entity.clone(), view_entity.clone(), entity.clone());
@@ -741,6 +721,56 @@ fn history_section(view: &MainView, cx: &mut Context<MainView>) -> impl IntoElem
         }
     }
     section("History", rows, cx)
+}
+
+/// A clearable shortcut that needs at least one modifier and a key.
+fn shortcut_row(
+    state: &Entity<AppState>,
+    target: CaptureTarget,
+    (label, description): (&'static str, &'static str),
+    shortcut: Option<tick_core::hotkey::HotKey>,
+    clear_edit: fn(&mut tick_core::settings::Settings),
+    cx: &App,
+) -> impl IntoElement {
+    let p = palette(cx);
+    let app = state.read(cx);
+    let capturing = app.capture == Some(target);
+    let shown: Vec<AnyElement> = if capturing {
+        app.capture_modifiers.sorted().iter().map(|m| keycap(m.kind.symbol(), true, cx).into_any_element()).collect()
+    } else {
+        shortcut.as_ref().map_or_else(Vec::new, |hk| {
+            let mut caps: Vec<AnyElement> = hk.modifiers.sorted().iter().map(|m| keycap(m.kind.symbol(), false, cx).into_any_element()).collect();
+            if let Some(key) = hk.key {
+                caps.push(keycap(key.label(), false, cx).into_any_element());
+            }
+            caps
+        })
+    };
+    let id = SharedString::from(format!("{target:?}-shortcut"));
+    let (capture, clear) = (state.clone(), state.clone());
+    h_flex()
+        .py(space::M)
+        .gap(space::L)
+        .items_center()
+        .child(v_flex().flex_1().min_w_0().gap(px(3.)).child(eyebrow(label, cx)).child(body(description, cx)).child(muted(if capturing { "Hold at least one modifier, then press a key · Esc cancels" } else { "Click the keys to change." }, cx)))
+        .child(
+            h_flex()
+                .id(SharedString::from(format!("{id}-capture")))
+                .gap(space::XS)
+                .min_w(px(80.))
+                .min_h(px(34.))
+                .items_center()
+                .justify_end()
+                .when(shown.is_empty(), |el| el.child(div().px(space::M).h(px(34.)).flex().items_center().border_1().border_color(if capturing { p.accent } else { p.line_strong }).text_size(size::CAPTION).text_color(p.muted).child(if capturing { "Press keys" } else { "Not set" })))
+                .children(shown)
+                .on_click(move |_, _, cx| capture.update(cx, |s, cx| s.begin_capture(target, cx))),
+        )
+        .when(shortcut.is_some() && !capturing, |el| {
+            el.child(crate::ui::components::icon_button(SharedString::from(format!("{id}-clear")), Icon::Close, p.muted, cx).on_click(move |_, _, cx| {
+                cue(cx, Cue::Close);
+                clear.update(cx, |s, cx| s.update_settings(cx, clear_edit))
+            }))
+        })
 }
 
 fn updates_section(cx: &App) -> impl IntoElement {

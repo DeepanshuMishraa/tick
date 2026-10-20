@@ -2,6 +2,7 @@
 
 pub mod components;
 pub mod icons;
+mod ink;
 pub mod main_view;
 mod overlay;
 mod pages;
@@ -18,7 +19,7 @@ use gpui_kit::{
 use objc2::MainThreadMarker;
 
 use crate::platform::workspace;
-use crate::state::{AppState, Phase};
+use crate::state::AppState;
 use main_view::MainView;
 use status_item::{MenuCommand, MenuModel, StatusItem};
 
@@ -182,7 +183,7 @@ fn install_status_item(state: &Entity<AppState>, cx: &mut App) {
         loop {
             cx.background_executor().timer(Duration::from_millis(150)).await;
             let recording = cx
-                .update(|cx| matches!(state.read(cx).phase, Phase::Recording { .. }));
+                .update(|cx| state.read(cx).phase.recording_since().is_some());
             if recording {
                 phase = (phase + 0.35) % std::f32::consts::TAU;
             }

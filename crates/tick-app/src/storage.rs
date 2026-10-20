@@ -28,6 +28,10 @@ pub fn recordings() -> PathBuf {
     ensure(app_support().join("Recordings"))
 }
 
+pub fn walkthroughs() -> PathBuf {
+    ensure(app_support().join("Walkthroughs"))
+}
+
 pub fn speech_models() -> PathBuf {
     ensure(app_support().join("models"))
 }

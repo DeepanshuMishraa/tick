@@ -6,7 +6,7 @@
 
 use std::ffi::c_void;
 
-use tick_core::hotkey::{InputEvent, Key, KeyEvent, ModifierKind, Modifiers};
+use tick_core::hotkey::{InputEvent, Key, KeyEvent, ModifierKind, Modifiers, MouseEvent, MousePhase};
 
 use super::sys::*;
 
@@ -36,6 +36,8 @@ impl EventTap {
             kCGEventKeyUp,
             kCGEventFlagsChanged,
             kCGEventLeftMouseDown,
+            kCGEventLeftMouseDragged,
+            kCGEventLeftMouseUp,
             kCGEventRightMouseDown,
             kCGEventOtherMouseDown,
         ]
@@ -99,14 +101,26 @@ extern "C" fn tap_callback(_proxy: CGEventTapProxy, kind: u32, event: CGEventRef
     if !super::permissions::input_monitoring_granted() {
         return event;
     }
-    if matches!(kind, kCGEventLeftMouseDown | kCGEventRightMouseDown | kCGEventOtherMouseDown) {
-        (state.handler)(InputEvent::MouseClick);
-        return event;
-    }
     // SAFETY: `event` is the live event passed to this callback.
-    let key_code = unsafe { CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode) };
-    // SAFETY: as above.
     let flags = unsafe { CGEventGetFlags(event) };
+    let phase = if kind == kCGEventLeftMouseDown || kind == kCGEventRightMouseDown || kind == kCGEventOtherMouseDown {
+        Some(MousePhase::Down)
+    } else if kind == kCGEventLeftMouseDragged {
+        Some(MousePhase::Dragged)
+    } else if kind == kCGEventLeftMouseUp {
+        Some(MousePhase::Up)
+    } else {
+        None
+    };
+    if let Some(phase) = phase {
+        // SAFETY: as above.
+        let location = unsafe { CGEventGetLocation(event) };
+        let mouse = MouseEvent { phase, x: location.x, y: location.y, modifiers: Modifiers::from_event_flags(flags) };
+        let swallowed = (state.handler)(InputEvent::Mouse(mouse));
+        return if swallowed { std::ptr::null_mut() } else { event };
+    }
+    // SAFETY: as above.
+    let key_code = unsafe { CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode) };
     if kind == kCGEventFlagsChanged && key_code == FN_KEY_CODE {
         state.fn_pressed = flags & kCGEventFlagMaskSecondaryFn != 0;
     }

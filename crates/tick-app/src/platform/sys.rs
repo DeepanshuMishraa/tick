@@ -32,7 +32,9 @@ pub const kCGHeadInsertEventTap: u32 = 0;
 pub const kCGEventTapOptionDefault: u32 = 0;
 
 pub const kCGEventLeftMouseDown: u32 = 1;
+pub const kCGEventLeftMouseUp: u32 = 2;
 pub const kCGEventRightMouseDown: u32 = 3;
+pub const kCGEventLeftMouseDragged: u32 = 6;
 pub const kCGEventKeyDown: u32 = 10;
 pub const kCGEventKeyUp: u32 = 11;
 pub const kCGEventFlagsChanged: u32 = 12;
@@ -49,6 +51,13 @@ pub const kCGEventFlagMaskSecondaryFn: u64 = 0x0080_0000;
 pub const kIOHIDRequestTypeListenEvent: u32 = 1;
 pub const kIOHIDAccessTypeGranted: u32 = 0;
 pub const kIOHIDAccessTypeDenied: u32 = 1;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CGPoint {
+    pub x: f64,
+    pub y: f64,
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -84,6 +93,7 @@ unsafe extern "C" {
     pub fn CGEventTapIsEnabled(tap: CFMachPortRef) -> bool;
     pub fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     pub fn CGEventGetFlags(event: CGEventRef) -> u64;
+    pub fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
     pub fn CGEventSetFlags(event: CGEventRef, flags: u64);
     pub fn CGEventKeyboardGetUnicodeString(
         event: CGEventRef,
@@ -96,6 +106,8 @@ unsafe extern "C" {
     pub fn CGEventPost(tap: u32, event: CGEventRef);
     pub fn CGPreflightListenEventAccess() -> bool;
     pub fn CGRequestListenEventAccess() -> bool;
+    pub fn CGPreflightScreenCaptureAccess() -> bool;
+    pub fn CGRequestScreenCaptureAccess() -> bool;
 }
 
 #[link(name = "ApplicationServices", kind = "framework")]

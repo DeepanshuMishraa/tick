@@ -53,6 +53,18 @@ pub struct ScreenGeometry {
     pub notch_height: f64,
     /// Bottom of the area above the Dock.
     pub visible_y: f64,
+    /// Pixels per point.
+    pub scale: f64,
+    /// Height of the main display, which anchors both coordinate systems.
+    pub main_height: f64,
+}
+
+impl ScreenGeometry {
+    /// Top-left corner in global display coordinates, whose origin is the
+    /// top-left of the main display (mouse events and ScreenCaptureKit).
+    pub fn display_origin(&self) -> (f64, f64) {
+        (self.x, self.main_height - (self.y + self.height))
+    }
 }
 
 /// The screen under the mouse pointer, where the indicator appears.
@@ -71,6 +83,7 @@ pub fn active_screen() -> Option<ScreenGeometry> {
         })
         .or_else(|| NSScreen::mainScreen(mtm))?;
     let frame = screen.frame();
+    let main_height = screens.iter().next().map_or(frame.size.height, |main| main.frame().size.height);
     let (left, right) = (screen.auxiliaryTopLeftArea(), screen.auxiliaryTopRightArea());
     let notch = (left.size.width > 0.0 && right.size.width > 0.0).then(|| {
         let width = right.origin.x - (left.origin.x + left.size.width);
@@ -85,5 +98,7 @@ pub fn active_screen() -> Option<ScreenGeometry> {
         notch_width: notch.map(|(width, _)| width),
         notch_height: notch.map_or(32.0, |(_, height)| height),
         visible_y: screen.visibleFrame().origin.y,
+        scale: screen.backingScaleFactor(),
+        main_height,
     })
 }

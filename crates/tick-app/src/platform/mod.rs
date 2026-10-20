@@ -4,6 +4,7 @@
 pub mod keyboard;
 pub mod paste;
 pub mod permissions;
+pub mod screen;
 mod sys;
 pub mod system;
 pub mod windows;
