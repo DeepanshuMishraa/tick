@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f3f2ee" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#121210" media="(prefers-color-scheme: dark)">
     <title>Tick — Voice to text for macOS</title>
-    <meta name="description" content="Tick is a private, on-device voice-to-text utility for macOS. Hold a key, speak, and the text lands where you're typing.">
+    <meta name="description" content="Tick is a private, on-device voice-to-text utility for macOS. Hold a key, speak, and the text lands where you're typing. Record walkthroughs to show an AI agent what's on your screen.">
     <link rel="icon" type="image/png" href="icon.png">
     <link rel="apple-touch-icon" href="icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,6 +20,7 @@
         <a class="mark" href="/" aria-label="Tick home"><b>tick</b><i aria-hidden="true"></i></a>
         <nav aria-label="Primary">
           <a href="#how">how</a>
+          <a href="#walkthroughs">walkthroughs</a>
           <a href="#models">models</a>
           <a href="https://github.com/DeepanshuMishraa/tick" target="_blank" rel="noreferrer">github</a>
         </nav>
@@ -41,6 +42,20 @@
         <div class="row"><span>01</span><span>hold</span><span>Press and hold your hotkey, speak, release. Tick transcribes the moment you let go.</span></div>
         <div class="row"><span>02</span><span>lock</span><span>Double-tap the hotkey for hands-free dictation. Tap once more to finish.</span></div>
         <div class="row"><span>03</span><span>paste</span><span>Text is cleaned up and pasted at your cursor, in any app.</span></div>
+      </section>
+
+      <section class="steps" aria-labelledby="walkthroughs">
+        <h2 id="walkthroughs">Walkthroughs <em>new in 1.1</em></h2>
+        <p class="lede">Show an AI agent the problem instead of describing it. Tick records your screen while you talk, then hands the agent numbered keyframes and a timestamped transcript.</p>
+        <div class="row"><span>01</span><span>start</span><span>Press <kbd>⌥⇧S</kbd>. Change it in Settings → Hotkey.</span></div>
+        <div class="row"><span>02</span><span>show</span><span>Talk and click around. Hold <kbd>⇧</kbd> and drag to draw, <kbd>⇧</kbd>-click to drop a numbered pin, <kbd>⌘Z</kbd> to undo, <kbd>esc</kbd> to cancel.</span></div>
+        <div class="row"><span>03</span><span>paste</span><span>Press <kbd>⌥⇧S</kbd> again. A contact sheet of keyframes and the transcript are pasted into the agent in front, in Claude Code, Codex, Cursor or any chat box.</span></div>
+        <pre class="sample" aria-label="Example of the pasted transcript">[Tick walkthrough · 0:15 · Safari]
+- #1 (0:00) [start] "So this is the deploy page."
+- #2 (0:04) [clicked] "Retry does nothing when I click it."
+- #3 (0:09) [drew] "And this count is wrong."
+- #4 (0:12) [pin 1]</pre>
+        <p class="note">Keyframes are taken when you click, draw, or the screen changes. Speech is transcribed on your Mac. Needs Screen Recording permission.</p>
       </section>
 
       <section id="models" aria-labelledby="models-h">

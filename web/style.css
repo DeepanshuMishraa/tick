@@ -113,6 +113,30 @@ h2 { padding-bottom: 16px; font-size: 14px; font-weight: 600; }
 .steps .row span:last-child { color: var(--mute); }
 .steps .row span:nth-child(2) { font-weight: 600; }
 
+h2 em { padding-left: 8px; font-style: normal; font-weight: 400; font-size: 13px; color: var(--accent); }
+
+.lede { padding-bottom: 16px; color: var(--mute); text-wrap: pretty; }
+
+kbd {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.sample {
+  margin: 8px 0 16px;
+  padding: 12px 16px;
+  border-left: 2px solid var(--accent);
+  background: var(--line);
+  font: inherit;
+  font-size: 13px;
+  line-height: 22px;
+  overflow-x: auto;
+}
+
 .table { overflow-x: auto; }
 .models { min-width: 560px; }
 .models .row { grid-template-columns: 168px 128px 96px 96px 1fr; padding: 10px 0; line-height: 22px; }
@@ -160,6 +184,8 @@ footer nav a:last-child { color: var(--mute); }
   body { padding-top: 40px; }
   .hero { padding-top: 96px; }
   h1 { font-size: 24px; line-height: 32px; }
+  header nav { gap: 16px; }
+  header nav a[href="#how"], header nav a[href="#models"] { display: none; }
   .steps .row { grid-template-columns: 32px 1fr; }
   .steps .row span:last-child { grid-column: 2; }
   .list .row { grid-template-columns: 1fr; gap: 2px; }
