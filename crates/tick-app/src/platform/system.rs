@@ -19,7 +19,12 @@ impl SleepAssertion {
         const LEVEL_ON: u32 = 255;
         // SAFETY: CF strings outlive the call; `id` is a valid out-pointer.
         let status = unsafe {
-            IOPMAssertionCreateWithName(kind.as_concrete_TypeRef().cast(), LEVEL_ON, reason.as_concrete_TypeRef().cast(), &mut id)
+            IOPMAssertionCreateWithName(
+                kind.as_concrete_TypeRef().cast(),
+                LEVEL_ON,
+                reason.as_concrete_TypeRef().cast(),
+                &mut id,
+            )
         };
         (status == 0).then_some(SleepAssertion(id))
     }
@@ -37,7 +42,13 @@ pub fn set_open_on_login(enabled: bool) -> Result<(), String> {
     // SAFETY: SMAppService.mainApp is always available on macOS 13+.
     let service = unsafe { SMAppService::mainAppService() };
     // SAFETY: plain Objective-C calls.
-    let result = unsafe { if enabled { service.registerAndReturnError() } else { service.unregisterAndReturnError() } };
+    let result = unsafe {
+        if enabled {
+            service.registerAndReturnError()
+        } else {
+            service.unregisterAndReturnError()
+        }
+    };
     result.map_err(|error| error.localizedDescription().to_string())
 }
 
@@ -83,8 +94,14 @@ pub fn active_screen() -> Option<ScreenGeometry> {
         })
         .or_else(|| NSScreen::mainScreen(mtm))?;
     let frame = screen.frame();
-    let main_height = screens.iter().next().map_or(frame.size.height, |main| main.frame().size.height);
-    let (left, right) = (screen.auxiliaryTopLeftArea(), screen.auxiliaryTopRightArea());
+    let main_height = screens
+        .iter()
+        .next()
+        .map_or(frame.size.height, |main| main.frame().size.height);
+    let (left, right) = (
+        screen.auxiliaryTopLeftArea(),
+        screen.auxiliaryTopRightArea(),
+    );
     let notch = (left.size.width > 0.0 && right.size.width > 0.0).then(|| {
         let width = right.origin.x - (left.origin.x + left.size.width);
         let height = left.size.height.max(right.size.height).max(32.0);

@@ -6,8 +6,8 @@
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -37,9 +37,20 @@ pub enum CaptureError {
 }
 
 enum Job {
-    Samples { generation: u64, rate: u32, channels: u16, data: Vec<f32> },
-    Begin { path: PathBuf, requested_at: Instant, reply: Sender<Result<(), CaptureError>> },
-    Finish { reply: Sender<Option<PathBuf>> },
+    Samples {
+        generation: u64,
+        rate: u32,
+        channels: u16,
+        data: Vec<f32>,
+    },
+    Begin {
+        path: PathBuf,
+        requested_at: Instant,
+        reply: Sender<Result<(), CaptureError>>,
+    },
+    Finish {
+        reply: Sender<Option<PathBuf>>,
+    },
     Reset,
 }
 
@@ -61,7 +72,11 @@ impl Converter {
         let resampler = (rate != SAMPLE_RATE)
             .then(|| FftFixedInOut::<f32>::new(rate as usize, SAMPLE_RATE as usize, 1024, 1).ok())
             .flatten();
-        Converter { rate, resampler, pending: Vec::new() }
+        Converter {
+            rate,
+            resampler,
+            pending: Vec::new(),
+        }
     }
 
     fn push(&mut self, mono: &[f32], out: &mut Vec<f32>) {
@@ -101,12 +116,21 @@ impl Processor {
     fn run(mut self, jobs: Receiver<Job>) {
         for job in jobs {
             match job {
-                Job::Samples { generation, rate, channels, data } => {
+                Job::Samples {
+                    generation,
+                    rate,
+                    channels,
+                    data,
+                } => {
                     if generation == self.generation.load(Ordering::Acquire) {
                         self.process(rate, channels, &data);
                     }
                 }
-                Job::Begin { path, requested_at, reply } => {
+                Job::Begin {
+                    path,
+                    requested_at,
+                    reply,
+                } => {
                     let _ = reply.send(self.begin(path, requested_at));
                 }
                 Job::Finish { reply } => {
@@ -151,8 +175,11 @@ impl Processor {
             bits_per_sample: 32,
             sample_format: hound::SampleFormat::Float,
         };
-        let mut writer = hound::WavWriter::create(&path, spec)
-            .map_err(|error| CaptureError::File { path: path.clone(), reason: error.to_string() })?;
+        let mut writer =
+            hound::WavWriter::create(&path, spec).map_err(|error| CaptureError::File {
+                path: path.clone(),
+                reason: error.to_string(),
+            })?;
         let pre_roll = self.recent((PRE_ROLL_SECONDS * SAMPLE_RATE as f32) as usize);
         for sample in &pre_roll {
             let _ = writer.write_sample(*sample);
@@ -162,13 +189,21 @@ impl Processor {
             crate::speech::push(&pre_roll);
         }
         tracing::info!(target: "recording", "recording file opened, pre-roll {:.3}s", pre_roll.len() as f32 / SAMPLE_RATE as f32);
-        self.recording = Some(Recording { path, writer, requested_at, logged_first_buffer: false });
+        self.recording = Some(Recording {
+            path,
+            writer,
+            requested_at,
+            logged_first_buffer: false,
+        });
         Ok(())
     }
 
     fn process(&mut self, rate: u32, channels: u16, data: &[f32]) {
         let channels = usize::from(channels.max(1));
-        let mono: Vec<f32> = data.chunks(channels).map(|frame| frame.iter().sum::<f32>() / frame.len() as f32).collect();
+        let mono: Vec<f32> = data
+            .chunks(channels)
+            .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
+            .collect();
         if self.converter.as_ref().is_none_or(|c| c.rate != rate) {
             self.converter = Some(Converter::new(rate));
         }
@@ -186,13 +221,18 @@ impl Processor {
         }
         self.valid = (self.valid + converted.len()).min(len);
 
-        let Some(recording) = self.recording.as_mut() else { return };
+        let Some(recording) = self.recording.as_mut() else {
+            return;
+        };
         let (mut sum, mut peak) = (0.0f32, 0.0f32);
         for sample in &converted {
             sum += sample * sample;
             peak = peak.max(sample.abs());
         }
-        *self.meter.lock() = Meter { average: (sum / converted.len() as f32).sqrt(), peak };
+        *self.meter.lock() = Meter {
+            average: (sum / converted.len() as f32).sqrt(),
+            peak,
+        };
         if self.streaming.load(Ordering::Relaxed) {
             crate::speech::push(&converted);
         }
@@ -241,7 +281,14 @@ impl Capture {
             .name("tick-capture".into())
             .spawn(move || processor.run(receiver))
             .expect("spawning the capture thread");
-        Capture { stream: None, jobs, generation, meter, streaming, recording: false }
+        Capture {
+            stream: None,
+            jobs,
+            generation,
+            meter,
+            streaming,
+            recording: false,
+        }
     }
 
     pub fn is_running(&self) -> bool {
@@ -258,8 +305,12 @@ impl Capture {
             return Ok(());
         }
         let host = cpal::default_host();
-        let device = host.default_input_device().ok_or(CaptureError::NoInputDevice)?;
-        let config = device.default_input_config().map_err(|error| CaptureError::Stream(error.to_string()))?;
+        let device = host
+            .default_input_device()
+            .ok_or(CaptureError::NoInputDevice)?;
+        let config = device
+            .default_input_config()
+            .map_err(|error| CaptureError::Stream(error.to_string()))?;
         let rate = config.sample_rate().0;
         let channels = config.channels();
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
@@ -269,7 +320,12 @@ impl Capture {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    let _ = jobs.send(Job::Samples { generation, rate, channels, data: data.to_vec() });
+                    let _ = jobs.send(Job::Samples {
+                        generation,
+                        rate,
+                        channels,
+                        data: data.to_vec(),
+                    });
                 },
                 on_error,
                 None,
@@ -277,16 +333,30 @@ impl Capture {
             cpal::SampleFormat::I16 => device.build_input_stream(
                 &config.into(),
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    let data = data.iter().map(|s| f32::from(*s) / f32::from(i16::MAX)).collect();
-                    let _ = jobs.send(Job::Samples { generation, rate, channels, data });
+                    let data = data
+                        .iter()
+                        .map(|s| f32::from(*s) / f32::from(i16::MAX))
+                        .collect();
+                    let _ = jobs.send(Job::Samples {
+                        generation,
+                        rate,
+                        channels,
+                        data,
+                    });
                 },
                 on_error,
                 None,
             ),
-            other => return Err(CaptureError::Stream(format!("unsupported sample format {other:?}"))),
+            other => {
+                return Err(CaptureError::Stream(format!(
+                    "unsupported sample format {other:?}"
+                )));
+            }
         }
         .map_err(|error| CaptureError::Stream(error.to_string()))?;
-        stream.play().map_err(|error| CaptureError::Stream(error.to_string()))?;
+        stream
+            .play()
+            .map_err(|error| CaptureError::Stream(error.to_string()))?;
         tracing::info!(target: "recording", "capture armed ({reason}) at {rate} Hz × {channels}");
         self.stream = Some(stream);
         Ok(())
@@ -304,8 +374,14 @@ impl Capture {
 
     pub fn begin(&mut self, path: PathBuf, requested_at: Instant) -> Result<(), CaptureError> {
         let (reply, response) = crossbeam_channel::bounded(1);
-        let _ = self.jobs.send(Job::Begin { path, requested_at, reply });
-        let result = response.recv().unwrap_or_else(|_| Err(CaptureError::Stream("capture thread stopped".into())));
+        let _ = self.jobs.send(Job::Begin {
+            path,
+            requested_at,
+            reply,
+        });
+        let result = response
+            .recv()
+            .unwrap_or_else(|_| Err(CaptureError::Stream("capture thread stopped".into())));
         self.recording = result.is_ok();
         result
     }

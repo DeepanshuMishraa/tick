@@ -7,7 +7,9 @@ use std::time::Instant;
 
 use futures::channel::mpsc::UnboundedSender;
 use parking_lot::Mutex;
-use tick_core::hotkey::{HotKey, InputEvent, Key, KeyEvent, ModifierKind, Modifiers, MouseEvent, MousePhase};
+use tick_core::hotkey::{
+    HotKey, InputEvent, Key, KeyEvent, ModifierKind, Modifiers, MouseEvent, MousePhase,
+};
 use tick_core::hotkey_processor::{HotKeyProcessor, ProcessorOutput, ProcessorState};
 use tick_core::settings::Settings;
 
@@ -27,7 +29,9 @@ pub enum WalkthroughTap {
     Off,
     /// Recording: ⇧-drags draw instead of reaching apps, and ⌘Z undoes the
     /// last mark while there is one.
-    Recording { undoable: bool },
+    Recording {
+        undoable: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,7 +128,9 @@ impl Hotkeys {
     pub fn install(&self) -> Option<EventTap> {
         let bridge = self.bridge.clone();
         let events = self.events.clone();
-        EventTap::install(Box::new(move |event| handle(&mut bridge.lock(), &events, event)))
+        EventTap::install(Box::new(move |event| {
+            handle(&mut bridge.lock(), &events, event)
+        }))
     }
 }
 
@@ -148,7 +154,9 @@ fn handle(bridge: &mut Bridge, events: &UnboundedSender<HotkeyEvent>, event: Inp
             }
             if bridge.walkthrough == (WalkthroughTap::Recording { undoable: true })
                 && key_event.key == Some(Key::Z)
-                && key_event.modifiers.matches_exactly(&Modifiers::of(&[ModifierKind::Command]))
+                && key_event
+                    .modifiers
+                    .matches_exactly(&Modifiers::of(&[ModifierKind::Command]))
             {
                 send(HotkeyEvent::Walkthrough(WalkthroughInput::Undo));
                 return true;
@@ -174,13 +182,17 @@ fn handle(bridge: &mut Bridge, events: &UnboundedSender<HotkeyEvent>, event: Inp
             walkthrough_mouse(bridge, &mouse, &send)
         }
     };
-    send(HotkeyEvent::Locked(bridge.processor.state() == ProcessorState::DoubleTapLock));
+    send(HotkeyEvent::Locked(
+        bridge.processor.state() == ProcessorState::DoubleTapLock,
+    ));
     intercept
 }
 
 fn matches_shortcut(event: &KeyEvent, shortcut: Option<&HotKey>) -> bool {
     shortcut.is_some_and(|hotkey| {
-        event.key.is_some() && event.key == hotkey.key && event.modifiers.matches_exactly(&hotkey.modifiers)
+        event.key.is_some()
+            && event.key == hotkey.key
+            && event.modifiers.matches_exactly(&hotkey.modifiers)
     })
 }
 
@@ -192,8 +204,14 @@ fn walkthrough_mouse(bridge: &mut Bridge, mouse: &MouseEvent, send: &dyn Fn(Hotk
     let ink = |phase| HotkeyEvent::Walkthrough(WalkthroughInput::Ink(phase, mouse.x, mouse.y));
     match mouse.phase {
         MousePhase::Down => {
-            bridge.drawing = mouse.modifiers.matches_exactly(&Modifiers::of(&[ModifierKind::Shift]));
-            send(if bridge.drawing { ink(MousePhase::Down) } else { HotkeyEvent::Walkthrough(WalkthroughInput::Click(mouse.x, mouse.y)) });
+            bridge.drawing = mouse
+                .modifiers
+                .matches_exactly(&Modifiers::of(&[ModifierKind::Shift]));
+            send(if bridge.drawing {
+                ink(MousePhase::Down)
+            } else {
+                HotkeyEvent::Walkthrough(WalkthroughInput::Click(mouse.x, mouse.y))
+            });
             bridge.drawing
         }
         MousePhase::Dragged if bridge.drawing => {
@@ -209,8 +227,16 @@ fn walkthrough_mouse(bridge: &mut Bridge, mouse: &MouseEvent, send: &dyn Fn(Hotk
     }
 }
 
-fn process_key(bridge: &mut Bridge, event: &KeyEvent, now: f64, send: &dyn Fn(HotkeyEvent)) -> bool {
-    if event.key == Some(Key::Escape) && event.modifiers.is_empty() && bridge.processor.state() == ProcessorState::Idle {
+fn process_key(
+    bridge: &mut Bridge,
+    event: &KeyEvent,
+    now: f64,
+    send: &dyn Fn(HotkeyEvent),
+) -> bool {
+    if event.key == Some(Key::Escape)
+        && event.modifiers.is_empty()
+        && bridge.processor.state() == ProcessorState::Idle
+    {
         send(HotkeyEvent::Cancel);
         return false;
     }

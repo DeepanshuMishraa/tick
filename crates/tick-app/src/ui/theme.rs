@@ -3,7 +3,7 @@
 //! appearance plus the user's accent.
 
 use gpui_kit::component::Theme;
-use gpui_kit::{px, rgb, App, Global, Hsla, Pixels, SharedString, WindowAppearance};
+use gpui_kit::{App, Global, Hsla, Pixels, SharedString, WindowAppearance, px, rgb};
 use tick_core::settings::{AppearanceMode, ThemeColor};
 
 pub const FONT: &str = "Spline Sans Mono";
@@ -49,7 +49,11 @@ fn with_alpha(color: Hsla, alpha: f32) -> Hsla {
 pub fn accent_for(theme: ThemeColor, dark: bool) -> Hsla {
     match theme {
         ThemeColor::Monochrome | ThemeColor::Multicolor => {
-            if dark { color(0xEDEDEA) } else { color(0x111111) }
+            if dark {
+                color(0xEDEDEA)
+            } else {
+                color(0x111111)
+            }
         }
         ThemeColor::Blue => color(0x2F6BFF),
         ThemeColor::Purple => color(0x7A5CFF),
@@ -74,7 +78,11 @@ impl Palette {
         let accent = accent_for(theme, dark);
         let monochrome = matches!(theme, ThemeColor::Monochrome | ThemeColor::Multicolor);
         let on_accent = if monochrome {
-            if dark { color(0x0E0E0E) } else { color(0xFAFAF8) }
+            if dark {
+                color(0x0E0E0E)
+            } else {
+                color(0xFAFAF8)
+            }
         } else if theme == ThemeColor::Yellow {
             color(0x111111)
         } else {
@@ -133,7 +141,12 @@ impl Palette {
             return self.accent;
         }
         let hue = (index as f32 / count.max(1) as f32 + 0.55) % 1.0;
-        Hsla { h: hue, s: 0.78, l: 0.58, a: 1.0 }
+        Hsla {
+            h: hue,
+            s: 0.78,
+            l: 0.58,
+            a: 1.0,
+        }
     }
 
     pub fn alpha(&self, color: Hsla, alpha: f32) -> Hsla {
@@ -142,12 +155,15 @@ impl Palette {
 }
 
 pub fn is_dark(appearance: WindowAppearance) -> bool {
-    matches!(appearance, WindowAppearance::Dark | WindowAppearance::VibrantDark)
+    matches!(
+        appearance,
+        WindowAppearance::Dark | WindowAppearance::VibrantDark
+    )
 }
 
 /// Spacing scale (px): 2, 4, 8, 12, 16, 24, 32, 48.
 pub mod space {
-    use gpui_kit::{px, Pixels};
+    use gpui_kit::{Pixels, px};
     pub const XXS: Pixels = px(2.);
     pub const XS: Pixels = px(4.);
     pub const S: Pixels = px(8.);
@@ -160,7 +176,7 @@ pub mod space {
 
 /// Type scale (px).
 pub mod size {
-    use gpui_kit::{px, Pixels};
+    use gpui_kit::{Pixels, px};
     pub const EYEBROW: Pixels = px(10.5);
     pub const CAPTION: Pixels = px(11.5);
     pub const BODY: Pixels = px(13.);
@@ -174,8 +190,12 @@ pub const SIDEBAR_WIDTH: Pixels = px(208.);
 /// Registers the bundled faces with the text system.
 pub fn register_fonts(cx: &mut App) {
     let fonts: Vec<std::borrow::Cow<'static, [u8]>> = vec![
-        include_bytes!("../../../../fonts/SplineSansMono-Variable.ttf").as_slice().into(),
-        include_bytes!("../../../../fonts/SplineSansMono-Italic-Variable.ttf").as_slice().into(),
+        include_bytes!("../../../../fonts/SplineSansMono-Variable.ttf")
+            .as_slice()
+            .into(),
+        include_bytes!("../../../../fonts/SplineSansMono-Italic-Variable.ttf")
+            .as_slice()
+            .into(),
     ];
     if let Err(error) = cx.text_system().add_fonts(fonts) {
         tracing::error!(target: "app", "bundled fonts failed to load: {error}");
@@ -184,7 +204,12 @@ pub fn register_fonts(cx: &mut App) {
 
 /// Recomputes the palette and squares off the Kit theme.
 /// `system` is the appearance macOS reports; `mode` may override it.
-pub fn apply(system: WindowAppearance, mode: AppearanceMode, theme_color: ThemeColor, cx: &mut App) {
+pub fn apply(
+    system: WindowAppearance,
+    mode: AppearanceMode,
+    theme_color: ThemeColor,
+    cx: &mut App,
+) {
     let appearance = match mode {
         AppearanceMode::System => system,
         AppearanceMode::Light => WindowAppearance::Light,
@@ -192,7 +217,9 @@ pub fn apply(system: WindowAppearance, mode: AppearanceMode, theme_color: ThemeC
     };
     let dark = is_dark(appearance);
     let palette = Palette::new(dark, theme_color);
-    let mode_changed = cx.try_global::<Palette>().is_none_or(|current| current.dark != dark);
+    let mode_changed = cx
+        .try_global::<Palette>()
+        .is_none_or(|current| current.dark != dark);
     cx.set_global(palette);
     if mode_changed {
         Theme::change(appearance, None, cx);

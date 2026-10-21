@@ -7,7 +7,9 @@
 #
 # Version: $TICK_VERSION, else the workspace version in Cargo.toml.
 # Signing identity: $TICK_SIGN_IDENTITY, else the first "Apple Development"
-# identity (stable TCC grants while developing), else ad-hoc.
+# identity, else ad-hoc. The designated requirement is the bundle id alone,
+# not the cdhash, so microphone, accessibility, input monitoring and the
+# keychain stay granted across updates.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -109,6 +111,8 @@ done
 sign "$CONTENTS/Frameworks/Sparkle.framework"
 sign "$CONTENTS/Frameworks/TickNative.framework"
 for bundle in "$CONTENTS/Resources"/*.bundle; do sign "$bundle"; done
-sign --entitlements "$ENTITLEMENTS" "$APP"
+# identifier, not cdhash: an ad-hoc cdhash changes every build and macOS
+# treats the update as a different app.
+sign --identifier "$BUNDLE_ID" -r "=designated => identifier \"$BUNDLE_ID\"" --entitlements "$ENTITLEMENTS" "$APP"
 
 echo "Built $APP"

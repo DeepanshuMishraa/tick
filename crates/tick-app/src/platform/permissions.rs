@@ -46,7 +46,9 @@ impl Permissions {
     pub fn combined_hotkey_status(&self) -> PermissionStatus {
         if self.hotkeys_granted() {
             PermissionStatus::Granted
-        } else if self.accessibility == PermissionStatus::Denied || self.input_monitoring == PermissionStatus::Denied {
+        } else if self.accessibility == PermissionStatus::Denied
+            || self.input_monitoring == PermissionStatus::Denied
+        {
             PermissionStatus::Denied
         } else {
             PermissionStatus::NotDetermined
@@ -79,7 +81,11 @@ fn input_monitoring() -> PermissionStatus {
 
 pub fn microphone() -> PermissionStatus {
     // SAFETY: AVMediaTypeAudio is a constant NSString.
-    let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(AVMediaTypeAudio.expect("AVMediaTypeAudio is defined")) };
+    let status = unsafe {
+        AVCaptureDevice::authorizationStatusForMediaType(
+            AVMediaTypeAudio.expect("AVMediaTypeAudio is defined"),
+        )
+    };
     match status {
         AVAuthorizationStatus::Authorized => PermissionStatus::Granted,
         AVAuthorizationStatus::NotDetermined => PermissionStatus::NotDetermined,
@@ -92,7 +98,11 @@ pub fn current() -> Permissions {
     INPUT_MONITORING.store(input_monitoring.is_granted(), Ordering::Relaxed);
     Permissions {
         microphone: microphone(),
-        accessibility: if accessibility_trusted() { PermissionStatus::Granted } else { PermissionStatus::Denied },
+        accessibility: if accessibility_trusted() {
+            PermissionStatus::Granted
+        } else {
+            PermissionStatus::Denied
+        },
         input_monitoring,
     }
 }
@@ -124,7 +134,9 @@ pub fn request_input_monitoring() -> bool {
 }
 
 pub fn open_microphone_settings() {
-    super::workspace::open_url("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone");
+    super::workspace::open_url(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+    );
 }
 
 pub fn dismiss_panels() {

@@ -6,13 +6,13 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    canvas, div, point, px, svg, AnimationExt as _, App, Div, ElementId, FontWeight, Hsla,
-    InteractiveElement as _, IntoElement, ParentElement as _, PathBuilder, Pixels, SharedString, SpringAnimation,
-    SpringConfig, StatefulInteractiveElement as _, Styled as _, Window,
+    AnimationExt as _, App, Div, ElementId, FontWeight, Hsla, InteractiveElement as _, IntoElement,
+    ParentElement as _, PathBuilder, Pixels, SharedString, SpringAnimation, SpringConfig,
+    StatefulInteractiveElement as _, Styled as _, Window, canvas, div, point, px, svg,
 };
 
 use super::icons::Icon;
-use super::theme::{size, space, Palette};
+use super::theme::{Palette, size, space};
 use crate::sound::Cue;
 use crate::state::AppState;
 
@@ -31,23 +31,40 @@ pub fn cue(cx: &App, cue: Cue) {
 
 pub fn icon(icon: Icon, size: impl Into<Pixels>, color: Hsla) -> impl IntoElement {
     let size = size.into();
-    svg().path(icon.path()).size(size).flex_none().text_color(color)
+    svg()
+        .path(icon.path())
+        .size(size)
+        .flex_none()
+        .text_color(color)
 }
 
 pub fn eyebrow(text: impl Into<SharedString>, cx: &App) -> Div {
-    div().text_size(size::EYEBROW).text_color(palette(cx).muted).child(text.into().to_uppercase())
+    div()
+        .text_size(size::EYEBROW)
+        .text_color(palette(cx).muted)
+        .child(text.into().to_uppercase())
 }
 
 pub fn title(text: impl Into<SharedString>, cx: &App) -> Div {
-    div().text_size(size::TITLE).font_weight(FontWeight::MEDIUM).text_color(palette(cx).text).child(text.into())
+    div()
+        .text_size(size::TITLE)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(palette(cx).text)
+        .child(text.into())
 }
 
 pub fn body(text: impl Into<SharedString>, cx: &App) -> Div {
-    div().text_size(size::BODY).text_color(palette(cx).text).child(text.into())
+    div()
+        .text_size(size::BODY)
+        .text_color(palette(cx).text)
+        .child(text.into())
 }
 
 pub fn muted(text: impl Into<SharedString>, cx: &App) -> Div {
-    div().text_size(size::CAPTION).text_color(palette(cx).muted).child(text.into())
+    div()
+        .text_size(size::CAPTION)
+        .text_color(palette(cx).muted)
+        .child(text.into())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,12 +84,34 @@ pub fn button(
 ) -> gpui_kit::Stateful<Div> {
     let p = palette(cx);
     let (bg, fg, border, hover_bg, hover_border) = match tone {
-        Tone::Primary => (p.accent, p.on_accent, p.accent, p.alpha(p.accent, 0.88), p.alpha(p.accent, 0.88)),
+        Tone::Primary => (
+            p.accent,
+            p.on_accent,
+            p.accent,
+            p.alpha(p.accent, 0.88),
+            p.alpha(p.accent, 0.88),
+        ),
         Tone::Secondary => (p.surface, p.text, p.line_strong, p.hover, p.text),
-        Tone::Ghost => (p.alpha(p.surface, 0.0), p.text, p.alpha(p.line, 0.0), p.hover, p.alpha(p.line, 0.0)),
-        Tone::Danger => (p.surface, p.danger, p.line_strong, p.alpha(p.danger, 0.08), p.danger),
+        Tone::Ghost => (
+            p.alpha(p.surface, 0.0),
+            p.text,
+            p.alpha(p.line, 0.0),
+            p.hover,
+            p.alpha(p.line, 0.0),
+        ),
+        Tone::Danger => (
+            p.surface,
+            p.danger,
+            p.line_strong,
+            p.alpha(p.danger, 0.08),
+            p.danger,
+        ),
     };
-    let active = if tone == Tone::Primary { p.alpha(p.accent, 0.75) } else { p.line };
+    let active = if tone == Tone::Primary {
+        p.alpha(p.accent, 0.75)
+    } else {
+        p.line
+    };
     h_flex()
         .id(id.into())
         .flex_none()
@@ -92,7 +131,12 @@ pub fn button(
         .child(label.into())
 }
 
-pub fn icon_button(id: impl Into<ElementId>, glyph: Icon, color: Hsla, cx: &App) -> gpui_kit::Stateful<Div> {
+pub fn icon_button(
+    id: impl Into<ElementId>,
+    glyph: Icon,
+    color: Hsla,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
     let p = palette(cx);
     div()
         .id(id.into())
@@ -116,7 +160,11 @@ pub fn toggle(
 ) -> impl IntoElement {
     let p = palette(cx);
     let id: ElementId = id.into();
-    let track = if on { p.accent } else { p.alpha(p.line_strong, 0.0) };
+    let track = if on {
+        p.accent
+    } else {
+        p.alpha(p.line_strong, 0.0)
+    };
     let knob = if on { p.on_accent } else { p.muted };
     div()
         .id(id.clone())
@@ -135,13 +183,11 @@ pub fn toggle(
                 crate::platform::workspace::haptic(crate::platform::workspace::Haptic::Alignment);
             })
         })
-        .child(
-            div().size(px(12.)).bg(knob).with_spring(
-                ElementId::NamedChild(std::sync::Arc::new(id), "knob".into()),
-                SpringAnimation::new(SNAP).to(if on { 1.0f32 } else { 0.0 }),
-                |knob, t| knob.ml(px(16. * t)),
-            ),
-        )
+        .child(div().size(px(12.)).bg(knob).with_spring(
+            ElementId::NamedChild(std::sync::Arc::new(id), "knob".into()),
+            SpringAnimation::new(SNAP).to(if on { 1.0f32 } else { 0.0 }),
+            |knob, t| knob.ml(px(16. * t)),
+        ))
 }
 
 /// Square radio mark; the inner block springs in.
@@ -163,20 +209,33 @@ pub fn radio(id: impl Into<ElementId>, selected: bool, cx: &App) -> impl IntoEle
 }
 
 /// A two-pixel line that springs to `fraction` of its track.
-pub fn progress_line(id: impl Into<ElementId>, fraction: f64, color: Hsla, cx: &App) -> impl IntoElement {
+pub fn progress_line(
+    id: impl Into<ElementId>,
+    fraction: f64,
+    color: Hsla,
+    cx: &App,
+) -> impl IntoElement {
     let p = palette(cx);
-    div().w_full().h(px(2.)).bg(p.line).child(div().h_full().bg(color).with_spring(
-        id.into(),
-        SpringAnimation::new(GLIDE).to(fraction.clamp(0.0, 1.0) as f32),
-        |bar, t| bar.w(gpui_kit::relative(t)),
-    ))
+    div()
+        .w_full()
+        .h(px(2.))
+        .bg(p.line)
+        .child(div().h_full().bg(color).with_spring(
+            id.into(),
+            SpringAnimation::new(GLIDE).to(fraction.clamp(0.0, 1.0) as f32),
+            |bar, t| bar.w(gpui_kit::relative(t)),
+        ))
 }
 
 /// Five small squares, `filled` of them solid.
 pub fn rating(filled: u8, cx: &App) -> impl IntoElement {
     let p = palette(cx);
     h_flex().gap(px(2.)).children((0..5).map(move |index| {
-        div().size(px(5.)).bg(if index < filled { p.text } else { p.line_strong })
+        div().size(px(5.)).bg(if index < filled {
+            p.text
+        } else {
+            p.line_strong
+        })
     }))
 }
 
@@ -201,7 +260,12 @@ pub fn keycap(label: impl Into<SharedString>, active: bool, cx: &App) -> impl In
 }
 
 /// A checkmark whose stroke draws itself in when `visible` turns on.
-pub fn drawn_check(id: impl Into<ElementId>, visible: bool, side: Pixels, color: Hsla) -> impl IntoElement {
+pub fn drawn_check(
+    id: impl Into<ElementId>,
+    visible: bool,
+    side: Pixels,
+    color: Hsla,
+) -> impl IntoElement {
     div().size(side).flex_none().with_spring(
         id.into(),
         SpringAnimation::new(GLIDE).to(if visible { 1.0f32 } else { 0.0 }),
@@ -224,7 +288,9 @@ pub fn drawn_check(id: impl Into<ElementId>, visible: bool, side: Pixels, color:
                         let mut remaining = t * (first + second);
                         let mut builder = PathBuilder::stroke(px((s / 12.0).max(1.5)));
                         builder.move_to(point(o.x + px(a.0), o.y + px(a.1)));
-                        let lerp = |p: (f32, f32), q: (f32, f32), f: f32| (p.0 + (q.0 - p.0) * f, p.1 + (q.1 - p.1) * f);
+                        let lerp = |p: (f32, f32), q: (f32, f32), f: f32| {
+                            (p.0 + (q.0 - p.0) * f, p.1 + (q.1 - p.1) * f)
+                        };
                         let reach = lerp(a, b, (remaining / first).min(1.0));
                         builder.line_to(point(o.x + px(reach.0), o.y + px(reach.1)));
                         remaining -= first;
@@ -258,7 +324,8 @@ pub fn row(
         .items_center()
         .child(
             v_flex()
-                .flex_1().min_w_0()
+                .flex_1()
+                .min_w_0()
                 .gap(px(3.))
                 .child(eyebrow(eyebrow_text.to_string(), cx))
                 .child(body(heading, cx))
@@ -291,4 +358,3 @@ pub fn section(label: &str, rows: Vec<gpui_kit::AnyElement>, cx: &App) -> Div {
                 })),
         )
 }
-

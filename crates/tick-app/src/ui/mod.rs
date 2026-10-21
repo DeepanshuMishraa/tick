@@ -13,8 +13,8 @@ mod wordmark;
 use std::time::Duration;
 
 use gpui_kit::{
-    actions, point, px, size, App, AppContext as _, Entity, Global, KeyBinding, Menu, MenuItem, TitlebarOptions,
-    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
+    App, AppContext as _, Entity, Global, KeyBinding, Menu, MenuItem, TitlebarOptions,
+    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, actions, point, px, size,
 };
 use objc2::MainThreadMarker;
 
@@ -23,7 +23,10 @@ use crate::state::AppState;
 use main_view::MainView;
 use status_item::{MenuCommand, MenuModel, StatusItem};
 
-actions!(tick, [Quit, OpenSettings, CheckForUpdates, HideApp, ToggleSidebar]);
+actions!(
+    tick,
+    [Quit, OpenSettings, CheckForUpdates, HideApp, ToggleSidebar]
+);
 
 struct MainWindow(Option<gpui_kit::AnyWindowHandle>);
 
@@ -31,7 +34,10 @@ impl Global for MainWindow {}
 
 pub fn start(state: &Entity<AppState>, cx: &mut App) {
     theme::register_fonts(cx);
-    let (theme_color, appearance_mode) = { let s = &state.read(cx).settings; (s.theme_color, s.appearance_mode) };
+    let (theme_color, appearance_mode) = {
+        let s = &state.read(cx).settings;
+        (s.theme_color, s.appearance_mode)
+    };
     apply_theme(cx);
     cx.set_global(MainWindow(None));
 
@@ -45,7 +51,9 @@ pub fn start(state: &Entity<AppState>, cx: &mut App) {
     cx.on_action(|_: &OpenSettings, cx| open_main_window(cx));
     cx.on_action(|_: &CheckForUpdates, _| crate::native::updater::check());
     cx.on_action(|_: &HideApp, cx| cx.hide());
-    cx.on_action(|_: &ToggleSidebar, cx| AppState::global(cx).update(cx, |state, cx| state.toggle_sidebar(cx)));
+    cx.on_action(|_: &ToggleSidebar, cx| {
+        AppState::global(cx).update(cx, |state, cx| state.toggle_sidebar(cx))
+    });
     cx.set_menus([Menu {
         name: "Tick".into(),
         items: vec![
@@ -61,7 +69,10 @@ pub fn start(state: &Entity<AppState>, cx: &mut App) {
     // Theme color and appearance follow settings and the system.
     let mut last = (theme_color, appearance_mode);
     cx.observe(state, move |state, cx| {
-        let current = { let s = &state.read(cx).settings; (s.theme_color, s.appearance_mode) };
+        let current = {
+            let s = &state.read(cx).settings;
+            (s.theme_color, s.appearance_mode)
+        };
         if current != last {
             last = current;
             apply_theme(cx);
@@ -87,7 +98,10 @@ pub fn start(state: &Entity<AppState>, cx: &mut App) {
 
 /// Applies the appearance setting natively, then rebuilds the palette.
 fn apply_theme(cx: &mut App) {
-    let (color, mode) = { let s = &AppState::global(cx).read(cx).settings; (s.theme_color, s.appearance_mode) };
+    let (color, mode) = {
+        let s = &AppState::global(cx).read(cx).settings;
+        (s.theme_color, s.appearance_mode)
+    };
     workspace::set_app_appearance(mode);
     // Read after the override is set or cleared, so "System" sees macOS.
     theme::apply(cx.window_appearance(), mode, color, cx);
@@ -100,7 +114,10 @@ fn quit(cx: &mut App) {
 
 pub fn open_main_window(cx: &mut App) {
     if let Some(handle) = cx.global::<MainWindow>().0 {
-        if handle.update(cx, |_, window, _| window.activate_window()).is_ok() {
+        if handle
+            .update(cx, |_, window, _| window.activate_window())
+            .is_ok()
+        {
             cx.activate(true);
             return;
         }
@@ -108,7 +125,11 @@ pub fn open_main_window(cx: &mut App) {
     let state = AppState::global(cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::centered(size(px(700.), px(560.)), cx)),
-        titlebar: Some(TitlebarOptions { title: Some("Tick".into()), appears_transparent: true, traffic_light_position: Some(point(px(16.), px(18.))) }),
+        titlebar: Some(TitlebarOptions {
+            title: Some("Tick".into()),
+            appears_transparent: true,
+            traffic_light_position: Some(point(px(16.), px(18.))),
+        }),
         focus: true,
         show: true,
         kind: WindowKind::Normal,
@@ -120,8 +141,9 @@ pub fn open_main_window(cx: &mut App) {
         ..WindowOptions::default()
     };
     let opened = gpui_kit::open_window(options, cx, move |window, cx| {
-        window.observe_window_appearance(|_, cx| apply_theme(cx))
-        .detach();
+        window
+            .observe_window_appearance(|_, cx| apply_theme(cx))
+            .detach();
         cx.new(|cx| MainView::new(state, window, cx))
     });
     match opened {
@@ -134,31 +156,45 @@ pub fn open_main_window(cx: &mut App) {
 }
 
 fn menu_model(state: &AppState) -> MenuModel {
-    let paste_shortcut = state.settings.paste_last_transcript_hotkey.as_ref().and_then(|hotkey| {
-        use objc2_app_kit::NSEventModifierFlags as Flags;
-        use tick_core::hotkey::ModifierKind;
-        let key = hotkey.key?;
-        let label = key.label().to_lowercase();
-        (label.chars().count() == 1).then(|| {
-            let mut flags = Flags::empty();
-            for (kind, flag) in [
-                (ModifierKind::Command, Flags::Command),
-                (ModifierKind::Option, Flags::Option),
-                (ModifierKind::Shift, Flags::Shift),
-                (ModifierKind::Control, Flags::Control),
-            ] {
-                if hotkey.modifiers.contains_kind(kind) {
-                    flags |= flag;
+    let paste_shortcut = state
+        .settings
+        .paste_last_transcript_hotkey
+        .as_ref()
+        .and_then(|hotkey| {
+            use objc2_app_kit::NSEventModifierFlags as Flags;
+            use tick_core::hotkey::ModifierKind;
+            let key = hotkey.key?;
+            let label = key.label().to_lowercase();
+            (label.chars().count() == 1).then(|| {
+                let mut flags = Flags::empty();
+                for (kind, flag) in [
+                    (ModifierKind::Command, Flags::Command),
+                    (ModifierKind::Option, Flags::Option),
+                    (ModifierKind::Shift, Flags::Shift),
+                    (ModifierKind::Control, Flags::Control),
+                ] {
+                    if hotkey.modifiers.contains_kind(kind) {
+                        flags |= flag;
+                    }
                 }
-            }
-            (label, flags)
-        })
-    });
+                (label, flags)
+            })
+        });
     MenuModel {
         last_transcript: state.history.history.first().map(|t| t.text.clone()),
         paste_shortcut,
-        microphones: state.devices.devices.iter().map(|d| (d.id.clone(), d.name.clone())).collect(),
-        unavailable_bluetooth: state.devices.unavailable_bluetooth.iter().map(|d| d.name.clone()).collect(),
+        microphones: state
+            .devices
+            .devices
+            .iter()
+            .map(|d| (d.id.clone(), d.name.clone()))
+            .collect(),
+        unavailable_bluetooth: state
+            .devices
+            .unavailable_bluetooth
+            .iter()
+            .map(|d| d.name.clone())
+            .collect(),
         selected_microphone: state.settings.selected_microphone_id.clone(),
         default_microphone: state.devices.default_name.clone(),
         can_check_updates: crate::native::updater::can_check(),
@@ -166,7 +202,9 @@ fn menu_model(state: &AppState) -> MenuModel {
 }
 
 fn install_status_item(state: &Entity<AppState>, cx: &mut App) {
-    let Some(mtm) = MainThreadMarker::new() else { return };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
     let (mut item, receiver) = StatusItem::install(mtm);
     item.update_menu(menu_model(state.read(cx)));
     cx.set_global(item);
@@ -181,13 +219,17 @@ fn install_status_item(state: &Entity<AppState>, cx: &mut App) {
     cx.spawn(async move |cx| {
         let mut phase = 0.0f32;
         loop {
-            cx.background_executor().timer(Duration::from_millis(150)).await;
-            let recording = cx
-                .update(|cx| state.read(cx).phase.recording_since().is_some());
+            cx.background_executor()
+                .timer(Duration::from_millis(150))
+                .await;
+            let recording = cx.update(|cx| state.read(cx).phase.recording_since().is_some());
             if recording {
                 phase = (phase + 0.35) % std::f32::consts::TAU;
             }
-            let _ = cx.update(|cx| cx.global_mut::<StatusItem>().set_recording(recording.then_some(phase)));
+            let _ = cx.update(|cx| {
+                cx.global_mut::<StatusItem>()
+                    .set_recording(recording.then_some(phase))
+            });
         }
     })
     .detach();
@@ -198,10 +240,14 @@ pub(crate) fn handle_menu_command(command: MenuCommand, cx: &mut App) {
     match command {
         MenuCommand::CheckForUpdates => crate::native::updater::check(),
         MenuCommand::PasteLast => state.update(cx, |state, cx| state.paste_last_transcript(cx)),
-        MenuCommand::Microphone(id) => state.update(cx, |state, cx| state.update_settings(cx, |s| s.selected_microphone_id = id)),
+        MenuCommand::Microphone(id) => state.update(cx, |state, cx| {
+            state.update_settings(cx, |s| s.selected_microphone_id = id)
+        }),
         MenuCommand::OpenSettings => {
             open_main_window(cx);
-            state.update(cx, |state, cx| state.set_tab(crate::state::Tab::Settings, cx));
+            state.update(cx, |state, cx| {
+                state.set_tab(crate::state::Tab::Settings, cx)
+            });
         }
         MenuCommand::Quit => quit(cx),
     }

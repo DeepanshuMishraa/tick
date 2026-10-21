@@ -4,15 +4,17 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use gpui_kit::Context;
-use tick_core::models::{self, curated_models, CuratedModel, ParakeetModel, PARAKEET_UNIFIED_ENGLISH};
+use tick_core::models::{
+    self, CuratedModel, PARAKEET_UNIFIED_ENGLISH, ParakeetModel, curated_models,
+};
 use tick_core::settings::AiPostProcessingMode;
 
 use super::AppState;
 use crate::intelligence::{self, DownloadControl};
 use crate::native;
-use crate::speech::{self, gguf::GgufModel};
 use crate::platform::workspace;
 use crate::sound::Cue;
+use crate::speech::{self, gguf::GgufModel};
 use crate::storage;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,7 +27,10 @@ pub struct CuratedEntry {
 pub enum SpeechDownload {
     #[default]
     Idle,
-    Downloading { model: String, progress: f64 },
+    Downloading {
+        model: String,
+        progress: f64,
+    },
 }
 
 #[derive(Default)]
@@ -43,7 +48,8 @@ pub struct ModelState {
 
 impl ModelState {
     pub fn any_downloaded(&self) -> bool {
-        self.available.iter().any(|(_, downloaded)| *downloaded) || self.curated.iter().any(|e| e.downloaded)
+        self.available.iter().any(|(_, downloaded)| *downloaded)
+            || self.curated.iter().any(|e| e.downloaded)
     }
 
     pub fn is_downloading(&self) -> bool {
@@ -52,7 +58,10 @@ impl ModelState {
 
     pub fn downloading(&self, model: &str) -> Option<f64> {
         match &self.download {
-            SpeechDownload::Downloading { model: current, progress } if current == model => Some(*progress),
+            SpeechDownload::Downloading {
+                model: current,
+                progress,
+            } if current == model => Some(*progress),
             _ => None,
         }
     }
@@ -98,14 +107,24 @@ impl AppState {
             let _ = this.update(cx, |state, cx| {
                 state.models.loading = false;
                 let (recommended, mut available) = match catalog {
-                    Ok(catalog) => (catalog.recommended, catalog.models.into_iter().map(|m| (m.name, m.downloaded)).collect::<Vec<_>>()),
+                    Ok(catalog) => (
+                        catalog.recommended,
+                        catalog
+                            .models
+                            .into_iter()
+                            .map(|m| (m.name, m.downloaded))
+                            .collect::<Vec<_>>(),
+                    ),
                     Err(error) => {
                         tracing::error!(target: "models", "could not list models: {error}");
                         (String::new(), Vec::new())
                     }
                 };
                 for parakeet in ParakeetModel::ALL.iter().rev() {
-                    if !available.iter().any(|(name, _)| name == parakeet.identifier()) {
+                    if !available
+                        .iter()
+                        .any(|(name, _)| name == parakeet.identifier())
+                    {
                         available.insert(0, (parakeet.identifier().to_string(), false));
                     }
                 }
@@ -113,21 +132,32 @@ impl AppState {
                     available.insert(0, (unified.identifier.to_string(), unified.is_downloaded()));
                 }
                 let preferred = state.preferred_parakeet();
-                let recommended = if available.iter().any(|(n, _)| n == preferred) { preferred.to_string() } else { recommended };
+                let recommended = if available.iter().any(|(n, _)| n == preferred) {
+                    preferred.to_string()
+                } else {
+                    recommended
+                };
                 if state.settings.selected_model.contains(['*', '?']) {
-                    if let Some(resolved) = models::resolve_pattern(&state.settings.selected_model, &available) {
+                    if let Some(resolved) =
+                        models::resolve_pattern(&state.settings.selected_model, &available)
+                    {
                         state.update_settings(cx, |s| s.selected_model = resolved);
                     }
                 }
                 state.models.curated = curated_models()
                     .into_iter()
                     .map(|model| {
-                        let downloaded = available.iter().any(|(name, d)| *d && models::glob_matches(&model.internal_name, name));
+                        let downloaded = available.iter().any(|(name, d)| {
+                            *d && models::glob_matches(&model.internal_name, name)
+                        });
                         CuratedEntry { model, downloaded }
                     })
                     .collect();
                 state.models.available = available;
-                if !state.models.any_downloaded() && !state.settings.has_completed_model_bootstrap && !recommended.is_empty() {
+                if !state.models.any_downloaded()
+                    && !state.settings.has_completed_model_bootstrap
+                    && !recommended.is_empty()
+                {
                     state.update_settings(cx, |s| s.selected_model = recommended);
                 }
                 state.models.ready = state.selected_model_downloaded();
@@ -138,18 +168,34 @@ impl AppState {
     }
 
     fn preferred_parakeet(&self) -> &'static str {
-        let english = self.settings.output_language.as_deref().is_some_and(|l| l.to_lowercase().starts_with("en"));
-        if english { PARAKEET_UNIFIED_ENGLISH } else { ParakeetModel::MultilingualV3.identifier() }
+        let english = self
+            .settings
+            .output_language
+            .as_deref()
+            .is_some_and(|l| l.to_lowercase().starts_with("en"));
+        if english {
+            PARAKEET_UNIFIED_ENGLISH
+        } else {
+            ParakeetModel::MultilingualV3.identifier()
+        }
     }
 
     fn selected_model_downloaded(&self) -> bool {
         let selected = &self.settings.selected_model;
-        self.models.available.iter().any(|(name, downloaded)| *downloaded && name == selected)
-            || self.models.curated.iter().any(|e| e.downloaded && e.model.is_selected(selected))
+        self.models
+            .available
+            .iter()
+            .any(|(name, downloaded)| *downloaded && name == selected)
+            || self
+                .models
+                .curated
+                .iter()
+                .any(|e| e.downloaded && e.model.is_selected(selected))
     }
 
     pub fn select_model(&mut self, model: &str, cx: &mut Context<Self>) {
-        let resolved = models::resolve_pattern(model, &self.models.available).unwrap_or_else(|| model.to_string());
+        let resolved = models::resolve_pattern(model, &self.models.available)
+            .unwrap_or_else(|| model.to_string());
         self.update_settings(cx, |s| s.selected_model = resolved);
         self.models.ready = self.selected_model_downloaded();
         self.sound.play(Cue::Select);
@@ -164,7 +210,10 @@ impl AppState {
         self.select_model(model, cx);
         let model = self.settings.selected_model.clone();
         self.models.error = None;
-        self.models.download = SpeechDownload::Downloading { model: model.clone(), progress: 0.0 };
+        self.models.download = SpeechDownload::Downloading {
+            model: model.clone(),
+            progress: 0.0,
+        };
         self.sound.play(Cue::Loading);
         let (progress_tx, mut progress_rx) = futures::channel::mpsc::unbounded::<f64>();
         let download = speech::download(&model, move |fraction| {
@@ -175,7 +224,8 @@ impl AppState {
             use futures::StreamExt;
             while let Some(fraction) = progress_rx.next().await {
                 let _ = this.update(cx, |state, cx| {
-                    if let SpeechDownload::Downloading { progress, .. } = &mut state.models.download {
+                    if let SpeechDownload::Downloading { progress, .. } = &mut state.models.download
+                    {
                         *progress = fraction.clamp(0.0, 1.0);
                         cx.notify();
                     }
@@ -252,14 +302,19 @@ impl AppState {
 
     pub fn toggle_all_models(&mut self, cx: &mut Context<Self>) {
         self.models.show_all = !self.models.show_all;
-        self.sound.play(if self.models.show_all { Cue::Open } else { Cue::Close });
+        self.sound.play(if self.models.show_all {
+            Cue::Open
+        } else {
+            Cue::Close
+        });
         cx.notify();
     }
 
     /// Loads Core ML before MLX: compiling both at once contends badly.
     pub(super) fn warm_models(&mut self, cx: &mut Context<Self>) {
         let model = self.settings.selected_model.clone();
-        let ai = (self.settings.ai_post_processing_mode == AiPostProcessingMode::On).then_some(self.settings.selected_ai_model);
+        let ai = (self.settings.ai_post_processing_mode == AiPostProcessingMode::On)
+            .then_some(self.settings.selected_ai_model);
         cx.spawn(async move |_, _| {
             if let Err(error) = speech::warm(&model).await {
                 tracing::error!(target: "transcription", "speech model warm-up failed: {error}");
@@ -280,7 +335,12 @@ impl AppState {
         cx.spawn(async move |this, cx| {
             let (downloaded, size) = cx
                 .background_executor()
-                .spawn(async move { (intelligence::is_model_downloaded(model), intelligence::model_size(model)) })
+                .spawn(async move {
+                    (
+                        intelligence::is_model_downloaded(model),
+                        intelligence::model_size(model),
+                    )
+                })
                 .await;
             let _ = this.update(cx, |state, cx| {
                 if state.settings.selected_ai_model != model {
@@ -300,7 +360,10 @@ impl AppState {
     }
 
     pub(super) fn warm_ai(&mut self, cx: &mut Context<Self>) {
-        if self.settings.ai_post_processing_mode != AiPostProcessingMode::On || !self.ai.downloaded || self.ai.warming {
+        if self.settings.ai_post_processing_mode != AiPostProcessingMode::On
+            || !self.ai.downloaded
+            || self.ai.warming
+        {
             return;
         }
         self.ai.warming = true;
@@ -332,21 +395,28 @@ impl AppState {
         self.sound.play(Cue::Loading);
         let total = intelligence::total_bytes(model) as f64;
         let poll_control = control.clone();
-        let poller = cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_millis(100)).await;
-            let fraction = poll_control.completed.load(Ordering::Relaxed) as f64 / total;
-            if this
-                .update(cx, |state, cx| {
-                    state.ai.progress = fraction.clamp(0.0, 1.0);
-                    cx.notify();
-                })
-                .is_err()
-            {
-                break;
+        let poller = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(100))
+                    .await;
+                let fraction = poll_control.completed.load(Ordering::Relaxed) as f64 / total;
+                if this
+                    .update(cx, |state, cx| {
+                        state.ai.progress = fraction.clamp(0.0, 1.0);
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
             }
         });
         self.tasks.ai_download = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { intelligence::download_model(model, &control) }).await;
+            let result = cx
+                .background_executor()
+                .spawn(async move { intelligence::download_model(model, &control) })
+                .await;
             drop(poller);
             let _ = this.update(cx, |state, cx| {
                 state.ai.downloading = false;
@@ -392,9 +462,14 @@ impl AppState {
         self.ai.size = None;
         self.ai.progress = 0.0;
         cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { intelligence::delete_model(model) }).await;
+            let result = cx
+                .background_executor()
+                .spawn(async move { intelligence::delete_model(model) })
+                .await;
             let _ = this.update(cx, |state, cx| {
-                state.ai.error = result.err().map(|e| format!("The model could not be deleted: {e}"));
+                state.ai.error = result
+                    .err()
+                    .map(|e| format!("The model could not be deleted: {e}"));
                 state.sound.play(Cue::Close);
                 state.refresh_ai_model(cx);
             });

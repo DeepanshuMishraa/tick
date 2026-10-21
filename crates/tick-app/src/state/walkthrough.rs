@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use futures::channel::mpsc::{self, UnboundedSender};
 use futures::StreamExt;
+use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::{AsyncApp, Context, Task, WeakEntity};
 use image::RgbaImage;
 use tick_core::hotkey::MousePhase;
@@ -58,7 +58,11 @@ pub struct Sketch {
 
 impl Sketch {
     fn next_pin(&self) -> u32 {
-        self.marks.iter().filter(|mark| matches!(mark, Mark::Pin { .. })).count() as u32 + 1
+        self.marks
+            .iter()
+            .filter(|mark| matches!(mark, Mark::Pin { .. }))
+            .count() as u32
+            + 1
     }
 }
 
@@ -127,22 +131,41 @@ impl AppState {
             Err(error) => {
                 tracing::error!(target: "walkthrough", "could not create the walkthrough folder: {error}");
                 self.sound.play(Cue::Error);
-                self.show_notice(Feedback::WalkthroughFailed("Tick couldn't create a folder for it in Application Support.".into()), cx);
+                self.show_notice(
+                    Feedback::WalkthroughFailed(
+                        "Tick couldn't create a folder for it in Application Support.".into(),
+                    ),
+                    cx,
+                );
                 return;
             }
         };
         let origin = geometry.display_origin();
-        let display = Display { x: origin.0, y: origin.1, width: geometry.width, height: geometry.height, scale: geometry.scale };
+        let display = Display {
+            x: origin.0,
+            y: origin.1,
+            width: geometry.width,
+            height: geometry.height,
+            scale: geometry.scale,
+        };
         let keep_window = self.sketch.read(cx).window;
         let started = Instant::now();
         let (requests, receiver) = mpsc::unbounded::<Request>();
         let worker = spawn_worker(receiver, display, keep_window, bundle.clone(), cx);
         let poll_requests = requests.clone();
-        let poll = cx.spawn(async move |_, cx| loop {
-            cx.background_executor().timer(Duration::from_secs_f64(walkthrough::CHANGE_POLL_INTERVAL)).await;
-            let request = Request { trigger: Trigger::ScreenChanged, at: started.elapsed().as_secs_f64(), not_before: Instant::now() };
-            if poll_requests.unbounded_send(request).is_err() {
-                break;
+        let poll = cx.spawn(async move |_, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_secs_f64(walkthrough::CHANGE_POLL_INTERVAL))
+                    .await;
+                let request = Request {
+                    trigger: Trigger::ScreenChanged,
+                    at: started.elapsed().as_secs_f64(),
+                    not_before: Instant::now(),
+                };
+                if poll_requests.unbounded_send(request).is_err() {
+                    break;
+                }
             }
         });
         self.walkthrough = Some(Walkthrough::Recording(Session {
@@ -158,9 +181,14 @@ impl AppState {
         }));
         self.notice = None;
         self.phase = Phase::Walkthrough { started };
-        self.hotkeys.set_walkthrough(WalkthroughTap::Recording { undoable: false });
+        self.hotkeys
+            .set_walkthrough(WalkthroughTap::Recording { undoable: false });
         self.sketch.update(cx, |sketch, cx| {
-            *sketch = Sketch { screen: Some(geometry), window: sketch.window, ..Sketch::default() };
+            *sketch = Sketch {
+                screen: Some(geometry),
+                window: sketch.window,
+                ..Sketch::default()
+            };
             cx.notify();
         });
         self.sound.press(Cue::Lock);
@@ -168,7 +196,12 @@ impl AppState {
         if self.settings.prevent_system_sleep {
             self.sleep = crate::platform::system::SleepAssertion::prevent("Tick walkthrough");
         }
-        let finish = self.settings.walkthrough_hotkey.as_ref().map(|hotkey| hotkey.label()).unwrap_or_default();
+        let finish = self
+            .settings
+            .walkthrough_hotkey
+            .as_ref()
+            .map(|hotkey| hotkey.label())
+            .unwrap_or_default();
         self.show_notice(Feedback::WalkthroughStarted { finish }, cx);
         // The overlay needs a moment to appear before the first frame.
         self.request_keyframe(Trigger::Start, Duration::from_millis(150));
@@ -176,12 +209,18 @@ impl AppState {
 
         let recorder = self.recorder.clone();
         self.tasks.transcription = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { recorder.start() }).await;
+            let result = cx
+                .background_executor()
+                .spawn(async move { recorder.start() })
+                .await;
             if let Err(error) = result {
                 tracing::error!(target: "walkthrough", "microphone failed to start: {error}");
                 let _ = this.update(cx, |state, cx| {
                     state.cancel(cx);
-                    state.show_notice(Feedback::WalkthroughFailed("The microphone didn't start.".into()), cx);
+                    state.show_notice(
+                        Feedback::WalkthroughFailed("The microphone didn't start.".into()),
+                        cx,
+                    );
                 });
             }
         }));
@@ -189,19 +228,28 @@ impl AppState {
     }
 
     fn request_keyframe(&mut self, trigger: Trigger, settle: Duration) {
-        let Some(Walkthrough::Recording(session)) = &mut self.walkthrough else { return };
+        let Some(Walkthrough::Recording(session)) = &mut self.walkthrough else {
+            return;
+        };
         let at = session.started.elapsed().as_secs_f64();
-        if !walkthrough::accepts_keyframe(session.last_deliberate, session.deliberate, at, trigger) {
+        if !walkthrough::accepts_keyframe(session.last_deliberate, session.deliberate, at, trigger)
+        {
             return;
         }
         session.last_deliberate = Some(at);
         session.deliberate += 1;
-        let _ = session.requests.unbounded_send(Request { trigger, at, not_before: Instant::now() + settle });
+        let _ = session.requests.unbounded_send(Request {
+            trigger,
+            at,
+            not_before: Instant::now() + settle,
+        });
     }
 
     /// Converts a global point to overlay points; `None` off the recorded screen.
     fn local_point(&self, x: f64, y: f64, cx: &Context<Self>) -> Option<(f32, f32)> {
-        let Some(Walkthrough::Recording(session)) = &self.walkthrough else { return None };
+        let Some(Walkthrough::Recording(session)) = &self.walkthrough else {
+            return None;
+        };
         let screen = self.sketch.read(cx).screen?;
         let (local_x, local_y) = (x - session.origin.0, y - session.origin.1);
         (local_x >= 0.0 && local_y >= 0.0 && local_x <= screen.width && local_y <= screen.height)
@@ -221,9 +269,14 @@ impl AppState {
                 cx.notify();
             }),
             MousePhase::Dragged => self.sketch.update(cx, |sketch, cx| {
-                let Some(stroke) = sketch.current.as_mut() else { return };
+                let Some(stroke) = sketch.current.as_mut() else {
+                    return;
+                };
                 // Sub-point jitter adds vertices without changing the line.
-                if stroke.last().is_some_and(|last| (last.0 - point.0).abs() + (last.1 - point.1).abs() < 1.5) {
+                if stroke
+                    .last()
+                    .is_some_and(|last| (last.0 - point.0).abs() + (last.1 - point.1).abs() < 1.5)
+                {
                     return;
                 }
                 stroke.push(point);
@@ -245,7 +298,10 @@ impl AppState {
             let stroke = sketch.current.take()?;
             let trigger = if walkthrough::is_tap(&stroke) {
                 let number = sketch.next_pin();
-                sketch.marks.push(Mark::Pin { number, at: stroke[0] });
+                sketch.marks.push(Mark::Pin {
+                    number,
+                    at: stroke[0],
+                });
                 Trigger::Pin(number)
             } else {
                 sketch.marks.push(Mark::Ink(stroke));
@@ -255,7 +311,8 @@ impl AppState {
             Some(trigger)
         });
         if let Some(trigger) = trigger {
-            self.hotkeys.set_walkthrough(WalkthroughTap::Recording { undoable: true });
+            self.hotkeys
+                .set_walkthrough(WalkthroughTap::Recording { undoable: true });
             self.request_keyframe(trigger, MARK_SETTLE);
         }
     }
@@ -267,12 +324,16 @@ impl AppState {
             sketch.marks.len()
         });
         if matches!(self.walkthrough, Some(Walkthrough::Recording(_))) {
-            self.hotkeys.set_walkthrough(WalkthroughTap::Recording { undoable: remaining > 0 });
+            self.hotkeys.set_walkthrough(WalkthroughTap::Recording {
+                undoable: remaining > 0,
+            });
         }
     }
 
     fn walkthrough_click(&mut self, x: f64, y: f64, cx: &mut Context<Self>) {
-        let Some(point) = self.local_point(x, y, cx) else { return };
+        let Some(point) = self.local_point(x, y, cx) else {
+            return;
+        };
         self.sketch.update(cx, |sketch, cx| {
             sketch.ripples.retain(|(at, _)| at.elapsed() < RIPPLE);
             sketch.ripples.push((Instant::now(), point));
@@ -282,7 +343,11 @@ impl AppState {
     }
 
     fn finish_walkthrough(&mut self, cx: &mut Context<Self>) {
-        let Some(Walkthrough::Recording(session)) = self.walkthrough.replace(Walkthrough::Compiling) else { return };
+        let Some(Walkthrough::Recording(session)) =
+            self.walkthrough.replace(Walkthrough::Compiling)
+        else {
+            return;
+        };
         let duration = session.started.elapsed().as_secs_f64();
         tracing::info!(target: "walkthrough", "walkthrough finished after {duration:.1}s");
         self.phase = Phase::Transcribing;
@@ -350,10 +415,15 @@ impl AppState {
     /// Esc while recording or compiling: drops everything, including the
     /// half-written bundle. Called from `cancel`.
     pub(super) fn discard_walkthrough(&mut self, cx: &mut Context<Self>) {
-        let Some(walkthrough) = self.walkthrough.take() else { return };
+        let Some(walkthrough) = self.walkthrough.take() else {
+            return;
+        };
         self.hotkeys.set_walkthrough(WalkthroughTap::Off);
         self.sketch.update(cx, |sketch, cx| {
-            *sketch = Sketch { window: sketch.window, ..Sketch::default() };
+            *sketch = Sketch {
+                window: sketch.window,
+                ..Sketch::default()
+            };
             cx.notify();
         });
         if let Walkthrough::Recording(session) = walkthrough {
@@ -446,7 +516,11 @@ async fn compile(
         return Err("No keyframes were captured. Check that Tick is allowed in System Settings › Screen Recording.".into());
     }
     let samples = match audio.clone() {
-        Some(path) => cx.background_executor().spawn(async move { read_samples(&path) }).await,
+        Some(path) => {
+            cx.background_executor()
+                .spawn(async move { read_samples(&path) })
+                .await
+        }
         None => Vec::new(),
     };
     let spoken = walkthrough::utterances(&samples, SAMPLE_RATE);
@@ -456,19 +530,29 @@ async fn compile(
     for (utterance, owner) in spoken.iter().zip(owners) {
         let start = (utterance.start * f64::from(SAMPLE_RATE)) as usize;
         let end = ((utterance.end * f64::from(SAMPLE_RATE)) as usize).min(samples.len());
-        let Some(slice) = samples.get(start..end) else { continue };
+        let Some(slice) = samples.get(start..end) else {
+            continue;
+        };
         if let Err(error) = write_clip(&clip, slice) {
             tracing::error!(target: "walkthrough", "could not write a speech clip: {error}");
             continue;
         }
-        match crate::speech::transcribe(&clip, &settings.selected_model, settings.output_language.as_deref()).await {
+        match crate::speech::transcribe(
+            &clip,
+            &settings.selected_model,
+            settings.output_language.as_deref(),
+        )
+        .await
+        {
             Ok(text) => {
                 let text = apply_text_rules(text.trim(), settings);
                 if !text.is_empty() {
                     speech[owner].push(text);
                 }
             }
-            Err(error) => tracing::error!(target: "walkthrough", "an utterance failed to transcribe: {error}"),
+            Err(error) => {
+                tracing::error!(target: "walkthrough", "an utterance failed to transcribe: {error}")
+            }
         }
     }
     remove_file(Some(clip));
@@ -486,10 +570,17 @@ async fn compile(
     cx.background_executor()
         .spawn(async move {
             let columns = walkthrough::sheet_columns(captured.tiles.len());
-            let tiles: Vec<RgbaImage> = captured.tiles.iter().map(|tile| bundle::tile(tile, columns)).collect();
+            let tiles: Vec<RgbaImage> = captured
+                .tiles
+                .iter()
+                .map(|tile| bundle::tile(tile, columns))
+                .collect();
             let image = bundle::contact_sheet(&tiles).ok_or("No keyframes to lay out.")?;
-            image.save(&sheet).map_err(|error| format!("The contact sheet couldn't be saved: {error}"))?;
-            std::fs::write(folder.join("summary.md"), text).map_err(|error| format!("The summary couldn't be saved: {error}"))
+            image
+                .save(&sheet)
+                .map_err(|error| format!("The contact sheet couldn't be saved: {error}"))?;
+            std::fs::write(folder.join("summary.md"), text)
+                .map_err(|error| format!("The summary couldn't be saved: {error}"))
         })
         .await?;
     Ok((sheet_path, summary))
@@ -506,7 +597,12 @@ fn read_samples(path: &std::path::Path) -> Vec<f32> {
 }
 
 fn write_clip(path: &std::path::Path, samples: &[f32]) -> Result<(), hound::Error> {
-    let spec = hound::WavSpec { channels: 1, sample_rate: SAMPLE_RATE, bits_per_sample: 32, sample_format: hound::SampleFormat::Float };
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: SAMPLE_RATE,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
     let mut writer = hound::WavWriter::create(path, spec)?;
     for sample in samples {
         writer.write_sample(*sample)?;

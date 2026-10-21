@@ -1,7 +1,7 @@
 //! Tick's mark: three square bars, the same shape as the menu bar icon.
 
 use gpui_kit::base::h_flex;
-use gpui_kit::{div, Hsla, IntoElement, ParentElement as _, Pixels, Styled as _};
+use gpui_kit::{Hsla, IntoElement, ParentElement as _, Pixels, Styled as _, div};
 
 pub fn mark(size: Pixels, color: Hsla) -> impl IntoElement {
     let unit = size / 18.;

@@ -14,7 +14,9 @@ fn home() -> PathBuf {
 
 /// `~/Library/Application Support/com.dipxsy.Tick`, created on demand.
 pub fn app_support() -> PathBuf {
-    let directory = dirs::data_dir().unwrap_or_else(|| home().join("Library/Application Support")).join(BUNDLE_ID);
+    let directory = dirs::data_dir()
+        .unwrap_or_else(|| home().join("Library/Application Support"))
+        .join(BUNDLE_ID);
     let _ = std::fs::create_dir_all(&directory);
     directory
 }
@@ -122,23 +124,24 @@ pub fn load_history() -> History {
 
 /// One writer thread so saves land in order; queued snapshots coalesce to
 /// the newest.
-static HISTORY_WRITER: std::sync::LazyLock<crossbeam_channel::Sender<Vec<u8>>> = std::sync::LazyLock::new(|| {
-    let (sender, receiver) = crossbeam_channel::unbounded::<Vec<u8>>();
-    std::thread::Builder::new()
-        .name("tick-history-writer".into())
-        .spawn(move || {
-            while let Ok(mut bytes) = receiver.recv() {
-                while let Ok(newer) = receiver.try_recv() {
-                    bytes = newer;
+static HISTORY_WRITER: std::sync::LazyLock<crossbeam_channel::Sender<Vec<u8>>> =
+    std::sync::LazyLock::new(|| {
+        let (sender, receiver) = crossbeam_channel::unbounded::<Vec<u8>>();
+        std::thread::Builder::new()
+            .name("tick-history-writer".into())
+            .spawn(move || {
+                while let Ok(mut bytes) = receiver.recv() {
+                    while let Ok(newer) = receiver.try_recv() {
+                        bytes = newer;
+                    }
+                    if let Err(error) = write_atomic(&history_path(), &bytes) {
+                        tracing::error!(target: "history", "failed to save history: {error}");
+                    }
                 }
-                if let Err(error) = write_atomic(&history_path(), &bytes) {
-                    tracing::error!(target: "history", "failed to save history: {error}");
-                }
-            }
-        })
-        .expect("spawning the history writer");
-    sender
-});
+            })
+            .expect("spawning the history writer");
+        sender
+    });
 
 /// Encodes on the caller's thread and writes on the writer thread.
 pub fn save_history(history: &History) {
@@ -151,7 +154,9 @@ pub fn save_history(history: &History) {
 }
 
 pub fn directory_size(path: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(path) else { return 0 };
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
     entries
         .flatten()
         .map(|entry| match entry.metadata() {
@@ -170,5 +175,9 @@ pub fn format_bytes(bytes: u64) -> String {
         value /= 1000.0;
         unit += 1;
     }
-    if unit == 0 { format!("{bytes} bytes") } else { format!("{value:.1} {}", UNITS[unit]) }
+    if unit == 0 {
+        format!("{bytes} bytes")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
 }

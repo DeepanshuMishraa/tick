@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use image::{imageops, Rgba, RgbaImage};
+use image::{Rgba, RgbaImage, imageops};
 use tick_core::walkthrough;
 
 use crate::storage;
@@ -25,7 +25,9 @@ pub fn create_bundle() -> std::io::Result<PathBuf> {
 
 /// `frames/frame-NN.png` for the keyframe at zero-based `index`.
 pub fn frame_path(bundle: &Path, index: usize) -> PathBuf {
-    bundle.join("frames").join(format!("frame-{:02}.png", index + 1))
+    bundle
+        .join("frames")
+        .join(format!("frame-{:02}.png", index + 1))
 }
 
 pub fn contact_sheet_path(bundle: &Path) -> PathBuf {
@@ -37,7 +39,8 @@ pub fn contact_sheet_path(bundle: &Path) -> PathBuf {
 pub fn tile(frame: &RgbaImage, columns: usize) -> RgbaImage {
     let columns = columns.max(1) as u32;
     let width = (SHEET_WIDTH - GAP * (columns + 1)) / columns;
-    let height = (u64::from(frame.height()) * u64::from(width) / u64::from(frame.width().max(1))).max(1) as u32;
+    let height = (u64::from(frame.height()) * u64::from(width) / u64::from(frame.width().max(1)))
+        .max(1) as u32;
     imageops::resize(frame, width, height, imageops::FilterType::Triangle)
 }
 
@@ -47,13 +50,19 @@ pub fn contact_sheet(tiles: &[RgbaImage]) -> Option<RgbaImage> {
     let first = tiles.first()?;
     let columns = walkthrough::sheet_columns(tiles.len()) as u32;
     let rows = (tiles.len() as u32).div_ceil(columns);
-    let (cell_width, cell_height) = (first.width(), tiles.iter().map(RgbaImage::height).max().unwrap_or(1));
+    let (cell_width, cell_height) = (
+        first.width(),
+        tiles.iter().map(RgbaImage::height).max().unwrap_or(1),
+    );
     let width = GAP + columns * (cell_width + GAP);
     let height = GAP + rows * (cell_height + GAP);
     let mut sheet = RgbaImage::from_pixel(width, height, Rgba([24, 24, 24, 255]));
     for (index, tile) in tiles.iter().enumerate() {
         let (column, row) = (index as u32 % columns, index as u32 / columns);
-        let (x, y) = (GAP + column * (cell_width + GAP), GAP + row * (cell_height + GAP));
+        let (x, y) = (
+            GAP + column * (cell_width + GAP),
+            GAP + row * (cell_height + GAP),
+        );
         imageops::overlay(&mut sheet, tile, i64::from(x), i64::from(y));
         label(&mut sheet, x, y, &format!("#{}", index + 1));
     }
@@ -111,7 +120,9 @@ fn fill(image: &mut RgbaImage, x: u32, y: u32, width: u32, height: u32, color: R
 /// Deletes all but the newest `KEEP` bundles.
 pub fn purge_old() {
     let root = storage::walkthroughs();
-    let Ok(entries) = std::fs::read_dir(&root) else { return };
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return;
+    };
     let names = entries
         .flatten()
         .filter(|entry| entry.path().is_dir())

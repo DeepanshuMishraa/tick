@@ -18,14 +18,44 @@ struct PropertyAddress {
     element: u32,
 }
 
-type ListenerProc = extern "C" fn(object: u32, count: u32, addresses: *const PropertyAddress, data: *mut c_void) -> i32;
+type ListenerProc = extern "C" fn(
+    object: u32,
+    count: u32,
+    addresses: *const PropertyAddress,
+    data: *mut c_void,
+) -> i32;
 
 #[link(name = "CoreAudio", kind = "framework")]
 unsafe extern "C" {
-    fn AudioObjectGetPropertyDataSize(object: u32, address: *const PropertyAddress, qualifier_size: u32, qualifier: *const c_void, size: *mut u32) -> i32;
-    fn AudioObjectGetPropertyData(object: u32, address: *const PropertyAddress, qualifier_size: u32, qualifier: *const c_void, size: *mut u32, data: *mut c_void) -> i32;
-    fn AudioObjectSetPropertyData(object: u32, address: *const PropertyAddress, qualifier_size: u32, qualifier: *const c_void, size: u32, data: *const c_void) -> i32;
-    fn AudioObjectAddPropertyListener(object: u32, address: *const PropertyAddress, listener: ListenerProc, data: *mut c_void) -> i32;
+    fn AudioObjectGetPropertyDataSize(
+        object: u32,
+        address: *const PropertyAddress,
+        qualifier_size: u32,
+        qualifier: *const c_void,
+        size: *mut u32,
+    ) -> i32;
+    fn AudioObjectGetPropertyData(
+        object: u32,
+        address: *const PropertyAddress,
+        qualifier_size: u32,
+        qualifier: *const c_void,
+        size: *mut u32,
+        data: *mut c_void,
+    ) -> i32;
+    fn AudioObjectSetPropertyData(
+        object: u32,
+        address: *const PropertyAddress,
+        qualifier_size: u32,
+        qualifier: *const c_void,
+        size: u32,
+        data: *const c_void,
+    ) -> i32;
+    fn AudioObjectAddPropertyListener(
+        object: u32,
+        address: *const PropertyAddress,
+        listener: ListenerProc,
+        data: *mut c_void,
+    ) -> i32;
 }
 
 const fn fourcc(code: &[u8; 4]) -> u32 {
@@ -49,7 +79,11 @@ const TRANSPORT_BLUETOOTH: u32 = fourcc(b"blue");
 const TRANSPORT_BLUETOOTH_LE: u32 = fourcc(b"blea");
 
 fn address(selector: u32, scope: u32) -> PropertyAddress {
-    PropertyAddress { selector, scope, element: 0 }
+    PropertyAddress {
+        selector,
+        scope,
+        element: 0,
+    }
 }
 
 fn get_u32(object: u32, selector: u32, scope: u32) -> Option<u32> {
@@ -57,7 +91,14 @@ fn get_u32(object: u32, selector: u32, scope: u32) -> Option<u32> {
     let mut size = std::mem::size_of::<u32>() as u32;
     // SAFETY: `value`/`size` describe a writable u32.
     let status = unsafe {
-        AudioObjectGetPropertyData(object, &address(selector, scope), 0, std::ptr::null(), &mut size, (&mut value as *mut u32).cast())
+        AudioObjectGetPropertyData(
+            object,
+            &address(selector, scope),
+            0,
+            std::ptr::null(),
+            &mut size,
+            (&mut value as *mut u32).cast(),
+        )
     };
     (status == 0).then_some(value)
 }
@@ -67,22 +108,42 @@ fn get_string(object: u32, selector: u32) -> Option<String> {
     let mut size = std::mem::size_of::<CFStringRef>() as u32;
     // SAFETY: CoreAudio returns a +1 CFString on success.
     let status = unsafe {
-        AudioObjectGetPropertyData(object, &address(selector, SCOPE_GLOBAL), 0, std::ptr::null(), &mut size, (&mut value as *mut CFStringRef).cast())
+        AudioObjectGetPropertyData(
+            object,
+            &address(selector, SCOPE_GLOBAL),
+            0,
+            std::ptr::null(),
+            &mut size,
+            (&mut value as *mut CFStringRef).cast(),
+        )
     };
     // SAFETY: wraps the +1 reference so it is released.
-    (status == 0 && !value.is_null()).then(|| unsafe { CFString::wrap_under_create_rule(value) }.to_string())
+    (status == 0 && !value.is_null())
+        .then(|| unsafe { CFString::wrap_under_create_rule(value) }.to_string())
 }
 
 pub fn all_devices() -> Vec<DeviceId> {
     let address = address(DEVICES, SCOPE_GLOBAL);
     let mut size = 0u32;
     // SAFETY: size query on the system object.
-    if unsafe { AudioObjectGetPropertyDataSize(SYSTEM_OBJECT, &address, 0, std::ptr::null(), &mut size) } != 0 {
+    if unsafe {
+        AudioObjectGetPropertyDataSize(SYSTEM_OBJECT, &address, 0, std::ptr::null(), &mut size)
+    } != 0
+    {
         return Vec::new();
     }
     let mut ids = vec![0u32; size as usize / std::mem::size_of::<u32>()];
     // SAFETY: `ids` has room for `size` bytes.
-    let status = unsafe { AudioObjectGetPropertyData(SYSTEM_OBJECT, &address, 0, std::ptr::null(), &mut size, ids.as_mut_ptr().cast()) };
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            SYSTEM_OBJECT,
+            &address,
+            0,
+            std::ptr::null(),
+            &mut size,
+            ids.as_mut_ptr().cast(),
+        )
+    };
     if status != 0 {
         return Vec::new();
     }
@@ -102,13 +163,26 @@ fn has_streams(device: DeviceId, scope: u32) -> bool {
     let address = address(STREAM_CONFIGURATION, scope);
     let mut size = 0u32;
     // SAFETY: size query.
-    if unsafe { AudioObjectGetPropertyDataSize(device, &address, 0, std::ptr::null(), &mut size) } != 0 || size < 4 {
+    if unsafe { AudioObjectGetPropertyDataSize(device, &address, 0, std::ptr::null(), &mut size) }
+        != 0
+        || size < 4
+    {
         return false;
     }
     // AudioBufferList: u32 count, then {u32 channels, u32 bytes, ptr data} per buffer.
     let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
     // SAFETY: `buffer` holds at least `size` bytes, 8-byte aligned.
-    if unsafe { AudioObjectGetPropertyData(device, &address, 0, std::ptr::null(), &mut size, buffer.as_mut_ptr().cast()) } != 0 {
+    if unsafe {
+        AudioObjectGetPropertyData(
+            device,
+            &address,
+            0,
+            std::ptr::null(),
+            &mut size,
+            buffer.as_mut_ptr().cast(),
+        )
+    } != 0
+    {
         return false;
     }
     // SAFETY: reading the AudioBufferList layout written above.
@@ -172,13 +246,18 @@ pub fn built_in_input() -> Option<DeviceId> {
     devices
         .iter()
         .copied()
-        .find(|device| has_input(*device) && get_u32(*device, TRANSPORT_TYPE, SCOPE_INPUT) == Some(TRANSPORT_BUILT_IN))
+        .find(|device| {
+            has_input(*device)
+                && get_u32(*device, TRANSPORT_TYPE, SCOPE_INPUT) == Some(TRANSPORT_BUILT_IN)
+        })
         .or_else(|| {
             devices.iter().copied().find(|device| {
                 has_input(*device)
                     && name(*device).is_some_and(|n| {
                         let lower = n.to_lowercase();
-                        lower.contains("built-in") || lower.contains("macbook") || lower.contains("internal")
+                        lower.contains("built-in")
+                            || lower.contains("macbook")
+                            || lower.contains("internal")
                     })
             })
         })
@@ -190,7 +269,14 @@ pub fn ensure_unmuted(device: DeviceId) {
         let zero = 0u32;
         // SAFETY: writes one u32.
         let status = unsafe {
-            AudioObjectSetPropertyData(device, &address(MUTE, SCOPE_INPUT), 0, std::ptr::null(), 4, (&zero as *const u32).cast())
+            AudioObjectSetPropertyData(
+                device,
+                &address(MUTE, SCOPE_INPUT),
+                0,
+                std::ptr::null(),
+                4,
+                (&zero as *const u32).cast(),
+            )
         };
         if status == 0 {
             tracing::warn!(target: "recording", "input device {device} was muted at the device level; unmuted it");
@@ -222,10 +308,15 @@ pub fn snapshot() -> DeviceSnapshot {
                 snapshot.devices.push(InputDevice { id, name });
             }
         } else if has_output(device)
-            && matches!(transport(device), Some(TRANSPORT_BLUETOOTH | TRANSPORT_BLUETOOTH_LE))
+            && matches!(
+                transport(device),
+                Some(TRANSPORT_BLUETOOTH | TRANSPORT_BLUETOOTH_LE)
+            )
         {
             if let Some(name) = name(device) {
-                snapshot.unavailable_bluetooth.push(InputDevice { id, name });
+                snapshot
+                    .unavailable_bluetooth
+                    .push(InputDevice { id, name });
             }
         }
     }
@@ -238,7 +329,9 @@ pub fn snapshot() -> DeviceSnapshot {
 /// whatever external device another app selected.
 pub fn resolve_preferred(selected: Option<&str>) -> Option<DeviceId> {
     let fallback = || built_in_input().or_else(default_input);
-    let Some(selected) = selected else { return fallback() };
+    let Some(selected) = selected else {
+        return fallback();
+    };
     let devices = all_devices();
     devices
         .iter()
@@ -253,7 +346,10 @@ pub fn resolve_preferred(selected: Option<&str>) -> Option<DeviceId> {
 
 pub fn describe(device: Option<DeviceId>) -> String {
     match device {
-        Some(device) => format!("{} [{device}]", name(device).unwrap_or_else(|| "unknown".into())),
+        Some(device) => format!(
+            "{} [{device}]",
+            name(device).unwrap_or_else(|| "unknown".into())
+        ),
         None => "none".into(),
     }
 }
@@ -270,8 +366,15 @@ type Listener = Box<dyn Fn(HardwareChange) + Send + Sync>;
 
 static LISTENER: std::sync::OnceLock<Listener> = std::sync::OnceLock::new();
 
-extern "C" fn on_property(_object: u32, count: u32, addresses: *const PropertyAddress, _data: *mut c_void) -> i32 {
-    let Some(listener) = LISTENER.get() else { return 0 };
+extern "C" fn on_property(
+    _object: u32,
+    count: u32,
+    addresses: *const PropertyAddress,
+    _data: *mut c_void,
+) -> i32 {
+    let Some(listener) = LISTENER.get() else {
+        return 0;
+    };
     for index in 0..count as usize {
         // SAFETY: CoreAudio passes `count` valid addresses.
         let selector = unsafe { (*addresses.add(index)).selector };
@@ -292,7 +395,12 @@ pub fn observe(listener: impl Fn(HardwareChange) + Send + Sync + 'static) {
     for selector in [DEFAULT_INPUT, DEFAULT_OUTPUT, DEVICES] {
         // SAFETY: the listener proc is a static function reading LISTENER.
         let status = unsafe {
-            AudioObjectAddPropertyListener(SYSTEM_OBJECT, &address(selector, SCOPE_GLOBAL), on_property, std::ptr::null_mut())
+            AudioObjectAddPropertyListener(
+                SYSTEM_OBJECT,
+                &address(selector, SCOPE_GLOBAL),
+                on_property,
+                std::ptr::null_mut(),
+            )
         };
         if status != 0 {
             tracing::error!(target: "recording", "failed to observe audio hardware selector {selector:#x}: {status}");

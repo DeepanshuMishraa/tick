@@ -24,8 +24,12 @@ pub type CFDataRef = *const c_void;
 pub const kAXErrorSuccess: AXError = 0;
 pub const kAXValueCFRangeType: u32 = 4;
 
-pub type CGEventTapCallBack =
-    extern "C" fn(proxy: CGEventTapProxy, kind: u32, event: CGEventRef, user_info: *mut c_void) -> CGEventRef;
+pub type CGEventTapCallBack = extern "C" fn(
+    proxy: CGEventTapProxy,
+    kind: u32,
+    event: CGEventRef,
+    user_info: *mut c_void,
+) -> CGEventRef;
 
 pub const kCGHIDEventTap: u32 = 0;
 pub const kCGHeadInsertEventTap: u32 = 0;
@@ -68,7 +72,11 @@ pub struct CFRange {
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
-    pub fn CFMachPortCreateRunLoopSource(allocator: *const c_void, port: CFMachPortRef, order: isize) -> CFRunLoopSourceRef;
+    pub fn CFMachPortCreateRunLoopSource(
+        allocator: *const c_void,
+        port: CFMachPortRef,
+        order: isize,
+    ) -> CFRunLoopSourceRef;
     pub fn CFMachPortInvalidate(port: CFMachPortRef);
     pub fn CFRunLoopGetMain() -> CFRunLoopRef;
     pub fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
@@ -102,7 +110,8 @@ unsafe extern "C" {
         buffer: *mut u16,
     );
     pub fn CGEventSourceCreate(state: i32) -> CGEventSourceRef;
-    pub fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, key: u16, down: bool) -> CGEventRef;
+    pub fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, key: u16, down: bool)
+    -> CGEventRef;
     pub fn CGEventPost(tap: u32, event: CGEventRef);
     pub fn CGPreflightListenEventAccess() -> bool;
     pub fn CGRequestListenEventAccess() -> bool;
@@ -114,8 +123,16 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
     pub fn AXUIElementCreateSystemWide() -> AXUIElementRef;
-    pub fn AXUIElementCopyAttributeValue(element: AXUIElementRef, attribute: CFStringRef, value: *mut CFTypeRef) -> AXError;
-    pub fn AXUIElementSetAttributeValue(element: AXUIElementRef, attribute: CFStringRef, value: CFTypeRef) -> AXError;
+    pub fn AXUIElementCopyAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        value: *mut CFTypeRef,
+    ) -> AXError;
+    pub fn AXUIElementSetAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        value: CFTypeRef,
+    ) -> AXError;
     pub fn AXUIElementGetTypeID() -> usize;
     pub fn AXValueGetTypeID() -> usize;
     pub fn AXValueCreate(kind: u32, value: *const c_void) -> AXValueRef;
@@ -146,6 +163,11 @@ unsafe extern "C" {
 #[link(name = "IOKit", kind = "framework")]
 unsafe extern "C" {
     pub fn IOHIDCheckAccess(request: u32) -> u32;
-    pub fn IOPMAssertionCreateWithName(kind: CFStringRef, level: u32, name: CFStringRef, id: *mut u32) -> i32;
+    pub fn IOPMAssertionCreateWithName(
+        kind: CFStringRef,
+        level: u32,
+        name: CFStringRef,
+        id: *mut u32,
+    ) -> i32;
     pub fn IOPMAssertionRelease(id: u32) -> i32;
 }

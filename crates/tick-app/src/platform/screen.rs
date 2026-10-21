@@ -21,7 +21,9 @@ pub fn request_recording() {
     // SAFETY: plain call; macOS prompts only the first time.
     let granted = unsafe { CGRequestScreenCaptureAccess() };
     if !granted {
-        super::workspace::open_url("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
+        super::workspace::open_url(
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        );
     }
 }
 
@@ -50,7 +52,8 @@ pub enum CaptureError {
 /// `keep_window` (the ink overlay, so drawings appear in keyframes).
 /// Blocks for tens of milliseconds; call it off the main thread.
 pub fn capture(display: &Display, keep_window: Option<u32>) -> Result<RgbaImage, CaptureError> {
-    let content = SCShareableContent::get().map_err(|error| CaptureError::Content(format!("{error:?}")))?;
+    let content =
+        SCShareableContent::get().map_err(|error| CaptureError::Content(format!("{error:?}")))?;
     let target = content
         .displays()
         .into_iter()
@@ -65,7 +68,9 @@ pub fn capture(display: &Display, keep_window: Option<u32>) -> Result<RgbaImage,
         .into_iter()
         .filter(|window| {
             Some(window.window_id()) != keep_window
-                && window.owning_application().is_some_and(|app| app.process_id() == pid)
+                && window
+                    .owning_application()
+                    .is_some_and(|app| app.process_id() == pid)
         })
         .collect();
     let excluded: Vec<&SCWindow> = own.iter().collect();
@@ -74,12 +79,27 @@ pub fn capture(display: &Display, keep_window: Option<u32>) -> Result<RgbaImage,
         .with_excluding_windows(&excluded)
         .build()
         .map_err(|error| CaptureError::Screenshot(format!("{error:?}")))?;
-    let scale = display.scale.min(MAX_WIDTH / display.width.max(1.0)).max(0.5);
-    let (width, height) = ((display.width * scale).round() as u32, (display.height * scale).round() as u32);
-    let config = SCStreamConfiguration::new().with_width(width).with_height(height).with_shows_cursor(true);
-    let image = SCScreenshotManager::capture_image(&filter, &config).map_err(|error| CaptureError::Screenshot(format!("{error:?}")))?;
+    let scale = display
+        .scale
+        .min(MAX_WIDTH / display.width.max(1.0))
+        .max(0.5);
+    let (width, height) = (
+        (display.width * scale).round() as u32,
+        (display.height * scale).round() as u32,
+    );
+    let config = SCStreamConfiguration::new()
+        .with_width(width)
+        .with_height(height)
+        .with_shows_cursor(true);
+    let image = SCScreenshotManager::capture_image(&filter, &config)
+        .map_err(|error| CaptureError::Screenshot(format!("{error:?}")))?;
     let (width, height) = (image.width() as u32, image.height() as u32);
-    let pixels = image.rgba_data().map_err(|error| CaptureError::Screenshot(format!("{error:?}")))?;
-    RgbaImage::from_raw(width, height, pixels)
-        .ok_or_else(|| CaptureError::Screenshot(format!("{width}×{height} image had the wrong number of bytes")))
+    let pixels = image
+        .rgba_data()
+        .map_err(|error| CaptureError::Screenshot(format!("{error:?}")))?;
+    RgbaImage::from_raw(width, height, pixels).ok_or_else(|| {
+        CaptureError::Screenshot(format!(
+            "{width}×{height} image had the wrong number of bytes"
+        ))
+    })
 }

@@ -6,8 +6,8 @@ mod synth;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -45,7 +45,10 @@ impl Mixer {
                 if voice.position + 1 >= voice.samples.len() || voice.gain <= 0.0 {
                     break;
                 }
-                let (left, right) = (voice.samples[voice.position], voice.samples[voice.position + 1]);
+                let (left, right) = (
+                    voice.samples[voice.position],
+                    voice.samples[voice.position + 1],
+                );
                 voice.position += 2;
                 if channels == 1 {
                     frame[0] += (left + right) * 0.5 * voice.gain;
@@ -69,8 +72,16 @@ impl Mixer {
 }
 
 enum Job {
-    Cue { cue: Cue, part: Part, emphasis: Emphasis },
-    Clip { id: u64, path: PathBuf, finished: Arc<AtomicBool> },
+    Cue {
+        cue: Cue,
+        part: Part,
+        emphasis: Emphasis,
+    },
+    Clip {
+        id: u64,
+        path: PathBuf,
+        finished: Arc<AtomicBool>,
+    },
 }
 
 /// A playing recording; `stop` silences it.
@@ -87,7 +98,10 @@ impl ClipHandle {
     }
 
     pub fn stop(&self) {
-        self.mixer.lock().voices.retain(|voice| voice.clip != Some(self.id));
+        self.mixer
+            .lock()
+            .voices
+            .retain(|voice| voice.clip != Some(self.id));
         self.finished.store(true, Ordering::Release);
     }
 }
@@ -182,7 +196,13 @@ impl Sound {
                 drop(stream);
             })
             .expect("spawning the sound thread");
-        Sound { jobs, mixer, enabled, volume, next_clip: Arc::new(AtomicU32::new(1)) }
+        Sound {
+            jobs,
+            mixer,
+            enabled,
+            volume,
+            next_clip: Arc::new(AtomicU32::new(1)),
+        }
     }
 
     /// Applies the settings toggle and volume (stored relative to the 0.2 ceiling).
@@ -194,7 +214,11 @@ impl Sound {
 
     fn send(&self, cue: Cue, part: Part, emphasis: Emphasis) {
         if self.enabled.load(Ordering::Relaxed) {
-            let _ = self.jobs.send(Job::Cue { cue, part, emphasis });
+            let _ = self.jobs.send(Job::Cue {
+                cue,
+                part,
+                emphasis,
+            });
         }
     }
 
@@ -215,8 +239,16 @@ impl Sound {
     pub fn play_clip(&self, path: PathBuf) -> ClipHandle {
         let id = u64::from(self.next_clip.fetch_add(1, Ordering::Relaxed));
         let finished = Arc::new(AtomicBool::new(false));
-        let _ = self.jobs.send(Job::Clip { id, path, finished: finished.clone() });
-        ClipHandle { id, finished, mixer: self.mixer.clone() }
+        let _ = self.jobs.send(Job::Clip {
+            id,
+            path,
+            finished: finished.clone(),
+        });
+        ClipHandle {
+            id,
+            finished,
+            mixer: self.mixer.clone(),
+        }
     }
 }
 
@@ -250,13 +282,23 @@ fn load_clip(path: &std::path::Path, rate: f32) -> Result<Vec<f32>, String> {
     let spec = reader.spec();
     let channels = usize::from(spec.channels.max(1));
     let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.into_samples::<f32>().filter_map(Result::ok).collect(),
+        hound::SampleFormat::Float => reader
+            .into_samples::<f32>()
+            .filter_map(Result::ok)
+            .collect(),
         hound::SampleFormat::Int => {
             let scale = (1i64 << (spec.bits_per_sample - 1)) as f32;
-            reader.into_samples::<i32>().filter_map(Result::ok).map(|s| s as f32 / scale).collect()
+            reader
+                .into_samples::<i32>()
+                .filter_map(Result::ok)
+                .map(|s| s as f32 / scale)
+                .collect()
         }
     };
-    let mono: Vec<f32> = samples.chunks(channels).map(|f| f.iter().sum::<f32>() / f.len() as f32).collect();
+    let mono: Vec<f32> = samples
+        .chunks(channels)
+        .map(|f| f.iter().sum::<f32>() / f.len() as f32)
+        .collect();
     let ratio = spec.sample_rate as f32 / rate;
     let frames = (mono.len() as f32 / ratio) as usize;
     let mut out = Vec::with_capacity(frames * 2);

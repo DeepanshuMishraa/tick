@@ -3,13 +3,16 @@
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::{
-    div, px, AnimationExt as _, App, Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, SpringAnimation, StatefulInteractiveElement as _, Styled as _, Window,
+    AnimationExt as _, App, Context, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, SpringAnimation, StatefulInteractiveElement as _,
+    Styled as _, Window, div, px,
 };
 use tick_core::settings::WritingStyle;
 
 use crate::sound::Cue;
-use crate::ui::components::{button, cue, drawn_check, eyebrow, icon, muted, palette, title, Tone, SNAP};
+use crate::ui::components::{
+    SNAP, Tone, button, cue, drawn_check, eyebrow, icon, muted, palette, title,
+};
 use crate::ui::icons::Icon;
 use crate::ui::main_view::MainView;
 use crate::ui::theme::{size, space};
@@ -46,7 +49,8 @@ fn card(style: WritingStyle, selected: bool, cx: &App) -> impl IntoElement {
     let state = crate::state::AppState::global(cx);
     v_flex()
         .id(SharedString::from(format!("style-{name}")))
-        .flex_1().min_w_0()
+        .flex_1()
+        .min_w_0()
         .gap(space::L)
         .p(space::L)
         .border_1()
@@ -69,7 +73,13 @@ fn card(style: WritingStyle, selected: bool, cx: &App) -> impl IntoElement {
                 .child(
                     v_flex()
                         .gap(px(4.))
-                        .child(div().text_size(size::LEAD).font_weight(FontWeight::MEDIUM).text_color(p.text).child(name))
+                        .child(
+                            div()
+                                .text_size(size::LEAD)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(p.text)
+                                .child(name),
+                        )
                         .child(eyebrow(badge, cx)),
                 )
                 .child(
@@ -77,8 +87,17 @@ fn card(style: WritingStyle, selected: bool, cx: &App) -> impl IntoElement {
                         .size(px(18.))
                         .border_1()
                         .border_color(if selected { p.accent } else { p.line_strong })
-                        .bg(if selected { p.accent } else { p.alpha(p.surface, 0.0) })
-                        .child(drawn_check(SharedString::from(format!("style-check-{name}")), selected, px(16.), p.on_accent)),
+                        .bg(if selected {
+                            p.accent
+                        } else {
+                            p.alpha(p.surface, 0.0)
+                        })
+                        .child(drawn_check(
+                            SharedString::from(format!("style-check-{name}")),
+                            selected,
+                            px(16.),
+                            p.on_accent,
+                        )),
                 ),
         )
         .child(
@@ -88,8 +107,20 @@ fn card(style: WritingStyle, selected: bool, cx: &App) -> impl IntoElement {
                 .bg(p.ground)
                 .border_1()
                 .border_color(p.line)
-                .child(h_flex().gap(space::S).items_center().child(icon(glyph, px(12.), p.muted)).child(muted(context, cx)))
-                .child(div().text_size(size::BODY).line_height(px(20.)).text_color(p.text).child(sample)),
+                .child(
+                    h_flex()
+                        .gap(space::S)
+                        .items_center()
+                        .child(icon(glyph, px(12.), p.muted))
+                        .child(muted(context, cx)),
+                )
+                .child(
+                    div()
+                        .text_size(size::BODY)
+                        .line_height(px(20.))
+                        .text_color(p.text)
+                        .child(sample),
+                ),
         )
 }
 

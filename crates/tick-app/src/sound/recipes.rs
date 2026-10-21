@@ -39,10 +39,27 @@ pub struct Layer {
 
 impl Layer {
     const fn tone(frequency: f32, attack: f32, decay: f32, peak: f32) -> Layer {
-        Layer { source: Source::Tone, frequency, glide_to: None, glide_time: None, attack, decay, peak, from: Emphasis::Subtle, note: false }
+        Layer {
+            source: Source::Tone,
+            frequency,
+            glide_to: None,
+            glide_time: None,
+            attack,
+            decay,
+            peak,
+            from: Emphasis::Subtle,
+            note: false,
+        }
     }
 
-    const fn noise(filter: Filter, frequency: f32, q: f32, attack: f32, decay: f32, peak: f32) -> Layer {
+    const fn noise(
+        filter: Filter,
+        frequency: f32,
+        q: f32,
+        attack: f32,
+        decay: f32,
+        peak: f32,
+    ) -> Layer {
         Layer {
             source: Source::Noise { filter, q },
             frequency,
@@ -90,7 +107,14 @@ pub struct Recipe {
 
 impl Recipe {
     fn new(master_gain: f32, layers: Vec<Layer>) -> Recipe {
-        Recipe { master_gain, layers, release: Vec::new(), room: 1.0, vary: None, walk: Vec::new() }
+        Recipe {
+            master_gain,
+            layers,
+            release: Vec::new(),
+            room: 1.0,
+            vary: None,
+            walk: Vec::new(),
+        }
     }
 
     pub fn has_notes(&self) -> bool {
@@ -116,13 +140,23 @@ fn knock(frequency: f32, decay: f32, peak: f32) -> Layer {
     Layer::tone(frequency * KNOCK_DROP, 0.001, decay, peak).glide(frequency, KNOCK_DROP_TIME)
 }
 
-fn struck(frequency: f32, decay: f32, peak: f32, material: &[(f32, f32)], from: Option<Emphasis>) -> Vec<Layer> {
+fn struck(
+    frequency: f32,
+    decay: f32,
+    peak: f32,
+    material: &[(f32, f32)],
+    from: Option<Emphasis>,
+) -> Vec<Layer> {
     material
         .iter()
         .filter(|(ratio, _)| frequency * ratio <= MODE_CEILING)
         .enumerate()
         .map(|(mode, (ratio, level))| {
-            let layer_from = if mode == 0 { from } else { Some(from.unwrap_or(Normal)) };
+            let layer_from = if mode == 0 {
+                from
+            } else {
+                Some(from.unwrap_or(Normal))
+            };
             let layer = Layer::tone(
                 frequency * ratio,
                 STRIKE_ATTACK,
@@ -146,15 +180,26 @@ fn ring(frequency: f32, peak: f32) -> Layer {
 }
 
 fn click(frequency: f32, peak: f32, from: Option<Emphasis>) -> Vec<Layer> {
-    let layers = [ring(frequency, peak), ring(frequency * 0.675, peak * 0.5).with_q(2.0)];
-    layers.into_iter().map(|layer| from.map_or(layer, |emphasis| layer.from(emphasis))).collect()
+    let layers = [
+        ring(frequency, peak),
+        ring(frequency * 0.675, peak * 0.5).with_q(2.0),
+    ];
+    layers
+        .into_iter()
+        .map(|layer| from.map_or(layer, |emphasis| layer.from(emphasis)))
+        .collect()
 }
 
 fn thud(frequency: f32, decay: f32, peak: f32) -> Layer {
     Layer::noise(Lowpass, frequency, 0.7, 0.001, decay, peak)
 }
 
-const NOTE_PARTIALS: [(f32, f32, f32); 4] = [(1.0, 1.0, 1.0), (2.0, 0.9, 0.5), (3.0, 1.0, 0.04), (4.0, 0.73, 0.056)];
+const NOTE_PARTIALS: [(f32, f32, f32); 4] = [
+    (1.0, 1.0, 1.0),
+    (2.0, 0.9, 0.5),
+    (3.0, 1.0, 0.04),
+    (4.0, 0.73, 0.056),
+];
 
 fn note(frequency: f32, decay: f32, peak: f32, from: Option<Emphasis>) -> Vec<Layer> {
     let attack = 0.11f32.min(decay / 2.0);
@@ -162,9 +207,18 @@ fn note(frequency: f32, decay: f32, peak: f32, from: Option<Emphasis>) -> Vec<La
         .iter()
         .enumerate()
         .map(|(partial, (multiple, length, level))| {
-            let layer_from = if partial < 2 { from } else { Some(from.unwrap_or(Normal)) };
-            let mut layer = Layer::tone(frequency * multiple * 1.09, attack, decay * length, peak * level)
-                .glide(frequency * multiple, 0.015);
+            let layer_from = if partial < 2 {
+                from
+            } else {
+                Some(from.unwrap_or(Normal))
+            };
+            let mut layer = Layer::tone(
+                frequency * multiple * 1.09,
+                attack,
+                decay * length,
+                peak * level,
+            )
+            .glide(frequency * multiple, 0.015);
             layer.note = true;
             match layer_from {
                 Some(emphasis) => layer.from(emphasis),
@@ -215,7 +269,10 @@ impl Cue {
 
     /// Cues whose repeats lighten with cadence.
     pub fn follows_cadence(self) -> bool {
-        matches!(self, Cue::Tap | Cue::Toggle | Cue::Select | Cue::Navigate | Cue::Talk | Cue::Lock)
+        matches!(
+            self,
+            Cue::Tap | Cue::Toggle | Cue::Select | Cue::Navigate | Cue::Talk | Cue::Lock
+        )
     }
 }
 

@@ -4,19 +4,19 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use gpui_kit::{AsyncApp, Context, WeakEntity};
 use tick_core::ai;
-use tick_core::app_context::{browser_url_script, AppCategory, AppContext};
-use tick_core::history::{recording_file_name, FileUrl, Transcript};
+use tick_core::app_context::{AppCategory, AppContext, browser_url_script};
+use tick_core::history::{FileUrl, Transcript, recording_file_name};
 use tick_core::hotkey::KeyEvent;
 use tick_core::hotkey_processor::should_transcribe;
 use tick_core::id::{SwiftDate, SwiftUuid};
 use tick_core::settings::{AiPostProcessingMode, Settings};
 use tick_core::text::{self, KeystrokeTracker, WordCorrection, WordRemapping};
 
-use super::{png_image, AppState, Tab};
+use super::{AppState, Tab, png_image};
 use crate::intelligence::{self, PostProcess};
 use crate::platform::paste::{self, PasteResult};
 use crate::platform::system::SleepAssertion;
@@ -28,9 +28,13 @@ use crate::storage;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Phase {
     Idle,
-    Recording { started: Instant },
+    Recording {
+        started: Instant,
+    },
     /// Recording a walkthrough: screen, voice and marks.
-    Walkthrough { started: Instant },
+    Walkthrough {
+        started: Instant,
+    },
     /// From key release (or a finished walkthrough) until the text is in the
     /// target app.
     Transcribing,
@@ -55,10 +59,15 @@ pub enum PasteFailure {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Feedback {
     DictionaryAdded(Vec<WordCorrection>),
-    PasteUnavailable { text: String, reason: PasteFailure },
+    PasteUnavailable {
+        text: String,
+        reason: PasteFailure,
+    },
     Copied,
     /// A walkthrough began; `finish` is the shortcut that ends it.
-    WalkthroughStarted { finish: String },
+    WalkthroughStarted {
+        finish: String,
+    },
     ScreenRecordingNeeded,
     WalkthroughFailed(String),
 }
@@ -79,12 +88,43 @@ pub(super) fn sleeper(cx: &AsyncApp) -> impl Fn(Duration) -> BoxFuture<'static, 
     move |duration| executor.timer(duration).boxed()
 }
 
+impl AppState {
+    /// Copies the stream's latest words onto the overlay about 25 times a second.
+    fn watch_live_text(&mut self, cx: &mut Context<Self>) {
+        self.tasks.live = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(40))
+                    .await;
+                let keep = this.update(cx, |state, cx| {
+                    if !matches!(state.phase, Phase::Recording { .. }) {
+                        return false;
+                    }
+                    let next = speech::partial();
+                    if next != state.live {
+                        state.live = next;
+                        cx.notify();
+                    }
+                    true
+                });
+                if !keep.unwrap_or(false) {
+                    break;
+                }
+            }
+        }));
+    }
+}
+
 fn app_context(bundle_id: &str, name: &str) -> AppContext {
     let url = (AppCategory::from_bundle_id(bundle_id) == AppCategory::Browser)
         .then(|| browser_url_script(bundle_id))
         .flatten()
         .and_then(|script| workspace::run_apple_script(script).ok().flatten());
-    AppContext { bundle_id: bundle_id.to_string(), app_name: name.to_string(), url }
+    AppContext {
+        bundle_id: bundle_id.to_string(),
+        app_name: name.to_string(),
+        url,
+    }
 }
 
 impl AppState {
@@ -119,7 +159,10 @@ impl AppState {
         self.tasks.correction_settle = None;
         self.tasks.dictionary_debounce = None;
         self.hotkeys.set_tracking_corrections(false);
-        self.phase = Phase::Recording { started: Instant::now() };
+        self.phase = Phase::Recording {
+            started: Instant::now(),
+        };
+        self.live = speech::LiveText::default();
         self.locked = locked;
         self.sound.press(if locked { Cue::Lock } else { Cue::Talk });
         workspace::haptic(Haptic::Alignment);
@@ -140,6 +183,7 @@ impl AppState {
             self.sleep = SleepAssertion::prevent("Tick voice recording");
         }
         cx.notify();
+        self.watch_live_text(cx);
 
         let model = self.settings.selected_model.clone();
         let recorder = self.recorder.clone();
@@ -168,12 +212,18 @@ impl AppState {
     }
 
     pub(super) fn stop_recording(&mut self, cx: &mut Context<Self>) {
-        let Phase::Recording { started } = self.phase else { return };
+        let Phase::Recording { started } = self.phase else {
+            return;
+        };
         let was_locked = self.locked;
         self.locked = false;
         self.sleep = None;
         let elapsed = started.elapsed().as_secs_f64();
-        let proceed = should_transcribe(&self.settings.hotkey, self.settings.minimum_key_time, elapsed);
+        let proceed = should_transcribe(
+            &self.settings.hotkey,
+            self.settings.minimum_key_time,
+            elapsed,
+        );
         tracing::info!(target: "transcription", "recording stopped after {elapsed:.3}s; transcribe={proceed}");
         let recorder = self.recorder.clone();
         if !proceed {
@@ -182,15 +232,20 @@ impl AppState {
             let previous = self.tasks.transcription.take();
             self.tasks.transcription = Some(cx.spawn(async move |_, cx| {
                 drop(previous);
-                let path = cx.background_executor().spawn(async move { stop_recorder(&recorder) }).await;
+                let path = cx
+                    .background_executor()
+                    .spawn(async move { stop_recorder(&recorder) })
+                    .await;
                 speech::cancel_streaming();
                 remove_file(path);
             }));
             return;
         }
         self.phase = Phase::Transcribing;
+        self.live = speech::LiveText::default();
         self.dictation.released_at = Some(Instant::now());
-        self.sound.release(if was_locked { Cue::Lock } else { Cue::Talk });
+        self.sound
+            .release(if was_locked { Cue::Lock } else { Cue::Talk });
         workspace::haptic(Haptic::Level);
         cx.notify();
 
@@ -236,13 +291,16 @@ impl AppState {
         self.tasks.transcription = None;
         self.discard_walkthrough(cx);
         self.phase = Phase::Idle;
+        self.live = speech::LiveText::default();
         self.locked = false;
         self.sleep = None;
         self.sound.play(Cue::Close);
         self.recorder.set_streaming(false);
         speech::cancel_streaming();
         let recorder = self.recorder.clone();
-        cx.background_executor().spawn(async move { remove_file(stop_recorder(&recorder)) }).detach();
+        cx.background_executor()
+            .spawn(async move { remove_file(stop_recorder(&recorder)) })
+            .detach();
         cx.notify();
     }
 
@@ -253,11 +311,14 @@ impl AppState {
         }
         self.tasks.transcription = None;
         self.phase = Phase::Idle;
+        self.live = speech::LiveText::default();
         self.locked = false;
         self.sleep = None;
         speech::cancel_streaming();
         let recorder = self.recorder.clone();
-        cx.background_executor().spawn(async move { remove_file(stop_recorder(&recorder)) }).detach();
+        cx.background_executor()
+            .spawn(async move { remove_file(stop_recorder(&recorder)) })
+            .detach();
         cx.notify();
     }
 
@@ -286,7 +347,9 @@ impl AppState {
         }
         let now = SwiftDate::now();
         let destination = storage::recordings().join(recording_file_name(now));
-        let audio_path = match std::fs::rename(&audio, &destination).or_else(|_| std::fs::copy(&audio, &destination).map(|_| ())) {
+        let audio_path = match std::fs::rename(&audio, &destination)
+            .or_else(|_| std::fs::copy(&audio, &destination).map(|_| ()))
+        {
             Ok(()) => {
                 let _ = std::fs::remove_file(&audio);
                 destination
@@ -306,7 +369,10 @@ impl AppState {
             source_app_name: self.dictation.source_name.clone(),
             has_audio: true,
         };
-        for evicted in self.history.insert(transcript, self.settings.max_history_entries) {
+        for evicted in self
+            .history
+            .insert(transcript, self.settings.max_history_entries)
+        {
             let _ = std::fs::remove_file(&evicted.audio_path.0);
         }
         self.purge_expired_recordings();
@@ -316,14 +382,28 @@ impl AppState {
     // MARK: Paste last transcript
 
     pub fn paste_last_transcript(&mut self, cx: &mut Context<Self>) {
-        let Some(text) = self.history.history.first().map(|t| t.text.clone()) else { return };
+        let Some(text) = self.history.history.first().map(|t| t.text.clone()) else {
+            return;
+        };
         cx.spawn(async move |this, cx| {
             let sleep = sleeper(cx);
             let result = paste::paste(&text, &sleep).await;
             let _ = this.update(cx, |state, cx| match result {
                 PasteResult::Pasted { .. } => state.sound.play(Cue::Ready),
-                PasteResult::NoFocusedInput => state.show_notice(Feedback::PasteUnavailable { text, reason: PasteFailure::NoFocusedInput }, cx),
-                PasteResult::Failed => state.show_notice(Feedback::PasteUnavailable { text, reason: PasteFailure::Rejected }, cx),
+                PasteResult::NoFocusedInput => state.show_notice(
+                    Feedback::PasteUnavailable {
+                        text,
+                        reason: PasteFailure::NoFocusedInput,
+                    },
+                    cx,
+                ),
+                PasteResult::Failed => state.show_notice(
+                    Feedback::PasteUnavailable {
+                        text,
+                        reason: PasteFailure::Rejected,
+                    },
+                    cx,
+                ),
             });
         })
         .detach();
@@ -331,24 +411,40 @@ impl AppState {
 
     // MARK: Dictionary learning
 
-    fn begin_correction_monitoring(&mut self, before: Option<String>, baseline: Option<String>, inserted: String, cx: &mut Context<Self>) {
+    fn begin_correction_monitoring(
+        &mut self,
+        before: Option<String>,
+        baseline: Option<String>,
+        inserted: String,
+        cx: &mut Context<Self>,
+    ) {
         self.dictation.pending.clear();
         // Keystrokes are only a fallback for editors that hide their value;
         // with a complete AX baseline, typing elsewhere must not teach words.
         self.dictation.tracker = baseline.is_none().then(|| KeystrokeTracker::new(&inserted));
-        self.hotkeys.set_tracking_corrections(self.dictation.tracker.is_some());
+        self.hotkeys
+            .set_tracking_corrections(self.dictation.tracker.is_some());
         self.tasks.correction = Some(cx.spawn(async move |this, cx| {
             const SETTLE: Duration = Duration::from_millis(700);
             const WINDOW: Duration = Duration::from_secs(60);
             let started = Instant::now();
-            let mut baseline = baseline.filter(|value| text::contains_inserted_text(value, &inserted));
+            let mut baseline =
+                baseline.filter(|value| text::contains_inserted_text(value, &inserted));
             let mut last_seen = baseline.clone();
             let mut last_evaluated: Option<String> = None;
             let mut last_change = Instant::now();
             while started.elapsed() < WINDOW {
-                let interval = if started.elapsed() < Duration::from_secs(10) { 150 } else { 500 };
-                cx.background_executor().timer(Duration::from_millis(interval)).await;
-                let Some(current) = paste::focused_text() else { continue };
+                let interval = if started.elapsed() < Duration::from_secs(10) {
+                    150
+                } else {
+                    500
+                };
+                cx.background_executor()
+                    .timer(Duration::from_millis(interval))
+                    .await;
+                let Some(current) = paste::focused_text() else {
+                    continue;
+                };
                 // AX can briefly return the pre-paste value.
                 if baseline.is_none() && Some(&current) == before.as_ref() {
                     continue;
@@ -372,9 +468,15 @@ impl AppState {
                 if baseline.as_ref() == Some(&current) {
                     continue;
                 }
-                let corrections = text::detect_observed_corrections(before.as_deref(), baseline.as_deref(), &current, &inserted);
+                let corrections = text::detect_observed_corrections(
+                    before.as_deref(),
+                    baseline.as_deref(),
+                    &current,
+                    &inserted,
+                );
                 if !corrections.is_empty() {
-                    let _ = this.update(cx, |state, cx| state.corrections_detected(corrections, cx));
+                    let _ =
+                        this.update(cx, |state, cx| state.corrections_detected(corrections, cx));
                 }
             }
             let _ = this.update(cx, |state, _| {
@@ -386,15 +488,24 @@ impl AppState {
     }
 
     pub(super) fn correction_key(&mut self, event: KeyEvent, cx: &mut Context<Self>) {
-        let Some(tracker) = self.dictation.tracker.as_mut() else { return };
+        let Some(tracker) = self.dictation.tracker.as_mut() else {
+            return;
+        };
         if !tracker.apply(event.key, event.text.as_deref(), &event.modifiers) {
             return;
         }
         self.correction_editing_continued(cx);
         self.tasks.correction_settle = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(700)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(700))
+                .await;
             let _ = this.update(cx, |state, cx| {
-                let corrections = state.dictation.tracker.as_ref().map(KeystrokeTracker::corrections).unwrap_or_default();
+                let corrections = state
+                    .dictation
+                    .tracker
+                    .as_ref()
+                    .map(KeystrokeTracker::corrections)
+                    .unwrap_or_default();
                 if !corrections.is_empty() {
                     state.corrections_detected(corrections, cx);
                 }
@@ -407,10 +518,14 @@ impl AppState {
             return;
         }
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(100)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
             let selected = paste::focused_selected_text();
             let _ = this.update(cx, |state, _| {
-                if let (Some(selected), Some(tracker)) = (selected, state.dictation.tracker.as_mut()) {
+                if let (Some(selected), Some(tracker)) =
+                    (selected, state.dictation.tracker.as_mut())
+                {
                     tracker.select_word(&selected);
                 }
             });
@@ -437,15 +552,19 @@ impl AppState {
                     .find(|r| r.match_text.to_lowercase() == correction.match_text.to_lowercase())
                 {
                     Some(existing) => {
-                        if existing.is_enabled && existing.replacement.to_lowercase() == correction.replacement.to_lowercase() {
+                        if existing.is_enabled
+                            && existing.replacement.to_lowercase()
+                                == correction.replacement.to_lowercase()
+                        {
                             continue;
                         }
                         existing.is_enabled = true;
                         existing.replacement = correction.replacement.clone();
                     }
-                    None => settings
-                        .word_remappings
-                        .push(WordRemapping::new(correction.match_text.clone(), correction.replacement.clone())),
+                    None => settings.word_remappings.push(WordRemapping::new(
+                        correction.match_text.clone(),
+                        correction.replacement.clone(),
+                    )),
                 }
                 added.push(correction);
             }
@@ -464,7 +583,9 @@ impl AppState {
 
     fn schedule_dictionary_feedback(&mut self, cx: &mut Context<Self>) {
         self.tasks.dictionary_debounce = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(900)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(900))
+                .await;
             let _ = this.update(cx, |state, cx| {
                 if state.dictation.pending.is_empty() {
                     return;
@@ -498,7 +619,12 @@ pub(super) fn apply_text_rules(raw: &str, settings: &Settings) -> String {
     text::apply_snippets(&output, &settings.snippets)
 }
 
-async fn process_result(this: WeakEntity<AppState>, raw: String, audio: PathBuf, cx: &mut AsyncApp) {
+async fn process_result(
+    this: WeakEntity<AppState>,
+    raw: String,
+    audio: PathBuf,
+    cx: &mut AsyncApp,
+) {
     if text::is_force_quit_command(&raw) {
         tracing::warn!(target: "transcription", "force quit voice command recognized");
         remove_file(Some(audio));
@@ -535,13 +661,19 @@ async fn process_result(this: WeakEntity<AppState>, raw: String, audio: PathBuf,
             Err(error) => {
                 tracing::error!(target: "transcription", "AI post-processing failed ({error}); using the deterministic cleanup");
                 let cleaned = ai::normalize(&processed);
-                if cleaned.is_empty() { processed.clone() } else { cleaned }
+                if cleaned.is_empty() {
+                    processed.clone()
+                } else {
+                    cleaned
+                }
             }
         },
         None => processed,
     };
     if final_text.trim().is_empty() {
-        let _ = this.update(cx, |state, cx| state.fail("The formatted transcript was empty.", Some(audio), cx));
+        let _ = this.update(cx, |state, cx| {
+            state.fail("The formatted transcript was empty.", Some(audio), cx)
+        });
         return;
     }
 
@@ -558,13 +690,23 @@ async fn process_result(this: WeakEntity<AppState>, raw: String, audio: PathBuf,
         state.persist_transcript(final_text.clone(), audio, recording_seconds);
         state.finish_paste(cx);
         match result {
-            PasteResult::Pasted { before, after } => state.begin_correction_monitoring(before, after, final_text, cx),
-            PasteResult::NoFocusedInput => {
-                state.show_notice(Feedback::PasteUnavailable { text: final_text, reason: PasteFailure::NoFocusedInput }, cx)
+            PasteResult::Pasted { before, after } => {
+                state.begin_correction_monitoring(before, after, final_text, cx)
             }
-            PasteResult::Failed => {
-                state.show_notice(Feedback::PasteUnavailable { text: final_text, reason: PasteFailure::Rejected }, cx)
-            }
+            PasteResult::NoFocusedInput => state.show_notice(
+                Feedback::PasteUnavailable {
+                    text: final_text,
+                    reason: PasteFailure::NoFocusedInput,
+                },
+                cx,
+            ),
+            PasteResult::Failed => state.show_notice(
+                Feedback::PasteUnavailable {
+                    text: final_text,
+                    reason: PasteFailure::Rejected,
+                },
+                cx,
+            ),
         }
     });
 }

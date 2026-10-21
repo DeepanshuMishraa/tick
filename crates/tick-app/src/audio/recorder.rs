@@ -32,7 +32,10 @@ pub enum EnvironmentChange {
 
 impl EnvironmentChange {
     fn affects_input(&self) -> bool {
-        !matches!(self, EnvironmentChange::Hardware(HardwareChange::DefaultOutput))
+        !matches!(
+            self,
+            EnvironmentChange::Hardware(HardwareChange::DefaultOutput)
+        )
     }
 }
 
@@ -64,7 +67,10 @@ pub struct Recorder {
 
 impl Recorder {
     /// Starts the actor. Device snapshots are delivered to `on_devices`.
-    pub fn spawn(config: RecorderConfig, on_devices: impl Fn(DeviceSnapshot) + Send + 'static) -> Recorder {
+    pub fn spawn(
+        config: RecorderConfig,
+        on_devices: impl Fn(DeviceSnapshot) + Send + 'static,
+    ) -> Recorder {
         let (commands, receiver) = crossbeam_channel::unbounded();
         let (meter_tx, meter_rx) = crossbeam_channel::bounded(1);
         let loopback = commands.clone();
@@ -94,9 +100,13 @@ impl Recorder {
         let meter = meter_rx.recv().unwrap_or_default();
         let recorder = Recorder { commands, meter };
         let observer = recorder.clone();
-        devices::observe(move |change| observer.environment_changed(EnvironmentChange::Hardware(change)));
+        devices::observe(move |change| {
+            observer.environment_changed(EnvironmentChange::Hardware(change))
+        });
         let observer = recorder.clone();
-        crate::platform::workspace::on_wake(move || observer.environment_changed(EnvironmentChange::SystemWake));
+        crate::platform::workspace::on_wake(move || {
+            observer.environment_changed(EnvironmentChange::SystemWake)
+        });
         recorder
     }
 
@@ -113,7 +123,9 @@ impl Recorder {
     pub fn start(&self) -> Result<(), String> {
         let (reply, response) = crossbeam_channel::bounded(1);
         let _ = self.commands.send(Command::Start { reply });
-        response.recv().unwrap_or_else(|_| Err("The recorder stopped unexpectedly.".into()))
+        response
+            .recv()
+            .unwrap_or_else(|_| Err("The recorder stopped unexpectedly.".into()))
     }
 
     /// Stops and returns the finished WAV file, if a recording was active.
@@ -178,7 +190,10 @@ impl Actor {
                         if let Some(session) = self.session {
                             // Bluetooth profile switches can unmute; re-assert briefly.
                             for delay in [250, 500] {
-                                self.after(Duration::from_millis(delay), Command::ReapplyMute(session));
+                                self.after(
+                                    Duration::from_millis(delay),
+                                    Command::ReapplyMute(session),
+                                );
                             }
                         }
                     }
@@ -187,12 +202,17 @@ impl Actor {
                     let _ = reply.send(self.stop());
                 }
                 Command::SetStreaming(enabled) => {
-                    self.capture.streaming.store(enabled, std::sync::atomic::Ordering::Relaxed);
+                    self.capture
+                        .streaming
+                        .store(enabled, std::sync::atomic::Ordering::Relaxed);
                 }
                 Command::Environment(change) => {
                     self.pending.insert(change);
                     self.flush_token += 1;
-                    self.after(Duration::from_millis(350), Command::FlushEnvironment(self.flush_token));
+                    self.after(
+                        Duration::from_millis(350),
+                        Command::FlushEnvironment(self.flush_token),
+                    );
                 }
                 Command::FlushEnvironment(token) => {
                     if token == self.flush_token {
@@ -200,7 +220,10 @@ impl Actor {
                         self.handle_environment(&changes);
                     }
                 }
-                Command::RetryRestore { generation, attempt } => self.retry_restore(generation, attempt),
+                Command::RetryRestore {
+                    generation,
+                    attempt,
+                } => self.retry_restore(generation, attempt),
                 Command::ReapplyMute(session) => {
                     if self.session == Some(session) && self.muted_output.is_some() {
                         run_script("set volume output muted true");
@@ -231,7 +254,9 @@ impl Actor {
         let loopback = self.loopback.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_secs(2));
-            let _ = loopback.send(Command::Environment(EnvironmentChange::Hardware(HardwareChange::Devices)));
+            let _ = loopback.send(Command::Environment(EnvironmentChange::Hardware(
+                HardwareChange::Devices,
+            )));
         });
     }
 
@@ -253,11 +278,14 @@ impl Actor {
     /// Guards against a default input that lost its input streams (the
     /// "mic selected but nothing heard" failure) by hunting a live one.
     fn ensure_live_input(&mut self) -> Option<DeviceId> {
-        if let Some(current) = devices::default_input().filter(|device| devices::has_input(*device)) {
+        if let Some(current) = devices::default_input().filter(|device| devices::has_input(*device))
+        {
             return Some(current);
         }
         tracing::error!(target: "recording", "default input has no live input streams; hunting a fallback");
-        let candidates = devices::built_in_input().into_iter().chain(devices::all_devices());
+        let candidates = devices::built_in_input()
+            .into_iter()
+            .chain(devices::all_devices());
         for device in candidates {
             if devices::has_input(device) && devices::set_default_input(device) {
                 return devices::default_input();
@@ -266,12 +294,22 @@ impl Actor {
         devices::default_input()
     }
 
-    fn ensure_capture_ready(&mut self, device: Option<DeviceId>, reason: &str) -> Result<(), String> {
+    fn ensure_capture_ready(
+        &mut self,
+        device: Option<DeviceId>,
+        reason: &str,
+    ) -> Result<(), String> {
         let live_default = devices::default_input();
-        if self.active_device != device || self.active_device != live_default || !self.capture.is_running() {
-            self.capture.stop(&format!("device or engine changed ({reason})"));
+        if self.active_device != device
+            || self.active_device != live_default
+            || !self.capture.is_running()
+        {
+            self.capture
+                .stop(&format!("device or engine changed ({reason})"));
         }
-        self.capture.start(reason).map_err(|error| error.to_string())?;
+        self.capture
+            .start(reason)
+            .map_err(|error| error.to_string())?;
         self.active_device = device;
         Ok(())
     }
@@ -294,7 +332,10 @@ impl Actor {
             return Ok(());
         }
         let requested_at = Instant::now();
-        for device in devices::resolve_preferred(self.config.microphone.as_deref()).into_iter().chain(devices::default_input()) {
+        for device in devices::resolve_preferred(self.config.microphone.as_deref())
+            .into_iter()
+            .chain(devices::default_input())
+        {
             devices::ensure_unmuted(device);
         }
         self.restore_generation = None;
@@ -309,9 +350,11 @@ impl Actor {
             devices::describe(device)
         );
         let path = std::env::temp_dir().join(format!("tick-recording-{}.wav", Uuid::new_v4()));
-        let result = self
-            .ensure_capture_ready(device, "start")
-            .and_then(|()| self.capture.begin(path, requested_at).map_err(|error| error.to_string()));
+        let result = self.ensure_capture_ready(device, "start").and_then(|()| {
+            self.capture
+                .begin(path, requested_at)
+                .map_err(|error| error.to_string())
+        });
         if let Err(error) = result {
             tracing::error!(target: "recording", "failed to start capture: {error}");
             self.session = None;
@@ -357,7 +400,8 @@ impl Actor {
             return;
         }
         let desired = devices::resolve_preferred(self.config.microphone.as_deref());
-        let needs_restart = desired != self.active_device || (self.config.super_fast && !self.capture.is_running());
+        let needs_restart =
+            desired != self.active_device || (self.config.super_fast && !self.capture.is_running());
         tracing::info!(target: "recording", "audio environment changed {changes:?}; restart={needs_restart}");
         if !needs_restart {
             return;
@@ -412,12 +456,20 @@ impl Actor {
     fn schedule_restore(&self, generation: Uuid, attempt: usize) {
         const DELAYS: [u64; 4] = [300, 700, 1400, 2400];
         if let Some(delay) = DELAYS.get(attempt) {
-            self.after(Duration::from_millis(*delay), Command::RetryRestore { generation, attempt });
+            self.after(
+                Duration::from_millis(*delay),
+                Command::RetryRestore {
+                    generation,
+                    attempt,
+                },
+            );
         }
     }
 
     fn retry_restore(&mut self, generation: Uuid, attempt: usize) {
-        let Some((current, original)) = self.restore_generation else { return };
+        let Some((current, original)) = self.restore_generation else {
+            return;
+        };
         if current != generation || self.session.is_some() {
             return;
         }
@@ -444,12 +496,22 @@ fn read_output_state() -> Option<OutputState> {
     let source = "set s to get volume settings\nreturn ((output volume of s) as text) & \",\" & ((output muted of s) as text)";
     let value = workspace::run_apple_script(source).ok()??;
     let (volume, muted) = value.split_once(',')?;
-    Some(OutputState { volume: volume.trim().parse().ok()?, muted: muted.trim().eq_ignore_ascii_case("true") })
+    Some(OutputState {
+        volume: volume.trim().parse().ok()?,
+        muted: muted.trim().eq_ignore_ascii_case("true"),
+    })
 }
 
 fn apply_output_state(state: OutputState) {
-    let clause = if state.muted { "with output muted" } else { "without output muted" };
-    if run_script(&format!("set volume output volume {} {clause}", state.volume)) {
+    let clause = if state.muted {
+        "with output muted"
+    } else {
+        "without output muted"
+    };
+    if run_script(&format!(
+        "set volume output volume {} {clause}",
+        state.volume
+    )) {
         tracing::info!(target: "media", "restored output volume={} muted={}", state.volume, state.muted);
     }
 }

@@ -4,13 +4,15 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 
 use super::dictionary::banner;
 use crate::sound::Cue;
-use crate::ui::components::{body, button, cue, eyebrow, icon, icon_button, muted, palette, title, Tone};
+use crate::ui::components::{
+    Tone, body, button, cue, eyebrow, icon, icon_button, muted, palette, title,
+};
 use crate::ui::icons::Icon;
 use crate::ui::main_view::MainView;
 use crate::ui::theme::{size, space};
@@ -25,7 +27,11 @@ pub fn render(view: &mut MainView, _: &mut Window, cx: &mut Context<MainView>) -
         .settings
         .snippets
         .iter()
-        .filter(|s| query.is_empty() || s.shortcut.to_lowercase().contains(&query) || s.content.to_lowercase().contains(&query))
+        .filter(|s| {
+            query.is_empty()
+                || s.shortcut.to_lowercase().contains(&query)
+                || s.content.to_lowercase().contains(&query)
+        })
         .cloned()
         .collect();
 
@@ -35,7 +41,8 @@ pub fn render(view: &mut MainView, _: &mut Window, cx: &mut Context<MainView>) -
             cue(cx, Cue::Open);
             view_entity.update(cx, |view, cx| {
                 view.adding_snippet = true;
-                view.snippet_shortcut.update(cx, |input, cx| input.focus(window, cx));
+                view.snippet_shortcut
+                    .update(cx, |input, cx| input.focus(window, cx));
                 cx.notify();
             });
         }

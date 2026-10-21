@@ -15,7 +15,7 @@ use futures::StreamExt;
 use gpui_kit::{App, AppContext as _, Context, Entity, Global, Image, ImageFormat, Task};
 use tick_core::history::History;
 use tick_core::hotkey::{HotKey, Key, Modifiers};
-use tick_core::models::{languages, Language};
+use tick_core::models::{Language, languages};
 use tick_core::settings::Settings;
 
 use crate::audio::devices::DeviceSnapshot;
@@ -26,11 +26,12 @@ use crate::platform::permissions::Permissions;
 use crate::platform::system::SleepAssertion;
 use crate::platform::{system, workspace};
 use crate::sound::{ClipHandle, Cue, Sound};
+use crate::speech;
 use crate::storage;
 
-pub use dictation::{Feedback, Phase, PasteFailure};
+pub use dictation::{Feedback, PasteFailure, Phase};
 pub use models::{AiModelState, ModelState};
-pub use walkthrough::{Mark, Sketch, RIPPLE};
+pub use walkthrough::{Mark, RIPPLE, Sketch};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tab {
@@ -81,6 +82,8 @@ pub struct AppState {
     /// Rendered app icons by bundle id; rendering one costs a few milliseconds.
     icon_cache: std::collections::HashMap<String, Arc<Image>>,
     pub source_name: Option<String>,
+    /// Words heard so far while a streaming model is recording.
+    pub live: speech::LiveText,
     pub models: ModelState,
     pub ai: AiModelState,
     pub groq_key: String,
@@ -115,6 +118,7 @@ struct Tasks {
     ai_download: Option<Task<()>>,
     playback: Option<Task<()>>,
     flash: Option<Task<()>>,
+    live: Option<Task<()>>,
     background: Vec<Task<()>>,
 }
 
@@ -132,30 +136,39 @@ impl AppState {
         let settings = storage::load_settings();
         let history = storage::load_history();
         let sound = Sound::start();
-        sound.configure(settings.sound_effects_enabled, settings.sound_effects_volume);
+        sound.configure(
+            settings.sound_effects_enabled,
+            settings.sound_effects_volume,
+        );
 
-        let (device_sender, mut device_receiver) = futures::channel::mpsc::unbounded::<DeviceSnapshot>();
+        let (device_sender, mut device_receiver) =
+            futures::channel::mpsc::unbounded::<DeviceSnapshot>();
         let recorder = Recorder::spawn(recorder_config(&settings), move |snapshot| {
             let _ = device_sender.unbounded_send(snapshot);
         });
-        let (hotkey_sender, mut hotkey_receiver) = futures::channel::mpsc::unbounded::<HotkeyEvent>();
+        let (hotkey_sender, mut hotkey_receiver) =
+            futures::channel::mpsc::unbounded::<HotkeyEvent>();
         let hotkeys = Hotkeys::new(&settings, hotkey_sender);
 
         let mut tasks = Tasks::default();
         tasks.background.push(cx.spawn(async move |this, cx| {
             while let Some(event) = hotkey_receiver.next().await {
-                if this.update(cx, |state, cx| state.handle_hotkey(event, cx)).is_err() {
+                if this
+                    .update(cx, |state, cx| state.handle_hotkey(event, cx))
+                    .is_err()
+                {
                     break;
                 }
             }
         }));
         tasks.background.push(cx.spawn(async move |this, cx| {
             while let Some(snapshot) = device_receiver.next().await {
-                if this.update(cx, |state, cx| {
-                    state.devices = snapshot;
-                    cx.notify();
-                })
-                .is_err()
+                if this
+                    .update(cx, |state, cx| {
+                        state.devices = snapshot;
+                        cx.notify();
+                    })
+                    .is_err()
                 {
                     break;
                 }
@@ -173,6 +186,7 @@ impl AppState {
             source_icon: None,
             icon_cache: Default::default(),
             source_name: None,
+            live: speech::LiveText::default(),
             models: ModelState::default(),
             ai: AiModelState::default(),
             groq_key: crate::intelligence::groq_key().unwrap_or_default(),
@@ -241,7 +255,10 @@ impl AppState {
         }
         storage::save_settings(&self.settings);
         self.hotkeys.configure(&self.settings);
-        self.sound.configure(self.settings.sound_effects_enabled, self.settings.sound_effects_volume);
+        self.sound.configure(
+            self.settings.sound_effects_enabled,
+            self.settings.sound_effects_volume,
+        );
         let recorder_changed = recorder_config(&before) != recorder_config(&self.settings);
         if recorder_changed {
             self.recorder.configure(recorder_config(&self.settings));
@@ -312,7 +329,8 @@ impl AppState {
             self.end_capture(cx);
             return;
         }
-        if target == CaptureTarget::Recording && event.modifiers.is_empty() && !modifiers.is_empty() {
+        if target == CaptureTarget::Recording && event.modifiers.is_empty() && !modifiers.is_empty()
+        {
             let hotkey = HotKey::new(None, modifiers.erasing_sides());
             self.update_settings(cx, |settings| settings.hotkey = hotkey);
             self.sound.play(Cue::Success);
@@ -323,7 +341,12 @@ impl AppState {
 
     fn handle_hotkey(&mut self, event: HotkeyEvent, cx: &mut Context<Self>) {
         // The microphone belongs to the walkthrough until it is pasted.
-        if self.walkthrough.is_some() && matches!(event, HotkeyEvent::Pressed | HotkeyEvent::StartLocked | HotkeyEvent::Released) {
+        if self.walkthrough.is_some()
+            && matches!(
+                event,
+                HotkeyEvent::Pressed | HotkeyEvent::StartLocked | HotkeyEvent::Released
+            )
+        {
             return;
         }
         match event {
@@ -364,10 +387,18 @@ impl AppState {
         let duration = match feedback {
             Feedback::Copied => Duration::from_millis(1800),
             Feedback::DictionaryAdded(_) => Duration::from_secs(5),
-            Feedback::PasteUnavailable { .. } | Feedback::WalkthroughStarted { .. } => Duration::from_secs(4),
-            Feedback::ScreenRecordingNeeded | Feedback::WalkthroughFailed(_) => Duration::from_secs(6),
+            Feedback::PasteUnavailable { .. } | Feedback::WalkthroughStarted { .. } => {
+                Duration::from_secs(4)
+            }
+            Feedback::ScreenRecordingNeeded | Feedback::WalkthroughFailed(_) => {
+                Duration::from_secs(6)
+            }
         };
-        self.notice = Some(Notice { feedback, shown_at: Instant::now(), duration });
+        self.notice = Some(Notice {
+            feedback,
+            shown_at: Instant::now(),
+            duration,
+        });
         self.tasks.notice = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(duration).await;
             let _ = this.update(cx, |state, cx| {
@@ -380,7 +411,13 @@ impl AppState {
 
     /// The notice's "Copy" action for an undeliverable transcript.
     pub fn copy_notice_text(&mut self, cx: &mut Context<Self>) {
-        let Some(Notice { feedback: Feedback::PasteUnavailable { text, .. }, .. }) = &self.notice else { return };
+        let Some(Notice {
+            feedback: Feedback::PasteUnavailable { text, .. },
+            ..
+        }) = &self.notice
+        else {
+            return;
+        };
         crate::platform::paste::copy(text);
         self.sound.play(Cue::Success);
         self.show_notice(Feedback::Copied, cx);

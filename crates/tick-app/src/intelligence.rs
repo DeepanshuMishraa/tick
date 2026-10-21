@@ -4,12 +4,14 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use tick_core::ai::{self, OutputContract, CHUNK_PROMPT_SUFFIX};
+use security_framework::os::macos::keychain::SecKeychain;
+use security_framework::passwords::{self, PasswordOptions};
+use tick_core::ai::{self, CHUNK_PROMPT_SUFFIX, OutputContract};
 use tick_core::app_context::AppContext;
 use tick_core::settings::{GroqModel, OnDeviceAiModel, WritingStyle};
 
@@ -33,37 +35,74 @@ const KEYCHAIN_SERVICE: &str = "com.dipxsy.tick.groq";
 const LEGACY_KEYCHAIN_SERVICE: &str = "com.dipxsy.Hex.groq";
 const KEYCHAIN_ACCOUNT: &str = "api-key";
 
+fn protected(service: &str) -> PasswordOptions {
+    let mut options = PasswordOptions::new_generic_password(service, KEYCHAIN_ACCOUNT);
+    options.use_protected_keychain();
+    options.set_access_synchronized(Some(false));
+    options
+}
+
+fn decode_key(bytes: Vec<u8>) -> Option<String> {
+    String::from_utf8(bytes).ok().filter(|key| !key.is_empty())
+}
+
+/// Reads the Groq key. The login-keychain copy is only touched with the
+/// prompt suppressed: its ACL is the signing cdhash, so every update would
+/// otherwise ask again.
 pub fn groq_key() -> Option<String> {
-    let read = |service| {
-        security_framework::passwords::get_generic_password(service, KEYCHAIN_ACCOUNT)
-            .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .filter(|key| !key.is_empty())
-    };
-    read(KEYCHAIN_SERVICE).or_else(|| {
-        let key = read(LEGACY_KEYCHAIN_SERVICE)?;
-        set_groq_key(Some(&key));
-        if read(KEYCHAIN_SERVICE).is_some() {
-            let _ = security_framework::passwords::delete_generic_password(LEGACY_KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
-        }
-        Some(key)
-    })
+    if let Some(key) = passwords::generic_password(protected(KEYCHAIN_SERVICE))
+        .ok()
+        .and_then(decode_key)
+    {
+        return Some(key);
+    }
+    let _quiet = SecKeychain::disable_user_interaction().ok()?;
+    let key = passwords::get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .ok()
+        .and_then(decode_key)
+        .or_else(|| {
+            passwords::get_generic_password(LEGACY_KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+                .ok()
+                .and_then(decode_key)
+        })?;
+    if passwords::set_generic_password_options(key.as_bytes(), protected(KEYCHAIN_SERVICE)).is_ok()
+    {
+        let _ = passwords::delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
+        let _ = passwords::delete_generic_password(LEGACY_KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
+    }
+    Some(key)
 }
 
 pub fn set_groq_key(key: Option<&str>) {
-    let _ = security_framework::passwords::delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
-    if let Some(key) = key.filter(|k| !k.is_empty()) {
-        if let Err(error) = security_framework::passwords::set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, key.as_bytes()) {
-            tracing::error!(target: "transcription", "could not store the Groq key in the keychain: {error}");
-        }
+    let _quiet = SecKeychain::disable_user_interaction().ok();
+    let _ = passwords::delete_generic_password_options(protected(KEYCHAIN_SERVICE));
+    let _ = passwords::delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
+    let _ = passwords::delete_generic_password(LEGACY_KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
+    let Some(key) = key.filter(|k| !k.is_empty()) else {
+        return;
+    };
+    if passwords::set_generic_password_options(key.as_bytes(), protected(KEYCHAIN_SERVICE)).is_ok()
+    {
+        return;
+    }
+    if let Err(error) =
+        passwords::set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, key.as_bytes())
+    {
+        tracing::error!(target: "transcription", "could not store the Groq key in the keychain: {error}");
     }
 }
 
 pub fn is_model_downloaded(model: OnDeviceAiModel) -> bool {
     let directory = storage::ai_model(model);
-    ["config.json", "tokenizer.json", "tokenizer_config.json"].iter().all(|f| directory.join(f).exists())
+    ["config.json", "tokenizer.json", "tokenizer_config.json"]
+        .iter()
+        .all(|f| directory.join(f).exists())
         && std::fs::read_dir(&directory)
-            .map(|entries| entries.flatten().any(|e| e.path().extension().is_some_and(|x| x == "safetensors")))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .any(|e| e.path().extension().is_some_and(|x| x == "safetensors"))
+            })
             .unwrap_or(false)
 }
 
@@ -127,31 +166,46 @@ pub async fn post_process(request: PostProcess) -> Result<String, AiError> {
             Ok(output) => output,
             Err(_) => {
                 let normalized = ai::normalize(chunk);
-                if normalized.is_empty() { chunk.clone() } else { normalized }
+                if normalized.is_empty() {
+                    chunk.clone()
+                } else {
+                    normalized
+                }
             }
         };
         results.push(output);
     }
     let joined = results.join(" ");
-    if joined.trim().is_empty() { Err(AiError::InvalidOutput) } else { Ok(joined) }
+    if joined.trim().is_empty() {
+        Err(AiError::InvalidOutput)
+    } else {
+        Ok(joined)
+    }
 }
 
 /// Streams an edit script and stops as soon as it validates.
 async fn generate(directory: &Path, prompt: &str, source: &str) -> Result<String, AiError> {
     let script = Arc::new(Mutex::new(String::new()));
     let accepted: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-    let (script_sink, accepted_sink, source_owned) = (script.clone(), accepted.clone(), source.to_string());
-    native::llm::generate(directory, prompt, source, ai::max_output_tokens(source), move |chunk| {
-        let mut script = script_sink.lock();
-        script.push_str(chunk);
-        match ai::apply_edit_script(&script, &source_owned) {
-            Some(output) if !output.trim().is_empty() => {
-                *accepted_sink.lock() = Some(output);
-                false
+    let (script_sink, accepted_sink, source_owned) =
+        (script.clone(), accepted.clone(), source.to_string());
+    native::llm::generate(
+        directory,
+        prompt,
+        source,
+        ai::max_output_tokens(source),
+        move |chunk| {
+            let mut script = script_sink.lock();
+            script.push_str(chunk);
+            match ai::apply_edit_script(&script, &source_owned) {
+                Some(output) if !output.trim().is_empty() => {
+                    *accepted_sink.lock() = Some(output);
+                    false
+                }
+                _ => true,
             }
-            _ => true,
-        }
-    })
+        },
+    )
     .await?;
     let result = accepted.lock().take();
     result.ok_or(AiError::InvalidOutput)
@@ -181,14 +235,27 @@ async fn groq(input: &str, prompt: &str, key: &str, model: GroqModel) -> Result<
             .map_err(|error| error.to_string())
             .and_then(|mut response| {
                 let status = response.status();
-                let text = response.body_mut().read_to_string().map_err(|error| error.to_string())?;
-                if status.is_success() { Ok(text) } else { Err(format!("HTTP {}", status.as_u16())) }
+                let text = response
+                    .body_mut()
+                    .read_to_string()
+                    .map_err(|error| error.to_string())?;
+                if status.is_success() {
+                    Ok(text)
+                } else {
+                    Err(format!("HTTP {}", status.as_u16()))
+                }
             });
         let _ = sender.send(result);
     });
-    let text = receiver.await.unwrap_or_else(|_| Err("request dropped".into())).map_err(AiError::Groq)?;
-    let response: serde_json::Value = serde_json::from_str(&text).map_err(|e| AiError::Groq(e.to_string()))?;
-    let content = response["choices"][0]["message"]["content"].as_str().ok_or(AiError::InvalidOutput)?;
+    let text = receiver
+        .await
+        .unwrap_or_else(|_| Err("request dropped".into()))
+        .map_err(AiError::Groq)?;
+    let response: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| AiError::Groq(e.to_string()))?;
+    let content = response["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or(AiError::InvalidOutput)?;
     ai::apply_edit_script(content, input).ok_or(AiError::InvalidOutput)
 }
 
@@ -219,7 +286,11 @@ pub struct DownloadControl {
 
 impl DownloadControl {
     pub(crate) fn check(&self) -> Result<(), DownloadError> {
-        if self.cancelled.load(Ordering::Relaxed) { Err(DownloadError::Cancelled) } else { Ok(()) }
+        if self.cancelled.load(Ordering::Relaxed) {
+            Err(DownloadError::Cancelled)
+        } else {
+            Ok(())
+        }
     }
 
     fn add(&self, bytes: u64) {
@@ -235,12 +306,19 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-fn fetch(url: &str, range: Option<(u64, u64)>, destination: &Path, control: &DownloadControl) -> Result<u16, DownloadError> {
+fn fetch(
+    url: &str,
+    range: Option<(u64, u64)>,
+    destination: &Path,
+    control: &DownloadControl,
+) -> Result<u16, DownloadError> {
     let mut request = agent().get(url);
     if let Some((start, end)) = range {
         request = request.header("Range", &format!("bytes={start}-{}", end - 1));
     }
-    let mut response = request.call().map_err(|error| DownloadError::Network(error.to_string()))?;
+    let mut response = request
+        .call()
+        .map_err(|error| DownloadError::Network(error.to_string()))?;
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
         return Err(DownloadError::Network(format!("HTTP {status}")));
@@ -253,11 +331,14 @@ fn fetch(url: &str, range: Option<(u64, u64)>, destination: &Path, control: &Dow
     let mut buffer = vec![0u8; 256 * 1024];
     loop {
         control.check()?;
-        let read = reader.read(&mut buffer).map_err(|e| DownloadError::Network(e.to_string()))?;
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|e| DownloadError::Network(e.to_string()))?;
         if read == 0 {
             break;
         }
-        file.write_all(&buffer[..read]).map_err(|e| DownloadError::Disk(e.to_string()))?;
+        file.write_all(&buffer[..read])
+            .map_err(|e| DownloadError::Disk(e.to_string()))?;
         control.add(read as u64);
     }
     Ok(status)
@@ -267,7 +348,13 @@ fn file_size(path: &Path) -> u64 {
     std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
-fn download_parallel(url: &str, size: u64, destination: &Path, staging: &Path, control: &DownloadControl) -> Result<bool, DownloadError> {
+fn download_parallel(
+    url: &str,
+    size: u64,
+    destination: &Path,
+    staging: &Path,
+    control: &DownloadControl,
+) -> Result<bool, DownloadError> {
     let count = size.div_ceil(CHUNK_SIZE) as usize;
     let chunk_path = |index: usize| staging.join(format!("chunk-{index}.part"));
     let bounds = |index: usize| {
@@ -288,21 +375,27 @@ fn download_parallel(url: &str, size: u64, destination: &Path, staging: &Path, c
     let unsupported = Arc::new(AtomicBool::new(false));
     std::thread::scope(|scope| {
         for _ in 0..MAX_CONNECTIONS.min(count) {
-            let (queue, failure, unsupported) = (queue.clone(), failure.clone(), unsupported.clone());
-            scope.spawn(move || loop {
-                if failure.lock().is_some() || unsupported.load(Ordering::Relaxed) {
-                    return;
-                }
-                let Some(index) = queue.lock().pop() else { return };
-                let (start, end) = bounds(index);
-                let path = chunk_path(index);
-                match fetch(url, Some((start, end)), &path, control) {
-                    Ok(206) if file_size(&path) == end - start => {}
-                    Ok(206) => {
-                        *failure.lock() = Some(DownloadError::Incomplete(format!("chunk {index}")));
+            let (queue, failure, unsupported) =
+                (queue.clone(), failure.clone(), unsupported.clone());
+            scope.spawn(move || {
+                loop {
+                    if failure.lock().is_some() || unsupported.load(Ordering::Relaxed) {
+                        return;
                     }
-                    Ok(_) => unsupported.store(true, Ordering::Relaxed),
-                    Err(error) => *failure.lock() = Some(error),
+                    let Some(index) = queue.lock().pop() else {
+                        return;
+                    };
+                    let (start, end) = bounds(index);
+                    let path = chunk_path(index);
+                    match fetch(url, Some((start, end)), &path, control) {
+                        Ok(206) if file_size(&path) == end - start => {}
+                        Ok(206) => {
+                            *failure.lock() =
+                                Some(DownloadError::Incomplete(format!("chunk {index}")));
+                        }
+                        Ok(_) => unsupported.store(true, Ordering::Relaxed),
+                        Err(error) => *failure.lock() = Some(error),
+                    }
                 }
             });
         }
@@ -315,7 +408,8 @@ fn download_parallel(url: &str, size: u64, destination: &Path, staging: &Path, c
     }
     let mut output = File::create(destination).map_err(|e| DownloadError::Disk(e.to_string()))?;
     for index in 0..count {
-        let mut input = File::open(chunk_path(index)).map_err(|e| DownloadError::Disk(e.to_string()))?;
+        let mut input =
+            File::open(chunk_path(index)).map_err(|e| DownloadError::Disk(e.to_string()))?;
         std::io::copy(&mut input, &mut output).map_err(|e| DownloadError::Disk(e.to_string()))?;
     }
     Ok(true)
@@ -323,7 +417,10 @@ fn download_parallel(url: &str, size: u64, destination: &Path, staging: &Path, c
 
 /// Downloads every model file with byte-range parallelism and size checks.
 /// Already-complete files and chunks are reused, so a retry resumes.
-pub fn download_model(model: OnDeviceAiModel, control: &DownloadControl) -> Result<(), DownloadError> {
+pub fn download_model(
+    model: OnDeviceAiModel,
+    control: &DownloadControl,
+) -> Result<(), DownloadError> {
     let destination = storage::ai_model(model);
     let staging = storage::ai_model_staging(model);
     for directory in [&destination, &staging] {
@@ -340,15 +437,28 @@ pub fn download_model(model: OnDeviceAiModel, control: &DownloadControl) -> Resu
         download_file(&url, *size, &target, &staging, control)?;
     }
     let _ = std::fs::remove_dir_all(&staging);
-    if is_model_downloaded(model) { Ok(()) } else { Err(DownloadError::Incomplete("model files".into())) }
+    if is_model_downloaded(model) {
+        Ok(())
+    } else {
+        Err(DownloadError::Incomplete("model files".into()))
+    }
 }
 
 /// Downloads one file of known `size` to `target`, in parallel byte ranges
 /// when the server allows. Chunks kept in `staging` let a retry resume.
-pub fn download_file(url: &str, size: u64, target: &Path, staging: &Path, control: &DownloadControl) -> Result<(), DownloadError> {
-    let name = target.file_name().map_or_else(|| "model".into(), |n| n.to_string_lossy().into_owned());
+pub fn download_file(
+    url: &str,
+    size: u64,
+    target: &Path,
+    staging: &Path,
+    control: &DownloadControl,
+) -> Result<(), DownloadError> {
+    let name = target
+        .file_name()
+        .map_or_else(|| "model".into(), |n| n.to_string_lossy().into_owned());
     let before = control.completed.load(Ordering::Relaxed);
-    let done_parallel = size >= PARALLEL_THRESHOLD && download_parallel(url, size, target, staging, control)?;
+    let done_parallel =
+        size >= PARALLEL_THRESHOLD && download_parallel(url, size, target, staging, control)?;
     if !done_parallel {
         control.completed.store(before, Ordering::Relaxed);
         let temporary = staging.join(format!("{name}.download"));

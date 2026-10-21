@@ -16,7 +16,10 @@ use super::{keyboard, workspace};
 pub enum PasteResult {
     /// Inserted; `after` is the field value right after insertion when the
     /// editor exposes it (the dictionary-learning baseline).
-    Pasted { before: Option<String>, after: Option<String> },
+    Pasted {
+        before: Option<String>,
+        after: Option<String>,
+    },
     NoFocusedInput,
     Failed,
 }
@@ -38,7 +41,11 @@ fn focused_element() -> Option<AxElement> {
         let system = AxElement(AXUIElementCreateSystemWide());
         let mut value: CFTypeRef = std::ptr::null();
         let attribute = CFString::new("AXFocusedUIElement");
-        let error = AXUIElementCopyAttributeValue(system.0, attribute.as_concrete_TypeRef().cast(), &mut value);
+        let error = AXUIElementCopyAttributeValue(
+            system.0,
+            attribute.as_concrete_TypeRef().cast(),
+            &mut value,
+        );
         if error != kAXErrorSuccess || value.is_null() {
             return None;
         }
@@ -55,20 +62,29 @@ fn copy_attribute(element: &AxElement, name: &str) -> Option<CFType> {
     let mut value: CFTypeRef = std::ptr::null();
     // SAFETY: `value` is a +1 reference on success, wrapped under the create rule.
     unsafe {
-        (AXUIElementCopyAttributeValue(element.0, attribute.as_concrete_TypeRef().cast(), &mut value) == kAXErrorSuccess
+        (AXUIElementCopyAttributeValue(
+            element.0,
+            attribute.as_concrete_TypeRef().cast(),
+            &mut value,
+        ) == kAXErrorSuccess
             && !value.is_null())
         .then(|| CFType::wrap_under_create_rule(value))
     }
 }
 
 fn string_attribute(element: &AxElement, name: &str) -> Option<String> {
-    copy_attribute(element, name)?.downcast::<CFString>().map(|s| s.to_string())
+    copy_attribute(element, name)?
+        .downcast::<CFString>()
+        .map(|s| s.to_string())
 }
 
 fn set_attribute(element: &AxElement, name: &str, value: CFTypeRef) -> bool {
     let attribute = CFString::new(name);
     // SAFETY: `value` is a live CF object for the duration of the call.
-    unsafe { AXUIElementSetAttributeValue(element.0, attribute.as_concrete_TypeRef().cast(), value) == kAXErrorSuccess }
+    unsafe {
+        AXUIElementSetAttributeValue(element.0, attribute.as_concrete_TypeRef().cast(), value)
+            == kAXErrorSuccess
+    }
 }
 
 fn selected_range(element: &AxElement) -> Option<CFRange> {
@@ -79,8 +95,12 @@ fn selected_range(element: &AxElement) -> Option<CFRange> {
             return None;
         }
         let mut range = CFRange::default();
-        AXValueGetValue(value.as_CFTypeRef() as AXValueRef, kAXValueCFRangeType, (&mut range as *mut CFRange).cast())
-            .then_some(range)
+        AXValueGetValue(
+            value.as_CFTypeRef() as AXValueRef,
+            kAXValueCFRangeType,
+            (&mut range as *mut CFRange).cast(),
+        )
+        .then_some(range)
     }
 }
 
@@ -95,14 +115,20 @@ pub fn focused_selected_text() -> Option<String> {
 
 pub fn focused_input_available() -> bool {
     focused_element().is_some_and(|element| {
-        copy_attribute(&element, "AXValue").is_some() || copy_attribute(&element, "AXSelectedText").is_some()
+        copy_attribute(&element, "AXValue").is_some()
+            || copy_attribute(&element, "AXSelectedText").is_some()
     })
 }
 
 /// Replaces the selection through Accessibility and puts the caret after it.
 fn insert_at_cursor(text: &str) -> bool {
-    let Some(element) = focused_element() else { return false };
-    if let (Some(current), Some(range)) = (string_attribute(&element, "AXValue"), selected_range(&element)) {
+    let Some(element) = focused_element() else {
+        return false;
+    };
+    if let (Some(current), Some(range)) = (
+        string_attribute(&element, "AXValue"),
+        selected_range(&element),
+    ) {
         let units: Vec<u16> = current.encode_utf16().collect();
         let start = usize::try_from(range.location).ok();
         let length = usize::try_from(range.length).ok();
@@ -113,10 +139,14 @@ fn insert_at_cursor(text: &str) -> bool {
                 updated.extend_from_slice(&units[start + length..]);
                 let updated = CFString::new(&String::from_utf16_lossy(&updated));
                 if set_attribute(&element, "AXValue", updated.as_CFTypeRef()) {
-                    let caret = CFRange { location: range.location + text.encode_utf16().count() as isize, length: 0 };
+                    let caret = CFRange {
+                        location: range.location + text.encode_utf16().count() as isize,
+                        length: 0,
+                    };
                     // SAFETY: AXValueCreate copies the range; released below.
                     unsafe {
-                        let value = AXValueCreate(kAXValueCFRangeType, (&caret as *const CFRange).cast());
+                        let value =
+                            AXValueCreate(kAXValueCFRangeType, (&caret as *const CFRange).cast());
                         if !value.is_null() {
                             set_attribute(&element, "AXSelectedTextRange", value.cast_const());
                             CFRelease(value.cast_const());
@@ -140,7 +170,10 @@ struct Snapshot(Vec<Vec<(Retained<NSString>, Retained<NSData>)>>);
 
 impl Snapshot {
     fn capture(pasteboard: &NSPasteboard) -> Snapshot {
-        let items = pasteboard.pasteboardItems().map(|items| items.to_vec()).unwrap_or_default();
+        let items = pasteboard
+            .pasteboardItems()
+            .map(|items| items.to_vec())
+            .unwrap_or_default();
         Snapshot(
             items
                 .iter()
@@ -168,8 +201,12 @@ impl Snapshot {
             })
             .collect();
         if !items.is_empty() {
-            let objects: Vec<&objc2::runtime::ProtocolObject<dyn objc2_app_kit::NSPasteboardWriting>> =
-                items.iter().map(|item| objc2::runtime::ProtocolObject::from_ref(&**item)).collect();
+            let objects: Vec<
+                &objc2::runtime::ProtocolObject<dyn objc2_app_kit::NSPasteboardWriting>,
+            > = items
+                .iter()
+                .map(|item| objc2::runtime::ProtocolObject::from_ref(&**item))
+                .collect();
             pasteboard.writeObjects(&NSArray::from_slice(&objects));
         }
     }
@@ -185,7 +222,11 @@ pub fn copy(text: &str) {
 /// Places text on the clipboard, posts ⌘V, then restores the clipboard
 /// unless the user changed it in the meantime. Must run on the main thread;
 /// `sleep` yields to the run loop between steps.
-async fn paste_through_clipboard(text: &str, before: Option<String>, sleep: &dyn Fn(Duration) -> futures::future::BoxFuture<'static, ()>) -> PasteResult {
+async fn paste_through_clipboard(
+    text: &str,
+    before: Option<String>,
+    sleep: &dyn Fn(Duration) -> futures::future::BoxFuture<'static, ()>,
+) -> PasteResult {
     let pasteboard = NSPasteboard::generalPasteboard();
     let snapshot = Snapshot::capture(&pasteboard);
     pasteboard.clearContents();
@@ -204,28 +245,52 @@ async fn paste_through_clipboard(text: &str, before: Option<String>, sleep: &dyn
     if pasteboard.changeCount() == temporary {
         snapshot.restore(&pasteboard);
     }
-    if posted { PasteResult::Pasted { before, after: None } } else { PasteResult::Failed }
+    if posted {
+        PasteResult::Pasted {
+            before,
+            after: None,
+        }
+    } else {
+        PasteResult::Failed
+    }
 }
 
 /// Pastes a walkthrough into the frontmost app as two ⌘V presses: the
 /// contact sheet, then the summary. Terminals get the sheet's path instead
 /// of the image, which agent CLIs attach as an image. Restores the user's
 /// clipboard afterwards unless they changed it.
-pub async fn paste_walkthrough(sheet: &std::path::Path, summary: &str, sleep: &dyn Fn(Duration) -> futures::future::BoxFuture<'static, ()>) -> PasteResult {
+pub async fn paste_walkthrough(
+    sheet: &std::path::Path,
+    summary: &str,
+    sleep: &dyn Fn(Duration) -> futures::future::BoxFuture<'static, ()>,
+) -> PasteResult {
     let frontmost = workspace::frontmost_app();
     let own = workspace::own_bundle_id();
-    let target = frontmost.filter(|app| Some(&app.bundle_id) != own.as_ref() && app.bundle_id != "com.apple.finder");
-    let Some(target) = target else { return PasteResult::NoFocusedInput };
+    let target = frontmost
+        .filter(|app| Some(&app.bundle_id) != own.as_ref() && app.bundle_id != "com.apple.finder");
+    let Some(target) = target else {
+        return PasteResult::NoFocusedInput;
+    };
     let terminal = target.bundle_id == GHOSTTY
-        || tick_core::app_context::AppCategory::from_bundle_id(&target.bundle_id) == tick_core::app_context::AppCategory::Terminal;
+        || tick_core::app_context::AppCategory::from_bundle_id(&target.bundle_id)
+            == tick_core::app_context::AppCategory::Terminal;
     let pasteboard = NSPasteboard::generalPasteboard();
     let snapshot = Snapshot::capture(&pasteboard);
     pasteboard.clearContents();
-    let image = if terminal { None } else { std::fs::read(sheet).ok() };
+    let image = if terminal {
+        None
+    } else {
+        std::fs::read(sheet).ok()
+    };
     // SAFETY: the pasteboard type names are constants.
     let staged = match image {
-        Some(bytes) => pasteboard.setData_forType(Some(&NSData::with_bytes(&bytes)), unsafe { NSPasteboardTypePNG }),
-        None => pasteboard.setString_forType(&NSString::from_str(&sheet.to_string_lossy()), unsafe { NSPasteboardTypeString }),
+        Some(bytes) => pasteboard.setData_forType(Some(&NSData::with_bytes(&bytes)), unsafe {
+            NSPasteboardTypePNG
+        }),
+        None => pasteboard
+            .setString_forType(&NSString::from_str(&sheet.to_string_lossy()), unsafe {
+                NSPasteboardTypeString
+            }),
     };
     if !staged {
         snapshot.restore(&pasteboard);
@@ -237,7 +302,9 @@ pub async fn paste_walkthrough(sheet: &std::path::Path, summary: &str, sleep: &d
     sleep(Duration::from_millis(250)).await;
     pasteboard.clearContents();
     // SAFETY: as above.
-    if !pasteboard.setString_forType(&NSString::from_str(summary), unsafe { NSPasteboardTypeString }) {
+    if !pasteboard.setString_forType(&NSString::from_str(summary), unsafe {
+        NSPasteboardTypeString
+    }) {
         snapshot.restore(&pasteboard);
         return PasteResult::Failed;
     }
@@ -248,11 +315,21 @@ pub async fn paste_walkthrough(sheet: &std::path::Path, summary: &str, sleep: &d
     if pasteboard.changeCount() == temporary {
         snapshot.restore(&pasteboard);
     }
-    if posted { PasteResult::Pasted { before: None, after: None } } else { PasteResult::Failed }
+    if posted {
+        PasteResult::Pasted {
+            before: None,
+            after: None,
+        }
+    } else {
+        PasteResult::Failed
+    }
 }
 
 /// Inserts `text` into the focused field of the frontmost app.
-pub async fn paste(text: &str, sleep: &dyn Fn(Duration) -> futures::future::BoxFuture<'static, ()>) -> PasteResult {
+pub async fn paste(
+    text: &str,
+    sleep: &dyn Fn(Duration) -> futures::future::BoxFuture<'static, ()>,
+) -> PasteResult {
     let frontmost = workspace::frontmost_app();
     // A fresh process's first AX queries can fail transiently; poll briefly.
     let deadline = Instant::now() + Duration::from_millis(80);
@@ -265,7 +342,9 @@ pub async fn paste(text: &str, sleep: &dyn Fn(Duration) -> futures::future::BoxF
         // Chromium/Electron editors often hold focus without exposing it.
         let own = workspace::own_bundle_id();
         return match frontmost {
-            Some(app) if Some(&app.bundle_id) != own.as_ref() && app.bundle_id != "com.apple.finder" => {
+            Some(app)
+                if Some(&app.bundle_id) != own.as_ref() && app.bundle_id != "com.apple.finder" =>
+            {
                 tracing::info!(target: "pasteboard", "no AX focus; blind clipboard paste into {}", app.bundle_id);
                 paste_through_clipboard(text, None, sleep).await
             }
@@ -273,7 +352,10 @@ pub async fn paste(text: &str, sleep: &dyn Fn(Duration) -> futures::future::BoxF
         };
     }
     let before = focused_text();
-    if frontmost.as_ref().is_some_and(|app| app.bundle_id == GHOSTTY) {
+    if frontmost
+        .as_ref()
+        .is_some_and(|app| app.bundle_id == GHOSTTY)
+    {
         return paste_through_clipboard(text, before, sleep).await;
     }
     if insert_at_cursor(text) {

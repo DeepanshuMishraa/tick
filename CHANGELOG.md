@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+### Patch Changes
+
+- Parakeet Unified shows the words you are saying in a card above the indicator, and closes it when you let go. Updates keep microphone, accessibility, and input monitoring permission, and Tick no longer asks for the keychain on every launch.
+
 ## 1.2.0
 
 ### Minor Changes

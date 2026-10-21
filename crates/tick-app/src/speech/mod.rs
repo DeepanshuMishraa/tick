@@ -6,17 +6,18 @@ mod engine;
 pub mod gguf;
 
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use futures::channel::oneshot;
 use parking_lot::Mutex;
 
-pub use crate::native::speech::catalog;
-pub use crate::native::NativeError;
 use crate::intelligence::{DownloadControl, DownloadError};
 use crate::native;
+pub use crate::native::NativeError;
+pub use crate::native::speech::catalog;
+pub use engine::LiveText;
 use gguf::GgufModel;
 
 #[derive(Debug, Clone, Copy)]
@@ -48,7 +49,10 @@ fn failed(message: String) -> NativeError {
 /// A running model download.
 pub enum Download {
     Native(native::speech::Download),
-    Gguf { control: DownloadControl, receiver: oneshot::Receiver<Result<(), DownloadError>> },
+    Gguf {
+        control: DownloadControl,
+        receiver: oneshot::Receiver<Result<(), DownloadError>>,
+    },
 }
 
 #[derive(Clone)]
@@ -131,9 +135,16 @@ pub async fn warm(model: &str) -> Result<(), NativeError> {
     }
 }
 
-pub async fn transcribe(path: &Path, model: &str, language: Option<&str>) -> Result<String, NativeError> {
+pub async fn transcribe(
+    path: &Path,
+    model: &str,
+    language: Option<&str>,
+) -> Result<String, NativeError> {
     match Engine::of(model) {
-        Engine::Gguf(model) => engine::engine().transcribe(model, path).await.map_err(failed),
+        Engine::Gguf(model) => engine::engine()
+            .transcribe(model, path)
+            .await
+            .map_err(failed),
         Engine::Native => native::speech::transcribe(path, model, language).await,
     }
 }
@@ -142,7 +153,9 @@ pub async fn delete(model: &str) -> Result<(), NativeError> {
     match Engine::of(model) {
         Engine::Gguf(model) => {
             engine::engine().unload();
-            model.delete().map_err(|e| failed(format!("The model could not be deleted: {e}")))
+            model
+                .delete()
+                .map_err(|e| failed(format!("The model could not be deleted: {e}")))
         }
         Engine::Native => native::speech::delete(model).await,
     }
@@ -159,10 +172,21 @@ pub async fn is_downloaded(model: &str) -> bool {
 pub async fn start_streaming(model: &str) -> Result<bool, NativeError> {
     let (owner, started) = match Engine::of(model) {
         Engine::Gguf(model) => (StreamOwner::Gguf, engine::engine().begin(model).await),
-        Engine::Native => (StreamOwner::Native, native::speech::start_streaming(model).await?),
+        Engine::Native => (
+            StreamOwner::Native,
+            native::speech::start_streaming(model).await?,
+        ),
     };
     *STREAM_OWNER.lock() = if started { owner } else { StreamOwner::None };
     Ok(started)
+}
+
+/// Words the open stream has heard so far. Empty when nothing is streaming.
+pub fn partial() -> LiveText {
+    match *STREAM_OWNER.lock() {
+        StreamOwner::Gguf => engine::partial(),
+        StreamOwner::None | StreamOwner::Native => LiveText::default(),
+    }
 }
 
 /// Feeds 16 kHz mono samples to the active stream (no-op without one).
@@ -193,4 +217,5 @@ pub fn cancel_streaming() {
         StreamOwner::Gguf => engine::engine().cancel_stream(),
         StreamOwner::Native => native::speech::cancel_streaming(),
     }
+    engine::clear_partial();
 }

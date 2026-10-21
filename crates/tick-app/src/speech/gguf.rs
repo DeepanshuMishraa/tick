@@ -60,7 +60,8 @@ impl GgufModel {
 
     /// On disk at the expected size, with a receipt from a passed checksum.
     pub fn is_downloaded(&self) -> bool {
-        self.receipt().exists() && std::fs::metadata(self.path()).is_ok_and(|m| m.len() == self.bytes)
+        self.receipt().exists()
+            && std::fs::metadata(self.path()).is_ok_and(|m| m.len() == self.bytes)
     }
 
     /// Checks the loaded artifact is the one this entry pins.
@@ -71,12 +72,17 @@ impl GgufModel {
     /// Downloads and verifies the artifact; a finished one returns at once.
     pub fn download(&self, control: &DownloadControl) -> Result<(), DownloadError> {
         if self.is_downloaded() {
-            control.completed.store(self.bytes, std::sync::atomic::Ordering::Relaxed);
+            control
+                .completed
+                .store(self.bytes, std::sync::atomic::Ordering::Relaxed);
             return Ok(());
         }
         let staging = self.staging();
         std::fs::create_dir_all(&staging).map_err(|e| DownloadError::Disk(e.to_string()))?;
-        let url = format!("https://huggingface.co/{}/resolve/{}/{}", self.repository, self.revision, self.filename);
+        let url = format!(
+            "https://huggingface.co/{}/resolve/{}/{}",
+            self.repository, self.revision, self.filename
+        );
         let target = self.path();
         intelligence::download_file(&url, self.bytes, &target, &staging, control)?;
         let digest = sha256(&target, control)?;
@@ -84,9 +90,13 @@ impl GgufModel {
             let _ = std::fs::remove_file(&target);
             let _ = std::fs::remove_dir_all(&staging);
             tracing::error!(target: "models", "{} checksum mismatch: expected {}, got {digest}", self.filename, self.sha256);
-            return Err(DownloadError::Incomplete(format!("{} failed its checksum and was removed", self.filename)));
+            return Err(DownloadError::Incomplete(format!(
+                "{} failed its checksum and was removed",
+                self.filename
+            )));
         }
-        std::fs::write(self.receipt(), self.sha256).map_err(|e| DownloadError::Disk(e.to_string()))?;
+        std::fs::write(self.receipt(), self.sha256)
+            .map_err(|e| DownloadError::Disk(e.to_string()))?;
         let _ = std::fs::remove_dir_all(&staging);
         Ok(())
     }
@@ -111,13 +121,19 @@ fn sha256(path: &std::path::Path, control: &DownloadControl) -> Result<String, D
     let mut buffer = vec![0u8; 1024 * 1024];
     loop {
         control.check()?;
-        let read = file.read(&mut buffer).map_err(|e| DownloadError::Disk(e.to_string()))?;
+        let read = file
+            .read(&mut buffer)
+            .map_err(|e| DownloadError::Disk(e.to_string()))?;
         if read == 0 {
             break;
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 #[cfg(test)]
@@ -126,7 +142,8 @@ mod tests {
 
     #[test]
     fn parakeet_unified_is_the_pinned_parakeet_artifact() {
-        let model = GgufModel::from_identifier(PARAKEET_UNIFIED_ENGLISH).expect("Parakeet Unified is a GGUF model");
+        let model = GgufModel::from_identifier(PARAKEET_UNIFIED_ENGLISH)
+            .expect("Parakeet Unified is a GGUF model");
         assert!(model.matches("parakeet", "unified-en-0.6b"));
         assert!(!model.matches("parakeet", "tdt-0.6b-v2"));
         assert!(GgufModel::from_identifier("parakeet-tdt-0.6b-v2-coreml").is_none());

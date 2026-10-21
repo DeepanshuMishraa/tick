@@ -5,15 +5,20 @@
 use std::time::Instant;
 
 use gpui_kit::{
-    canvas, div, outline, point, px, size, BorderStyle, Bounds, Context, Entity, Hsla, IntoElement,
-    ParentElement as _, PathBuilder, Pixels, Render, Styled as _, Subscription, Window,
+    BorderStyle, Bounds, Context, Entity, Hsla, IntoElement, ParentElement as _, PathBuilder,
+    Pixels, Render, Styled as _, Subscription, Window, canvas, div, outline, point, px, size,
 };
 
 use super::theme::size as type_size;
-use crate::state::{Mark, Sketch, RIPPLE};
+use crate::state::{Mark, RIPPLE, Sketch};
 
 /// Ink is a fixed, loud red so it reads on any screen and in any theme.
-const INK: Hsla = Hsla { h: 0.0, s: 0.85, l: 0.55, a: 1.0 };
+const INK: Hsla = Hsla {
+    h: 0.0,
+    s: 0.85,
+    l: 0.55,
+    a: 1.0,
+};
 const STROKE: f32 = 4.0;
 const PIN: f32 = 22.0;
 
@@ -25,7 +30,10 @@ pub struct InkView {
 impl InkView {
     pub fn new(sketch: Entity<Sketch>, cx: &mut Context<Self>) -> InkView {
         let observe = cx.observe(&sketch, |_, _, cx| cx.notify());
-        InkView { sketch, _observe: observe }
+        InkView {
+            sketch,
+            _observe: observe,
+        }
     }
 }
 
@@ -62,14 +70,17 @@ impl Render for InkView {
             .size_full()
             .relative()
             .child(
-                canvas(|_, _, _| {}, move |bounds, _, window, _| {
-                    for stroke in &strokes {
-                        paint_stroke(bounds, stroke, window);
-                    }
-                    for (t, at) in &ripples {
-                        paint_ripple(bounds, *t, *at, window);
-                    }
-                })
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, _| {
+                        for stroke in &strokes {
+                            paint_stroke(bounds, stroke, window);
+                        }
+                        for (t, at) in &ripples {
+                            paint_ripple(bounds, *t, *at, window);
+                        }
+                    },
+                )
                 .absolute()
                 .size_full(),
             )
@@ -100,9 +111,19 @@ fn paint_stroke(bounds: Bounds<Pixels>, stroke: &[(f32, f32)], window: &mut Wind
 /// A square that grows and fades where the user clicked.
 fn paint_ripple(bounds: Bounds<Pixels>, t: f32, (x, y): (f32, f32), window: &mut Window) {
     let side = 12.0 + 24.0 * t;
-    let origin = point(bounds.origin.x + px(x - side / 2.0), bounds.origin.y + px(y - side / 2.0));
+    let origin = point(
+        bounds.origin.x + px(x - side / 2.0),
+        bounds.origin.y + px(y - side / 2.0),
+    );
     let color = Hsla { a: 1.0 - t, ..INK };
-    window.paint_quad(outline(Bounds::new(origin, size(px(side), px(side))), color, BorderStyle::Solid).border_widths(px(3.)));
+    window.paint_quad(
+        outline(
+            Bounds::new(origin, size(px(side), px(side))),
+            color,
+            BorderStyle::Solid,
+        )
+        .border_widths(px(3.)),
+    );
 }
 
 fn pin(number: u32, x: f32, y: f32) -> impl IntoElement {

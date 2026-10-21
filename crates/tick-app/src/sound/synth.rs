@@ -5,8 +5,8 @@
 use std::f32::consts::{LN_10, PI};
 use std::sync::OnceLock;
 
-use rustfft::num_complex::Complex32;
 use rustfft::FftPlanner;
+use rustfft::num_complex::Complex32;
 
 use super::recipes::{Emphasis, Filter, Layer, Recipe, Source};
 
@@ -44,7 +44,13 @@ struct Shape {
 
 impl Shape {
     fn new(emphasis: Emphasis, since_last_ms: Option<f32>) -> Shape {
-        let mut shape = Shape { pitch: 1.0, level: 1.0, length: 1.0, bright: 1.0, tail: 1.0 };
+        let mut shape = Shape {
+            pitch: 1.0,
+            level: 1.0,
+            length: 1.0,
+            bright: 1.0,
+            tail: 1.0,
+        };
         match emphasis {
             Emphasis::Subtle => {
                 shape.level *= 0.8;
@@ -147,7 +153,9 @@ impl Biquad {
     }
 
     fn process(&mut self, x: f32) -> f32 {
-        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2 - self.a1 * self.y1 - self.a2 * self.y2;
+        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
@@ -160,7 +168,9 @@ fn noise_buffer(rate: f32) -> &'static Vec<f32> {
     static NOISE: OnceLock<Vec<f32>> = OnceLock::new();
     NOISE.get_or_init(|| {
         let mut random = seeded(1);
-        (0..(NOISE_SECONDS * rate) as usize).map(|_| 2.0 * random() - 1.0).collect()
+        (0..(NOISE_SECONDS * rate) as usize)
+            .map(|_| 2.0 * random() - 1.0)
+            .collect()
     })
 }
 
@@ -168,7 +178,11 @@ fn noise_buffer(rate: f32) -> &'static Vec<f32> {
 fn glided(from: f32, to: Option<f32>, time: f32, t: f32) -> f32 {
     match to {
         Some(to) if time > 0.0 && from > 0.0 && to > 0.0 => {
-            if t >= time { to } else { from * (to / from).powf(t / time) }
+            if t >= time {
+                to
+            } else {
+                from * (to / from).powf(t / time)
+            }
         }
         _ => from,
     }
@@ -192,12 +206,23 @@ struct Shaped {
 
 fn shaped(layer: &Layer, shape: Shape, strike: (f32, f32), vary: bool, walk: f32) -> Layer {
     let frequency = layer.frequency;
-    let gain = shape.level * if frequency >= BRIGHT_HZ { shape.bright } else { 1.0 };
+    let gain = shape.level
+        * if frequency >= BRIGHT_HZ {
+            shape.bright
+        } else {
+            1.0
+        };
     let pitch_factor = shape.pitch.clamp(0.75, 1.25);
     let gain = gain.clamp(0.0, 1.5);
     let length = shape.length.clamp(0.6, 1.6);
     let tune = match layer.source {
-        Source::Tone => if vary { nudge(MODE_JITTER) } else { 1.0 },
+        Source::Tone => {
+            if vary {
+                nudge(MODE_JITTER)
+            } else {
+                1.0
+            }
+        }
         Source::Noise { .. } => strike.1,
     };
     let pitch = pitch_factor * strike.0 * tune * if layer.note { walk } else { 1.0 };
@@ -217,7 +242,9 @@ fn render_layer(layer: &Layer, offset: f32, rate: f32, out: &mut [f32]) {
         Source::Tone => {
             let mut phase = 0.0f32;
             for i in 0..length {
-                let Some(slot) = out.get_mut(start + i) else { break };
+                let Some(slot) = out.get_mut(start + i) else {
+                    break;
+                };
                 let t = i as f32 / rate;
                 let frequency = glided(layer.frequency, layer.glide_to, glide_time, t);
                 *slot += phase.sin() * envelope(layer, t);
@@ -233,10 +260,17 @@ fn render_layer(layer: &Layer, offset: f32, rate: f32, out: &mut [f32]) {
             };
             let mut biquad = Biquad::default();
             for i in 0..length {
-                let Some(slot) = out.get_mut(start + i) else { break };
+                let Some(slot) = out.get_mut(start + i) else {
+                    break;
+                };
                 if i % 16 == 0 {
                     let t = i as f32 / rate;
-                    biquad.set(kind, glided(layer.frequency, layer.glide_to, glide_time, t), q, rate);
+                    biquad.set(
+                        kind,
+                        glided(layer.frequency, layer.glide_to, glide_time, t),
+                        q,
+                        rate,
+                    );
                 }
                 position = (position + 1) % noise.len();
                 *slot += biquad.process(noise[position]) * envelope(layer, i as f32 / rate);
@@ -253,7 +287,11 @@ fn room_impulse(rate: f32, seed: u32) -> Vec<f32> {
         .map(|i| {
             let t = i as f32 / REFLECTIONS_PER_SECOND;
             let value = 2.0 * random() - 1.0;
-            if t < ROOM_PREDELAY { 0.0 } else { value * (-fall * t / ROOM_SECONDS).exp() }
+            if t < ROOM_PREDELAY {
+                0.0
+            } else {
+                value * (-fall * t / ROOM_SECONDS).exp()
+            }
         })
         .collect();
     let scale = 1.0 / reflections.iter().map(|r| r * r).sum::<f32>().sqrt();
@@ -288,7 +326,10 @@ fn convolve(signal: &[f32], impulse: &[f32]) -> Vec<f32> {
     }
     inverse.process(&mut a);
     let norm = 1.0 / size as f32;
-    a.iter().take(signal.len() + impulse.len() - 1).map(|c| c.re * norm).collect()
+    a.iter()
+        .take(signal.len() + impulse.len() - 1)
+        .map(|c| c.re * norm)
+        .collect()
 }
 
 fn soft_clip(level: f32) -> f32 {
@@ -315,14 +356,23 @@ pub fn render(play: &Play<'_>, rate: f32) -> Vec<f32> {
     let recipe = play.recipe;
     let shape = Shape::new(play.emphasis, play.since_last_ms);
     let vary = recipe.vary.is_some();
-    let strike = recipe.vary.map_or((1.0, 1.0), |(pitch, level)| (nudge(pitch), nudge(level)));
+    let strike = recipe
+        .vary
+        .map_or((1.0, 1.0), |(pitch, level)| (nudge(pitch), nudge(level)));
     let walk = 2f32.powf(recipe.walk.get(play.walk_step).copied().unwrap_or(0.0) / 12.0);
     let mut parts: Vec<(&[Layer], f32)> = Vec::new();
     if play.part != Part::Release {
         parts.push((&recipe.layers, 0.0));
     }
     if play.part != Part::Press && !recipe.release.is_empty() {
-        parts.push((&recipe.release, if play.part == Part::Both { RELEASE_GAP } else { 0.0 }));
+        parts.push((
+            &recipe.release,
+            if play.part == Part::Both {
+                RELEASE_GAP
+            } else {
+                0.0
+            },
+        ));
     }
     let layers: Vec<Shaped> = parts
         .iter()
@@ -330,7 +380,10 @@ pub fn render(play: &Play<'_>, rate: f32) -> Vec<f32> {
             layers
                 .iter()
                 .filter(|layer| play.emphasis >= layer.from)
-                .map(move |layer| Shaped { layer: shaped(layer, shape, strike, vary, walk), offset: *delay })
+                .map(move |layer| Shaped {
+                    layer: shaped(layer, shape, strike, vary, walk),
+                    offset: *delay,
+                })
         })
         .collect();
     if layers.is_empty() {
@@ -354,7 +407,10 @@ pub fn render(play: &Play<'_>, rate: f32) -> Vec<f32> {
     walls.set(Kind::Lowpass, ROOM_LOWPASS, -3.0, rate);
     let send_gain = ROOM_SEND * recipe.room;
     let send: Vec<f32> = dry.iter().map(|x| walls.process(x * send_gain)).collect();
-    let rooms: Vec<Vec<f32>> = ROOM_SEEDS.iter().map(|seed| convolve(&send, &room_impulse(rate, *seed))).collect();
+    let rooms: Vec<Vec<f32>> = ROOM_SEEDS
+        .iter()
+        .map(|seed| convolve(&send, &room_impulse(rate, *seed)))
+        .collect();
 
     let mut highpass = [Biquad::default(), Biquad::default()];
     for filter in &mut highpass {
@@ -377,10 +433,26 @@ mod tests {
 
     #[test]
     fn every_cue_renders_bounded_audio() {
-        for cue in [Cue::Talk, Cue::Lock, Cue::Tap, Cue::Toggle, Cue::Success, Cue::Error, Cue::Close, Cue::Ready] {
+        for cue in [
+            Cue::Talk,
+            Cue::Lock,
+            Cue::Tap,
+            Cue::Toggle,
+            Cue::Success,
+            Cue::Error,
+            Cue::Close,
+            Cue::Ready,
+        ] {
             let recipe = cue.recipe();
             let audio = render(
-                &Play { recipe: &recipe, part: Part::Press, emphasis: Emphasis::Normal, volume: 1.0, since_last_ms: None, walk_step: 0 },
+                &Play {
+                    recipe: &recipe,
+                    part: Part::Press,
+                    emphasis: Emphasis::Normal,
+                    volume: 1.0,
+                    since_last_ms: None,
+                    walk_step: 0,
+                },
                 48_000.0,
             );
             assert!(!audio.is_empty(), "{cue:?} rendered nothing");
@@ -392,7 +464,19 @@ mod tests {
     #[test]
     fn release_half_differs_from_press() {
         let recipe = Cue::Talk.recipe();
-        let play = |part| render(&Play { recipe: &recipe, part, emphasis: Emphasis::Normal, volume: 1.0, since_last_ms: None, walk_step: 0 }, 48_000.0);
+        let play = |part| {
+            render(
+                &Play {
+                    recipe: &recipe,
+                    part,
+                    emphasis: Emphasis::Normal,
+                    volume: 1.0,
+                    since_last_ms: None,
+                    walk_step: 0,
+                },
+                48_000.0,
+            )
+        };
         assert!(play(Part::Release).len() < play(Part::Press).len());
     }
 }

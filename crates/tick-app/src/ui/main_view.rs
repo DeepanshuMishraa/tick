@@ -4,20 +4,20 @@ use std::collections::HashSet;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::input::InputState;
-use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::component::input::{InputEvent, TextareaState};
+use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AnimationExt as _, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, SpringAnimation, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Window,
+    AnimationExt as _, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, SharedString, SpringAnimation, StatefulInteractiveElement as _,
+    Styled as _, Subscription, Window, div, px,
 };
 use tick_core::constants::BASE_SOUND_EFFECTS_VOLUME;
 
-use super::components::{icon, icon_button, palette, SNAP};
+use super::components::{SNAP, icon, icon_button, palette};
 use super::icons::Icon;
 use super::pages;
-use super::theme::{size, space, SIDEBAR_WIDTH};
+use super::theme::{SIDEBAR_WIDTH, size, space};
 use crate::state::{AppState, Tab};
 
 const ROW_HEIGHT: f32 = 30.0;
@@ -69,19 +69,35 @@ impl MainView {
         let word_replacement = input("Written, e.g. Whisper", window, cx);
         let snippet_search = input("Search snippets", window, cx);
         let snippet_shortcut = input("Say this, e.g. my calendly link", window, cx);
-        let snippet_content = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 6).placeholder("…and Tick types this"));
+        let snippet_content = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(2, 6)
+                .placeholder("…and Tick types this")
+        });
         let key = state.read(cx).groq_key.clone();
-        let groq_key = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("gsk_…").default_value(key));
+        let groq_key = cx.new(|cx| {
+            InputState::new(window, cx)
+                .masked(true)
+                .placeholder("gsk_…")
+                .default_value(key)
+        });
         let settings = state.read(cx).settings.clone();
         let minimum_hold = cx.new(|_| {
-            SliderState::new().min(0.0).max(2.0).step(0.1).default_value(settings.minimum_key_time as f32)
+            SliderState::new()
+                .min(0.0)
+                .max(2.0)
+                .step(0.1)
+                .default_value(settings.minimum_key_time as f32)
         });
         let volume = cx.new(|_| {
             SliderState::new()
                 .min(0.0)
                 .max(1.0)
                 .step(0.01)
-                .default_value((settings.sound_effects_volume / BASE_SOUND_EFFECTS_VOLUME).clamp(0.0, 1.0) as f32)
+                .default_value(
+                    (settings.sound_effects_volume / BASE_SOUND_EFFECTS_VOLUME).clamp(0.0, 1.0)
+                        as f32,
+                )
         });
 
         let mut subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
@@ -92,36 +108,58 @@ impl MainView {
                 }
             }));
         }
-        subscriptions.push(cx.subscribe(&groq_key, |this, input, event: &InputEvent, cx| {
-            if matches!(event, InputEvent::Change) {
-                let key = input.read(cx).value().to_string();
-                this.state.update(cx, |state, cx| state.set_groq_key(key, cx));
-            }
-        }));
-        subscriptions.push(cx.subscribe(&minimum_hold, |this, _, event: &SliderEvent, cx| {
-            let SliderEvent::Change(value) = event else { return };
-            let seconds = (f64::from(value.start()) * 10.0).round() / 10.0;
-            this.state.update(cx, |state, cx| state.update_settings(cx, |s| s.minimum_key_time = seconds));
-        }));
+        subscriptions.push(
+            cx.subscribe(&groq_key, |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let key = input.read(cx).value().to_string();
+                    this.state
+                        .update(cx, |state, cx| state.set_groq_key(key, cx));
+                }
+            }),
+        );
+        subscriptions.push(
+            cx.subscribe(&minimum_hold, |this, _, event: &SliderEvent, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                let seconds = (f64::from(value.start()) * 10.0).round() / 10.0;
+                this.state.update(cx, |state, cx| {
+                    state.update_settings(cx, |s| s.minimum_key_time = seconds)
+                });
+            }),
+        );
         subscriptions.push(cx.subscribe(&volume, |this, _, event: &SliderEvent, cx| {
-            let SliderEvent::Change(value) = event else { return };
+            let SliderEvent::Change(value) = event else {
+                return;
+            };
             let fraction = f64::from(value.start());
             this.state.update(cx, |state, cx| {
-                state.update_settings(cx, |s| s.sound_effects_volume = fraction * BASE_SOUND_EFFECTS_VOLUME)
+                state.update_settings(cx, |s| {
+                    s.sound_effects_volume = fraction * BASE_SOUND_EFFECTS_VOLUME
+                })
             });
         }));
         for (field, submit) in [(&word_match, false), (&word_replacement, true)] {
-            subscriptions.push(cx.subscribe_in(field, window, move |this, _, event: &InputEvent, window, cx| {
-                if submit && matches!(event, InputEvent::PressEnter { .. }) {
-                    this.save_word(window, cx);
-                }
-            }));
+            subscriptions.push(cx.subscribe_in(
+                field,
+                window,
+                move |this, _, event: &InputEvent, window, cx| {
+                    if submit && matches!(event, InputEvent::PressEnter { .. }) {
+                        this.save_word(window, cx);
+                    }
+                },
+            ));
         }
-        subscriptions.push(cx.subscribe_in(&snippet_shortcut, window, |this, _, event: &InputEvent, window, cx| {
-            if matches!(event, InputEvent::PressEnter { .. }) {
-                this.snippet_content.update(cx, |state, cx| state.focus(window, cx));
-            }
-        }));
+        subscriptions.push(cx.subscribe_in(
+            &snippet_shortcut,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.snippet_content
+                        .update(cx, |state, cx| state.focus(window, cx));
+                }
+            },
+        ));
 
         MainView {
             state,
@@ -157,7 +195,10 @@ impl MainView {
             return;
         }
         self.state.update(cx, |state, cx| {
-            state.update_settings(cx, |s| s.word_remappings.insert(0, tick_core::text::WordRemapping::new(spoken, written)));
+            state.update_settings(cx, |s| {
+                s.word_remappings
+                    .insert(0, tick_core::text::WordRemapping::new(spoken, written))
+            });
             state.play_sound(crate::sound::Cue::Success);
         });
         for field in [&self.word_match, &self.word_replacement] {
@@ -174,11 +215,16 @@ impl MainView {
             return;
         }
         self.state.update(cx, |state, cx| {
-            state.update_settings(cx, |s| s.snippets.insert(0, tick_core::text::Snippet::new(shortcut, content)));
+            state.update_settings(cx, |s| {
+                s.snippets
+                    .insert(0, tick_core::text::Snippet::new(shortcut, content))
+            });
             state.play_sound(crate::sound::Cue::Success);
         });
-        self.snippet_shortcut.update(cx, |input, cx| input.set_value("", window, cx));
-        self.snippet_content.update(cx, |input, cx| input.set_value("", window, cx));
+        self.snippet_shortcut
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.snippet_content
+            .update(cx, |input, cx| input.set_value("", window, cx));
         self.adding_snippet = false;
         cx.notify();
     }
@@ -212,7 +258,11 @@ impl MainView {
                 .text_color(if selected { p.text } else { p.muted })
                 .when(selected, |row| row.bg(p.hover))
                 .when(!selected, |row| row.hover(move |s| s.text_color(p.text)))
-                .child(icon(glyph, px(15.), if selected { p.text } else { p.muted }))
+                .child(icon(
+                    glyph,
+                    px(15.),
+                    if selected { p.text } else { p.muted },
+                ))
                 .child(tab.title())
                 .on_click(move |_, _, cx| entity.update(cx, |state, cx| state.set_tab(tab, cx)))
         };
@@ -248,7 +298,12 @@ impl Render for MainView {
         let p = palette(cx);
         let (onboarded, repair, tab, wizard) = {
             let state = self.state.read(cx);
-            (state.settings.has_completed_welcome_onboarding, state.repair_mode, state.tab, state.wizard_open)
+            (
+                state.settings.has_completed_welcome_onboarding,
+                state.repair_mode,
+                state.tab,
+                state.wizard_open,
+            )
         };
         let root = div()
             .size_full()
@@ -257,7 +312,9 @@ impl Render for MainView {
             .text_color(p.text)
             .bg(p.ground);
         if !onboarded || repair {
-            return root.child(pages::onboarding::render(self, repair, window, cx)).into_any_element();
+            return root
+                .child(pages::onboarding::render(self, repair, window, cx))
+                .into_any_element();
         }
         let roomy = window.viewport_size().width >= px(ROOMY_ABOVE);
         let content = match tab {
@@ -275,7 +332,9 @@ impl Render for MainView {
                 .absolute()
                 .top(px((TITLEBAR_HEIGHT - 28.0) / 2.0 - 1.0))
                 .left(px(TRAFFIC_LIGHTS_END))
-                .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
+                    cx.stop_propagation()
+                })
                 .on_click(move |_, _, cx| entity.update(cx, |state, cx| state.toggle_sidebar(cx)))
         };
         // The top band has no chrome of its own; dragging it moves the window.
@@ -286,36 +345,35 @@ impl Render for MainView {
             .left_0()
             .w_full()
             .h(px(TITLEBAR_HEIGHT))
-            .on_mouse_down(gpui_kit::MouseButton::Left, |_, window, _| window.start_window_move());
+            .on_mouse_down(gpui_kit::MouseButton::Left, |_, window, _| {
+                window.start_window_move()
+            });
         root.child(
-            h_flex()
-                .size_full()
-                .child(self.sidebar(cx))
-                .child(
-                    div()
-                        .id("content")
-                        .flex_1()
-                        .min_w_0()
-                        .h_full()
-                        .bg(p.surface)
-                        .overflow_y_scroll()
-                        .child(
-                            div()
-                                .key_context("page")
-                                .w_full()
-                                .max_w(px(820.))
-                                .mx_auto()
-                                .px(if roomy { space::XXXL } else { space::XL })
-                                .pt(px(TITLEBAR_HEIGHT + 24.0))
-                                .pb(space::XXXL)
-                                .child(content)
-                                .with_spring(
-                                    SharedString::from(format!("page-{}", tab.title())),
-                                    SpringAnimation::new(SNAP).to(1.0f32).from(0.0f32),
-                                    |page, t| page.opacity(t.clamp(0.0, 1.0)).mt(px(4.0 * (1.0 - t))),
-                                ),
-                        ),
-                ),
+            h_flex().size_full().child(self.sidebar(cx)).child(
+                div()
+                    .id("content")
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .bg(p.surface)
+                    .overflow_y_scroll()
+                    .child(
+                        div()
+                            .key_context("page")
+                            .w_full()
+                            .max_w(px(820.))
+                            .mx_auto()
+                            .px(if roomy { space::XXXL } else { space::XL })
+                            .pt(px(TITLEBAR_HEIGHT + 24.0))
+                            .pb(space::XXXL)
+                            .child(content)
+                            .with_spring(
+                                SharedString::from(format!("page-{}", tab.title())),
+                                SpringAnimation::new(SNAP).to(1.0f32).from(0.0f32),
+                                |page, t| page.opacity(t.clamp(0.0, 1.0)).mt(px(4.0 * (1.0 - t))),
+                            ),
+                    ),
+            ),
         )
         .child(drag_band)
         .child(toggle)
@@ -344,7 +402,10 @@ impl MainView {
     pub fn digest(&mut self, cx: &gpui_kit::App) -> std::rc::Rc<HistoryDigest> {
         let history = &self.state.read(cx).history.history;
         let today = chrono::Local::now().date_naive();
-        let newest = history.iter().map(|t| t.timestamp.0).fold(f64::MIN, f64::max);
+        let newest = history
+            .iter()
+            .map(|t| t.timestamp.0)
+            .fold(f64::MIN, f64::max);
         let with_audio = history.iter().filter(|t| t.has_audio).count();
         let key = (history.len(), newest.to_bits(), with_audio, today);
         if let Some(digest) = self.digest.as_ref().filter(|digest| digest.key == key) {
@@ -357,7 +418,11 @@ impl MainView {
             today,
             home: tick_core::stats::home_stats(history, today),
             insights: tick_core::stats::insights(history),
-            recent: recent.into_iter().take(HistoryDigest::RECENT).cloned().collect(),
+            recent: recent
+                .into_iter()
+                .take(HistoryDigest::RECENT)
+                .cloned()
+                .collect(),
             total: history.len(),
         });
         self.digest = Some(digest.clone());

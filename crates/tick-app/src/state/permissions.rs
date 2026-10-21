@@ -13,11 +13,18 @@ impl AppState {
     pub(super) fn start_permission_monitor(&mut self, cx: &mut Context<Self>) {
         let permissions = system::current();
         self.set_permissions(permissions, cx);
-        self.tasks.background.push(cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_millis(500)).await;
-            let permissions = system::current();
-            if this.update(cx, |state, cx| state.set_permissions(permissions, cx)).is_err() {
-                break;
+        self.tasks.background.push(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+                let permissions = system::current();
+                if this
+                    .update(cx, |state, cx| state.set_permissions(permissions, cx))
+                    .is_err()
+                {
+                    break;
+                }
             }
         }));
     }
@@ -38,7 +45,9 @@ impl AppState {
         cx.spawn(async move |this, cx| {
             let granted = receiver.await.unwrap_or(false);
             let _ = this.update(cx, |state, cx| {
-                state.sound.play(if granted { Cue::Success } else { Cue::Warning });
+                state
+                    .sound
+                    .play(if granted { Cue::Success } else { Cue::Warning });
                 state.set_permissions(system::current(), cx);
             });
         })

@@ -22,7 +22,9 @@ impl AppState {
                 return;
             }
         }
-        let Some(transcript) = self.history.history.iter().find(|t| t.id == id) else { return };
+        let Some(transcript) = self.history.history.iter().find(|t| t.id == id) else {
+            return;
+        };
         // Retention may have removed the audio while keeping the text.
         if !transcript.has_audio || !transcript.audio_path.0.exists() {
             self.sound.play(Cue::Warning);
@@ -32,10 +34,16 @@ impl AppState {
         self.playing = Some((id, handle.clone()));
         self.tasks.playback = Some(cx.spawn(async move |this, cx| {
             while !handle.is_finished() {
-                cx.background_executor().timer(Duration::from_millis(100)).await;
+                cx.background_executor()
+                    .timer(Duration::from_millis(100))
+                    .await;
             }
             let _ = this.update(cx, |state, cx| {
-                if state.playing.as_ref().is_some_and(|(playing, _)| *playing == id) {
+                if state
+                    .playing
+                    .as_ref()
+                    .is_some_and(|(playing, _)| *playing == id)
+                {
                     state.playing = None;
                     cx.notify();
                 }
@@ -50,7 +58,11 @@ impl AppState {
     }
 
     pub fn delete_transcript(&mut self, id: SwiftUuid, cx: &mut Context<Self>) {
-        if self.playing.as_ref().is_some_and(|(playing, _)| *playing == id) {
+        if self
+            .playing
+            .as_ref()
+            .is_some_and(|(playing, _)| *playing == id)
+        {
             if let Some((_, handle)) = self.playing.take() {
                 handle.stop();
             }
@@ -101,10 +113,15 @@ impl AppState {
             let _ = std::fs::remove_file(path);
         }
         let ids: Vec<SwiftUuid> = expired.iter().map(|(id, _)| *id).collect();
-        if let (Some(max_age), Ok(entries)) = (retention.max_age(), std::fs::read_dir(storage::recordings())) {
+        if let (Some(max_age), Ok(entries)) = (
+            retention.max_age(),
+            std::fs::read_dir(storage::recordings()),
+        ) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().is_some_and(|e| e == "wav") && !is_known_audio(&self.history, &path) {
+                if path.extension().is_some_and(|e| e == "wav")
+                    && !is_known_audio(&self.history, &path)
+                {
                     let old = entry
                         .metadata()
                         .and_then(|m| m.created())

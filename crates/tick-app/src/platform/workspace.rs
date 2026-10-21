@@ -1,13 +1,15 @@
 //! NSWorkspace, NSApplication, and Foundation conveniences.
 
-use objc2::rc::Retained;
 use objc2::AnyThread;
+use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBitmapImageFileType, NSBitmapImageRep, NSHapticFeedbackManager,
-    NSHapticFeedbackPattern, NSHapticFeedbackPerformanceTime, NSHapticFeedbackPerformer, NSImage, NSRunningApplication,
-    NSWorkspace,
+    NSApplication, NSApplicationActivationPolicy, NSBitmapImageFileType, NSBitmapImageRep,
+    NSHapticFeedbackManager, NSHapticFeedbackPattern, NSHapticFeedbackPerformanceTime,
+    NSHapticFeedbackPerformer, NSImage, NSRunningApplication, NSWorkspace,
 };
-use objc2_foundation::{MainThreadMarker, NSAppleScript, NSDictionary, NSPoint, NSRect, NSSize, NSString, NSURL};
+use objc2_foundation::{
+    MainThreadMarker, NSAppleScript, NSDictionary, NSPoint, NSRect, NSSize, NSString, NSURL,
+};
 
 pub fn open_url(url: &str) {
     let string = NSString::from_str(url);
@@ -19,7 +21,8 @@ pub fn open_url(url: &str) {
 /// Selects `path` in a Finder window.
 pub fn reveal_in_finder(path: &std::path::Path) {
     let path = NSString::from_str(&path.to_string_lossy());
-    NSWorkspace::sharedWorkspace().selectFile_inFileViewerRootedAtPath(Some(&path), &NSString::from_str(""));
+    NSWorkspace::sharedWorkspace()
+        .selectFile_inFileViewerRootedAtPath(Some(&path), &NSString::from_str(""));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +40,9 @@ pub fn frontmost_app() -> Option<FrontmostApp> {
 }
 
 pub fn own_bundle_id() -> Option<String> {
-    objc2_foundation::NSBundle::mainBundle().bundleIdentifier().map(|id| id.to_string())
+    objc2_foundation::NSBundle::mainBundle()
+        .bundleIdentifier()
+        .map(|id| id.to_string())
 }
 
 /// Runs AppleScript, returning its string result.
@@ -59,10 +64,16 @@ pub fn run_apple_script(source: &str) -> Result<Option<String>, String> {
 pub fn app_icon_png(bundle_id: &str, size: f64) -> Option<Vec<u8>> {
     let workspace = NSWorkspace::sharedWorkspace();
     let id = NSString::from_str(bundle_id);
-    let image: Retained<NSImage> = NSRunningApplication::runningApplicationsWithBundleIdentifier(&id)
-        .firstObject()
-        .and_then(|app| app.icon())
-        .or_else(|| workspace.URLForApplicationWithBundleIdentifier(&id).and_then(|url| url.path()).map(|path| workspace.iconForFile(&path)))?;
+    let image: Retained<NSImage> =
+        NSRunningApplication::runningApplicationsWithBundleIdentifier(&id)
+            .firstObject()
+            .and_then(|app| app.icon())
+            .or_else(|| {
+                workspace
+                    .URLForApplicationWithBundleIdentifier(&id)
+                    .and_then(|url| url.path())
+                    .map(|path| workspace.iconForFile(&path))
+            })?;
     image_png(&image, size)
 }
 
@@ -76,26 +87,44 @@ pub fn image_png(image: &NSImage, size: f64) -> Option<Vec<u8>> {
     let cg_image = unsafe { image.CGImageForProposedRect_context_hints(&mut rect, None, None) }?;
     let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg_image);
     // SAFETY: an empty properties dictionary is valid.
-    let png = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
+    let png = unsafe {
+        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+    }?;
     Some(png.to_vec())
 }
 
 /// The user's first name for greetings.
 pub fn user_first_name() -> String {
     let full = objc2_foundation::NSFullUserName().to_string();
-    let source = if full.trim().is_empty() { objc2_foundation::NSUserName().to_string() } else { full };
-    source.split_whitespace().next().unwrap_or("there").to_string()
+    let source = if full.trim().is_empty() {
+        objc2_foundation::NSUserName().to_string()
+    } else {
+        full
+    };
+    source
+        .split_whitespace()
+        .next()
+        .unwrap_or("there")
+        .to_string()
 }
 
 /// Shows or hides the Dock icon.
 pub fn set_dock_icon_visible(visible: bool) {
-    let Some(mtm) = MainThreadMarker::new() else { return };
-    let policy = if visible { NSApplicationActivationPolicy::Regular } else { NSApplicationActivationPolicy::Accessory };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let policy = if visible {
+        NSApplicationActivationPolicy::Regular
+    } else {
+        NSApplicationActivationPolicy::Accessory
+    };
     NSApplication::sharedApplication(mtm).setActivationPolicy(policy);
 }
 
 pub fn activate_app() {
-    let Some(mtm) = MainThreadMarker::new() else { return };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
     #[allow(deprecated)]
     NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
 }
@@ -124,7 +153,9 @@ pub fn haptic(kind: Haptic) {
 }
 
 pub fn quit() {
-    let Some(mtm) = MainThreadMarker::new() else { return };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
     NSApplication::sharedApplication(mtm).terminate(None);
 }
 
@@ -132,11 +163,20 @@ pub fn quit() {
 pub fn on_wake(callback: impl Fn() + 'static) {
     use objc2_app_kit::{NSWorkspaceDidWakeNotification, NSWorkspaceScreensDidWakeNotification};
     let center = NSWorkspace::sharedWorkspace().notificationCenter();
-    let block = block2::RcBlock::new(move |_: std::ptr::NonNull<objc2_foundation::NSNotification>| callback());
+    let block = block2::RcBlock::new(
+        move |_: std::ptr::NonNull<objc2_foundation::NSNotification>| callback(),
+    );
     // SAFETY: the notification names are AppKit statics; the observer tokens
     // are leaked on purpose because the observation lasts for the app's life.
-    for name in unsafe { [NSWorkspaceDidWakeNotification, NSWorkspaceScreensDidWakeNotification] } {
-        let token = unsafe { center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block) };
+    for name in unsafe {
+        [
+            NSWorkspaceDidWakeNotification,
+            NSWorkspaceScreensDidWakeNotification,
+        ]
+    } {
+        let token = unsafe {
+            center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block)
+        };
         std::mem::forget(token);
     }
 }
@@ -146,7 +186,9 @@ pub fn on_wake(callback: impl Fn() + 'static) {
 pub fn set_app_appearance(mode: tick_core::settings::AppearanceMode) {
     use objc2_app_kit::{NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua};
     use tick_core::settings::AppearanceMode;
-    let Some(mtm) = MainThreadMarker::new() else { return };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
     // SAFETY: the appearance names are AppKit constants.
     let name = unsafe {
         match mode {

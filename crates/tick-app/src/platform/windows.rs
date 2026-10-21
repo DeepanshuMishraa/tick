@@ -1,9 +1,9 @@
 //! Native window adjustments GPUI does not expose: overlay levels, mouse
 //! pass-through, all-Spaces behavior, and frames in AppKit coordinates.
 
+use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::msg_send;
 use objc2_app_kit::{NSView, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -16,7 +16,9 @@ unsafe extern "C" {
 /// The NSWindow behind a GPUI window.
 pub fn ns_window(window: &gpui_kit::Window) -> Option<Retained<NSWindow>> {
     let handle = HasWindowHandle::window_handle(window).ok()?;
-    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else { return None };
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return None;
+    };
     // SAFETY: GPUI hands out its live NSView pointer for this window.
     let view: &NSView = unsafe { appkit.ns_view.cast::<NSView>().as_ref() };
     view.window()
@@ -56,7 +58,10 @@ pub fn configure_overlay(window: &NSWindow, level: OverlayLevel, click_through: 
 
 /// Moves the window to a frame given in AppKit screen coordinates.
 pub fn set_frame(window: &NSWindow, x: f64, y: f64, width: f64, height: f64) {
-    window.setFrame_display(NSRect::new(NSPoint::new(x, y), NSSize::new(width, height)), true);
+    window.setFrame_display(
+        NSRect::new(NSPoint::new(x, y), NSSize::new(width, height)),
+        true,
+    );
 }
 
 pub fn show(window: &NSWindow) {

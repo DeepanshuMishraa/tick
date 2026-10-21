@@ -5,12 +5,14 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AnimationExt as _, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    SpringAnimation, StatefulInteractiveElement as _, Styled as _, Window,
+    AnimationExt as _, Context, InteractiveElement as _, IntoElement, ParentElement as _,
+    SharedString, SpringAnimation, StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 
 use crate::sound::Cue;
-use crate::ui::components::{body, button, cue, eyebrow, icon, icon_button, muted, palette, title, toggle, Tone, SNAP};
+use crate::ui::components::{
+    SNAP, Tone, body, button, cue, eyebrow, icon, icon_button, muted, palette, title, toggle,
+};
 use crate::ui::icons::Icon;
 use crate::ui::main_view::MainView;
 use crate::ui::theme::{size, space};
@@ -31,30 +33,54 @@ pub fn banner(
         .border_color(p.line)
         .border_l_2()
         .border_color(p.accent)
-        .with_spring(id, SpringAnimation::new(SNAP).to(1.0f32).from(0.0f32), |el, t| el.opacity(t.clamp(0.0, 1.0)))
+        .with_spring(
+            id,
+            SpringAnimation::new(SNAP).to(1.0f32).from(0.0f32),
+            |el, t| el.opacity(t.clamp(0.0, 1.0)),
+        )
         .child(
             h_flex()
                 .justify_between()
                 .items_center()
-                .child(div().text_size(size::LEAD).text_color(p.text).child(heading.to_string()))
-                .child(icon_button(SharedString::from(format!("{id}-dismiss")), Icon::Close, p.muted, cx).on_click(move |_, _, cx| {
-                    cue(cx, Cue::Close);
-                    on_dismiss(cx);
-                })),
+                .child(
+                    div()
+                        .text_size(size::LEAD)
+                        .text_color(p.text)
+                        .child(heading.to_string()),
+                )
+                .child(
+                    icon_button(
+                        SharedString::from(format!("{id}-dismiss")),
+                        Icon::Close,
+                        p.muted,
+                        cx,
+                    )
+                    .on_click(move |_, _, cx| {
+                        cue(cx, Cue::Close);
+                        on_dismiss(cx);
+                    }),
+                ),
         )
         .child(muted(text.to_string(), cx))
-        .child(h_flex().flex_wrap().gap(space::S).children(examples.into_iter().map(|(from, to)| {
+        .child(
             h_flex()
+                .flex_wrap()
                 .gap(space::S)
-                .px(space::S)
-                .py(px(4.))
-                .border_1()
-                .border_color(p.line_strong)
-                .text_size(size::CAPTION)
-                .text_color(p.text)
-                .child(from)
-                .when_some(to, |el, to| el.child(icon(Icon::ArrowRight, px(11.), p.muted)).child(to))
-        })))
+                .children(examples.into_iter().map(|(from, to)| {
+                    h_flex()
+                        .gap(space::S)
+                        .px(space::S)
+                        .py(px(4.))
+                        .border_1()
+                        .border_color(p.line_strong)
+                        .text_size(size::CAPTION)
+                        .text_color(p.text)
+                        .child(from)
+                        .when_some(to, |el, to| {
+                            el.child(icon(Icon::ArrowRight, px(11.), p.muted)).child(to)
+                        })
+                })),
+        )
 }
 
 pub fn render(view: &mut MainView, _: &mut Window, cx: &mut Context<MainView>) -> impl IntoElement {
@@ -67,7 +93,11 @@ pub fn render(view: &mut MainView, _: &mut Window, cx: &mut Context<MainView>) -
         .settings
         .word_remappings
         .iter()
-        .filter(|r| query.is_empty() || r.match_text.to_lowercase().contains(&query) || r.replacement.to_lowercase().contains(&query))
+        .filter(|r| {
+            query.is_empty()
+                || r.match_text.to_lowercase().contains(&query)
+                || r.replacement.to_lowercase().contains(&query)
+        })
         .cloned()
         .collect();
     let removals_enabled = state.settings.word_removals_enabled;
@@ -79,7 +109,8 @@ pub fn render(view: &mut MainView, _: &mut Window, cx: &mut Context<MainView>) -
             cue(cx, Cue::Open);
             view_entity.update(cx, |view, cx| {
                 view.adding_word = true;
-                view.word_match.update(cx, |input, cx| input.focus(window, cx));
+                view.word_match
+                    .update(cx, |input, cx| input.focus(window, cx));
                 cx.notify();
             });
         }

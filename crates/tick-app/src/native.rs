@@ -7,7 +7,7 @@
 //! memory.
 
 use std::collections::HashMap;
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 
@@ -21,7 +21,12 @@ type ChunkFn = extern "C" fn(*mut c_void, *const c_char) -> bool;
 #[link(name = "TickNative", kind = "framework")]
 unsafe extern "C" {
     fn tn_task_cancel(id: u64);
-    fn tn_speech_download(model: *const c_char, ctx: *mut c_void, progress: ProgressFn, done: DoneFn) -> u64;
+    fn tn_speech_download(
+        model: *const c_char,
+        ctx: *mut c_void,
+        progress: ProgressFn,
+        done: DoneFn,
+    ) -> u64;
     fn tn_speech_warm(model: *const c_char, ctx: *mut c_void, done: DoneFn);
     fn tn_speech_transcribe(
         path: *const c_char,
@@ -85,11 +90,17 @@ fn register(slot: Slot) -> usize {
 
 fn copy(pointer: *const c_char) -> Option<String> {
     // SAFETY: Swift passes either null or a NUL-terminated string valid for this call.
-    (!pointer.is_null()).then(|| unsafe { CStr::from_ptr(pointer) }.to_string_lossy().into_owned())
+    (!pointer.is_null()).then(|| {
+        unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned()
+    })
 }
 
 extern "C" fn on_done(ctx: *mut c_void, result: *const c_char, error: *const c_char) {
-    let Some(slot) = SLOTS.lock().remove(&(ctx as usize)) else { return };
+    let Some(slot) = SLOTS.lock().remove(&(ctx as usize)) else {
+        return;
+    };
     let reply = match copy(error) {
         Some(message) if message == "cancelled" => Err(NativeError::Cancelled),
         Some(message) => Err(NativeError::Failed(message)),
@@ -101,14 +112,20 @@ extern "C" fn on_done(ctx: *mut c_void, result: *const c_char, error: *const c_c
 }
 
 extern "C" fn on_progress(ctx: *mut c_void, fraction: f64) {
-    let progress = SLOTS.lock().get(&(ctx as usize)).and_then(|slot| slot.progress.clone());
+    let progress = SLOTS
+        .lock()
+        .get(&(ctx as usize))
+        .and_then(|slot| slot.progress.clone());
     if let Some(progress) = progress {
         progress(fraction);
     }
 }
 
 extern "C" fn on_chunk(ctx: *mut c_void, text: *const c_char) -> bool {
-    let chunk = SLOTS.lock().get(&(ctx as usize)).and_then(|slot| slot.chunk.clone());
+    let chunk = SLOTS
+        .lock()
+        .get(&(ctx as usize))
+        .and_then(|slot| slot.chunk.clone());
     match (chunk, copy(text)) {
         (Some(chunk), Some(text)) => chunk(&text),
         _ => false,
@@ -125,7 +142,14 @@ async fn wait(receiver: oneshot::Receiver<Reply>) -> Reply {
 
 fn slot() -> (usize, oneshot::Receiver<Reply>) {
     let (sender, receiver) = oneshot::channel();
-    (register(Slot { reply: Some(sender), progress: None, chunk: None }), receiver)
+    (
+        register(Slot {
+            reply: Some(sender),
+            progress: None,
+            chunk: None,
+        }),
+        receiver,
+    )
 }
 
 /// Core ML speech engines (WhisperKit and Parakeet).
@@ -161,10 +185,15 @@ pub mod speech {
     /// Downloads (if needed) and loads `model`, reporting 0…1 progress.
     pub fn download(model: &str, progress: impl Fn(f64) + Send + Sync + 'static) -> Download {
         let (sender, receiver) = oneshot::channel();
-        let id = register(Slot { reply: Some(sender), progress: Some(Arc::new(progress)), chunk: None });
+        let id = register(Slot {
+            reply: Some(sender),
+            progress: Some(Arc::new(progress)),
+            chunk: None,
+        });
         let model = c(model);
         // SAFETY: arguments outlive the call; Swift copies strings immediately.
-        let task_id = unsafe { tn_speech_download(model.as_ptr(), id as *mut c_void, on_progress, on_done) };
+        let task_id =
+            unsafe { tn_speech_download(model.as_ptr(), id as *mut c_void, on_progress, on_done) };
         Download { task_id, receiver }
     }
 
@@ -176,14 +205,26 @@ pub mod speech {
         wait(receiver).await.map(|_| ())
     }
 
-    pub async fn transcribe(path: &std::path::Path, model: &str, language: Option<&str>) -> Result<String, NativeError> {
+    pub async fn transcribe(
+        path: &std::path::Path,
+        model: &str,
+        language: Option<&str>,
+    ) -> Result<String, NativeError> {
         let (id, receiver) = slot();
         let path = c(&path.to_string_lossy());
         let model = c(model);
         let language = language.map(c);
         let language_ptr = language.as_ref().map_or(std::ptr::null(), |l| l.as_ptr());
         // SAFETY: see `download`.
-        unsafe { tn_speech_transcribe(path.as_ptr(), model.as_ptr(), language_ptr, id as *mut c_void, on_done) };
+        unsafe {
+            tn_speech_transcribe(
+                path.as_ptr(),
+                model.as_ptr(),
+                language_ptr,
+                id as *mut c_void,
+                on_done,
+            )
+        };
         wait(receiver).await.map(Option::unwrap_or_default)
     }
 
@@ -221,7 +262,8 @@ pub mod speech {
         // SAFETY: see `download`.
         unsafe { tn_speech_catalog(id as *mut c_void, on_done) };
         let json = wait(receiver).await?.unwrap_or_default();
-        serde_json::from_str(&json).map_err(|error| NativeError::Failed(format!("Unreadable model catalog: {error}")))
+        serde_json::from_str(&json)
+            .map_err(|error| NativeError::Failed(format!("Unreadable model catalog: {error}")))
     }
 
     /// Starts a Parakeet streaming session. `false` when the model does not stream.
@@ -278,7 +320,11 @@ pub mod llm {
         handler: impl Fn(&str) -> bool + Send + Sync + 'static,
     ) -> Result<(), NativeError> {
         let (sender, receiver) = oneshot::channel();
-        let id = register(Slot { reply: Some(sender), progress: None, chunk: Some(Arc::new(handler)) });
+        let id = register(Slot {
+            reply: Some(sender),
+            progress: None,
+            chunk: Some(Arc::new(handler)),
+        });
         let directory = c(&directory.to_string_lossy());
         let system = c(system);
         let user = c(user);

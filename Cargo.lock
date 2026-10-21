@@ -7104,7 +7104,7 @@ dependencies = [
 
 [[package]]
 name = "tick-app"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "block2 0.6.2",
  "chrono",
@@ -7145,7 +7145,7 @@ dependencies = [
 
 [[package]]
 name = "tick-core"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "chrono",
  "fancy-regex",
