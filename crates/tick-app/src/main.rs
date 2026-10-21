@@ -6,6 +6,7 @@ mod intelligence;
 mod native;
 mod platform;
 mod sound;
+mod speech;
 mod state;
 mod storage;
 mod ui;

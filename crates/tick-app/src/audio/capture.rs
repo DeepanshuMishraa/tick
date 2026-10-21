@@ -157,6 +157,10 @@ impl Processor {
         for sample in &pre_roll {
             let _ = writer.write_sample(*sample);
         }
+        // The stream gets the same audio as the file, pre-roll included.
+        if self.streaming.load(Ordering::Relaxed) {
+            crate::speech::push(&pre_roll);
+        }
         tracing::info!(target: "recording", "recording file opened, pre-roll {:.3}s", pre_roll.len() as f32 / SAMPLE_RATE as f32);
         self.recording = Some(Recording { path, writer, requested_at, logged_first_buffer: false });
         Ok(())
@@ -190,7 +194,7 @@ impl Processor {
         }
         *self.meter.lock() = Meter { average: (sum / converted.len() as f32).sqrt(), peak };
         if self.streaming.load(Ordering::Relaxed) {
-            crate::native::speech::push(&converted);
+            crate::speech::push(&converted);
         }
         if !recording.logged_first_buffer {
             recording.logged_first_buffer = true;

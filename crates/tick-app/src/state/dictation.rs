@@ -18,11 +18,11 @@ use tick_core::text::{self, KeystrokeTracker, WordCorrection, WordRemapping};
 
 use super::{png_image, AppState, Tab};
 use crate::intelligence::{self, PostProcess};
-use crate::native;
 use crate::platform::paste::{self, PasteResult};
 use crate::platform::system::SleepAssertion;
 use crate::platform::workspace::{self, Haptic};
 use crate::sound::Cue;
+use crate::speech;
 use crate::storage;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -153,7 +153,7 @@ impl AppState {
                     .await;
                 let _ = this.update(cx, |state, _| state.dictation.context = Some(context));
             }
-            match native::speech::start_streaming(&model).await {
+            match speech::start_streaming(&model).await {
                 Ok(true) => recorder.set_streaming(true),
                 Ok(false) => {}
                 Err(error) => tracing::error!(target: "transcription", "streaming setup failed ({error}); batch transcription remains available"),
@@ -183,7 +183,7 @@ impl AppState {
             self.tasks.transcription = Some(cx.spawn(async move |_, cx| {
                 drop(previous);
                 let path = cx.background_executor().spawn(async move { stop_recorder(&recorder) }).await;
-                native::speech::cancel_streaming();
+                speech::cancel_streaming();
                 remove_file(path);
             }));
             return;
@@ -207,17 +207,17 @@ impl AppState {
                 let _ = this.update(cx, |state, cx| state.fail("No audio was captured.", None, cx));
                 return;
             };
-            let streamed = match native::speech::finish_streaming().await {
+            let streamed = match speech::finish_streaming().await {
                 Ok(text) => text.filter(|t| !t.trim().is_empty()),
                 Err(error) => {
                     tracing::error!(target: "transcription", "streaming flush failed ({error}); using batch transcription");
-                    native::speech::cancel_streaming();
+                    speech::cancel_streaming();
                     None
                 }
             };
             let result = match streamed {
                 Some(text) => Ok(text),
-                None => native::speech::transcribe(&path, &model, language.as_deref()).await,
+                None => speech::transcribe(&path, &model, language.as_deref()).await,
             };
             match result {
                 Ok(text) => process_result(this, text, path, cx).await,
@@ -240,7 +240,7 @@ impl AppState {
         self.sleep = None;
         self.sound.play(Cue::Close);
         self.recorder.set_streaming(false);
-        native::speech::cancel_streaming();
+        speech::cancel_streaming();
         let recorder = self.recorder.clone();
         cx.background_executor().spawn(async move { remove_file(stop_recorder(&recorder)) }).detach();
         cx.notify();
@@ -255,7 +255,7 @@ impl AppState {
         self.phase = Phase::Idle;
         self.locked = false;
         self.sleep = None;
-        native::speech::cancel_streaming();
+        speech::cancel_streaming();
         let recorder = self.recorder.clone();
         cx.background_executor().spawn(async move { remove_file(stop_recorder(&recorder)) }).detach();
         cx.notify();

@@ -16,6 +16,7 @@ use gpui_kit::{
     IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use tick_core::hotkey::{ModifierKind, ModifierSide};
+use tick_core::models::PARAKEET_UNIFIED_ENGLISH;
 use tick_core::settings::{
     AiPostProcessingMode, AppearanceMode, GroqModel, OnDeviceAiModel, RecordingAudioBehavior, RecordingIndicatorStyle,
     RecordingRetention, ThemeColor,
@@ -71,7 +72,8 @@ pub fn render(view: &mut MainView, window: &mut Window, cx: &mut Context<MainVie
     let entity = view.state.clone();
     let state = view.state.read(cx);
     let permissions = state.permissions;
-    let parakeet = state.settings.selected_parakeet().is_some();
+    // Parakeet picks its language itself; the output language does not apply.
+    let parakeet = state.settings.selected_parakeet().is_some() || state.settings.selected_model == PARAKEET_UNIFIED_ENGLISH;
     let show_microphone = permissions.microphone.is_granted() && !state.devices.devices.is_empty();
     let _ = window;
     v_flex()
@@ -141,10 +143,10 @@ fn model_section(view: &MainView, cx: &mut Context<MainView>) -> impl IntoElemen
     let entries: Vec<_> = models
         .curated
         .iter()
-        .filter(|entry| models.show_all || entry.model.parakeet().is_some())
+        .filter(|entry| models.show_all || entry.model.is_featured())
         .cloned()
         .collect();
-    let hidden = models.curated.iter().filter(|e| e.model.parakeet().is_none()).count();
+    let hidden = models.curated.iter().filter(|e| !e.model.is_featured()).count();
     let error = models.error.clone();
     let show_all = models.show_all;
     let downloading_any = models.is_downloading();
@@ -206,7 +208,8 @@ fn model_section(view: &MainView, cx: &mut Context<MainView>) -> impl IntoElemen
                                                 .child(body(entry.model.display_name.clone(), cx))
                                                 .when_some(entry.model.badge(), |el, badge| {
                                                     el.child(div().px(px(5.)).py(px(1.)).border_1().border_color(p.accent).text_size(size::EYEBROW).text_color(p.accent).child(badge.to_uppercase()))
-                                                }),
+                                                })
+                                                .when(entry.model.streams, |el| el.child(streams_tag(cx))),
                                         )
                                         .child(
                                             h_flex()
@@ -214,7 +217,8 @@ fn model_section(view: &MainView, cx: &mut Context<MainView>) -> impl IntoElemen
                                                 .child(h_flex().gap(space::XS).items_center().child(rating(entry.model.accuracy_stars, cx)).child(muted("Accuracy", cx)))
                                                 .child(h_flex().gap(space::XS).items_center().child(rating(entry.model.speed_stars, cx)).child(muted("Speed", cx)))
                                                 .child(muted(entry.model.size.clone(), cx)),
-                                        ),
+                                        )
+                                        .when(entry.model.streams, |el| el.child(muted("Transcribes while you speak, so text lands right after you let go.", cx))),
                                 )
                                 .child(muted(entry.model.storage_size.clone(), cx))
                                 .child(
@@ -263,6 +267,23 @@ fn model_section(view: &MainView, cx: &mut Context<MainView>) -> impl IntoElemen
                     .on_click(move |_, _, cx| toggle_entity.update(cx, |s, cx| s.toggle_all_models(cx))),
             )
         })
+}
+
+/// Marks a model that transcribes while you speak: a small level meter
+/// beside the label, in the same square chip as the recommendation badge.
+fn streams_tag(cx: &App) -> impl IntoElement {
+    let p = palette(cx);
+    h_flex()
+        .gap(px(4.))
+        .px(px(5.))
+        .py(px(1.))
+        .items_center()
+        .border_1()
+        .border_color(p.line_strong)
+        .text_size(size::EYEBROW)
+        .text_color(p.muted)
+        .child(h_flex().gap(px(1.)).h(px(7.)).items_end().children([4., 7., 5.].map(|height| div().w(px(2.)).h(px(height)).bg(p.accent))))
+        .child("STREAMS")
 }
 
 fn language_section(state: &Entity<AppState>, cx: &App) -> impl IntoElement {

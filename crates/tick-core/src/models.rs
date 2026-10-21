@@ -3,6 +3,10 @@
 
 use serde::Deserialize;
 
+/// Parakeet Unified English: a GGUF model run in-process on Metal that
+/// transcribes while the hotkey is held.
+pub const PARAKEET_UNIFIED_ENGLISH: &str = "parakeet-unified-en-0.6b";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParakeetModel {
     EnglishV2,
@@ -38,6 +42,9 @@ pub struct CuratedModel {
     pub accuracy_stars: u8,
     pub speed_stars: u8,
     pub storage_size: String,
+    /// Transcribes while you speak, so text is ready soon after release.
+    #[serde(default)]
+    pub streams: bool,
 }
 
 impl CuratedModel {
@@ -46,10 +53,18 @@ impl CuratedModel {
     }
 
     pub fn badge(&self) -> Option<&'static str> {
-        self.parakeet().map(|model| match model {
-            ParakeetModel::EnglishV2 => "Best for English",
-            ParakeetModel::MultilingualV3 => "Best multilingual",
-        })
+        if self.internal_name == PARAKEET_UNIFIED_ENGLISH {
+            return Some("Best for English");
+        }
+        match self.parakeet()? {
+            ParakeetModel::EnglishV2 => None,
+            ParakeetModel::MultilingualV3 => Some("Best multilingual"),
+        }
+    }
+
+    /// Shown without expanding "More models".
+    pub fn is_featured(&self) -> bool {
+        self.streams || self.parakeet().is_some()
     }
 
     /// Whether this curated entry denotes `selected` (either may be a glob).
@@ -169,8 +184,14 @@ mod tests {
 
     #[test]
     fn bundled_catalogs_parse() {
-        assert_eq!(curated_models().len(), 5);
+        assert_eq!(curated_models().len(), 6);
         assert!(languages().len() > 50);
         assert_eq!(display_name("parakeet-tdt-0.6b-v3-coreml"), "Parakeet TDT v3");
+    }
+
+    #[test]
+    fn only_parakeet_unified_streams() {
+        let streaming: Vec<_> = curated_models().into_iter().filter(|m| m.streams).map(|m| m.internal_name).collect();
+        assert_eq!(streaming, [PARAKEET_UNIFIED_ENGLISH]);
     }
 }

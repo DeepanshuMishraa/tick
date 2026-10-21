@@ -218,7 +218,7 @@ pub struct DownloadControl {
 }
 
 impl DownloadControl {
-    fn check(&self) -> Result<(), DownloadError> {
+    pub(crate) fn check(&self) -> Result<(), DownloadError> {
         if self.cancelled.load(Ordering::Relaxed) { Err(DownloadError::Cancelled) } else { Ok(()) }
     }
 
@@ -337,21 +337,29 @@ pub fn download_model(model: OnDeviceAiModel, control: &DownloadControl) -> Resu
             continue;
         }
         let url = format!("{}/{name}", model.remote_base_url());
-        let before = control.completed.load(Ordering::Relaxed);
-        let done_parallel = *size >= PARALLEL_THRESHOLD && download_parallel(&url, *size, &target, &staging, control)?;
-        if !done_parallel {
-            control.completed.store(before, Ordering::Relaxed);
-            let temporary = staging.join(format!("{name}.download"));
-            fetch(&url, None, &temporary, control)?;
-            std::fs::rename(&temporary, &target).map_err(|e| DownloadError::Disk(e.to_string()))?;
-        }
-        if file_size(&target) != *size {
-            let _ = std::fs::remove_file(&target);
-            return Err(DownloadError::Incomplete(name.to_string()));
-        }
+        download_file(&url, *size, &target, &staging, control)?;
     }
     let _ = std::fs::remove_dir_all(&staging);
     if is_model_downloaded(model) { Ok(()) } else { Err(DownloadError::Incomplete("model files".into())) }
+}
+
+/// Downloads one file of known `size` to `target`, in parallel byte ranges
+/// when the server allows. Chunks kept in `staging` let a retry resume.
+pub fn download_file(url: &str, size: u64, target: &Path, staging: &Path, control: &DownloadControl) -> Result<(), DownloadError> {
+    let name = target.file_name().map_or_else(|| "model".into(), |n| n.to_string_lossy().into_owned());
+    let before = control.completed.load(Ordering::Relaxed);
+    let done_parallel = size >= PARALLEL_THRESHOLD && download_parallel(url, size, target, staging, control)?;
+    if !done_parallel {
+        control.completed.store(before, Ordering::Relaxed);
+        let temporary = staging.join(format!("{name}.download"));
+        fetch(url, None, &temporary, control)?;
+        std::fs::rename(&temporary, target).map_err(|e| DownloadError::Disk(e.to_string()))?;
+    }
+    if file_size(target) != size {
+        let _ = std::fs::remove_file(target);
+        return Err(DownloadError::Incomplete(name));
+    }
+    Ok(())
 }
 
 pub fn total_bytes(model: OnDeviceAiModel) -> u64 {

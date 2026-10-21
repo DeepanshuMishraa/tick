@@ -4,12 +4,13 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use gpui_kit::Context;
-use tick_core::models::{self, curated_models, CuratedModel, ParakeetModel};
+use tick_core::models::{self, curated_models, CuratedModel, ParakeetModel, PARAKEET_UNIFIED_ENGLISH};
 use tick_core::settings::AiPostProcessingMode;
 
 use super::AppState;
 use crate::intelligence::{self, DownloadControl};
 use crate::native;
+use crate::speech::{self, gguf::GgufModel};
 use crate::platform::workspace;
 use crate::sound::Cue;
 use crate::storage;
@@ -37,7 +38,7 @@ pub struct ModelState {
     pub loading: bool,
     pub download: SpeechDownload,
     pub error: Option<String>,
-    cancel: Option<native::speech::CancelHandle>,
+    cancel: Option<speech::CancelHandle>,
 }
 
 impl ModelState {
@@ -76,7 +77,7 @@ impl AppState {
             return;
         }
         cx.spawn(async move |this, cx| {
-            let ready = native::speech::is_downloaded(&model).await;
+            let ready = speech::is_downloaded(&model).await;
             let _ = this.update(cx, |state, cx| {
                 if state.settings.selected_model == model {
                     state.models.ready = ready;
@@ -93,7 +94,7 @@ impl AppState {
         }
         self.models.loading = true;
         cx.spawn(async move |this, cx| {
-            let catalog = native::speech::catalog().await;
+            let catalog = speech::catalog().await;
             let _ = this.update(cx, |state, cx| {
                 state.models.loading = false;
                 let (recommended, mut available) = match catalog {
@@ -107,6 +108,9 @@ impl AppState {
                     if !available.iter().any(|(name, _)| name == parakeet.identifier()) {
                         available.insert(0, (parakeet.identifier().to_string(), false));
                     }
+                }
+                if let Some(unified) = GgufModel::from_identifier(PARAKEET_UNIFIED_ENGLISH) {
+                    available.insert(0, (unified.identifier.to_string(), unified.is_downloaded()));
                 }
                 let preferred = state.preferred_parakeet();
                 let recommended = if available.iter().any(|(n, _)| n == preferred) { preferred.to_string() } else { recommended };
@@ -135,7 +139,7 @@ impl AppState {
 
     fn preferred_parakeet(&self) -> &'static str {
         let english = self.settings.output_language.as_deref().is_some_and(|l| l.to_lowercase().starts_with("en"));
-        if english { ParakeetModel::EnglishV2.identifier() } else { ParakeetModel::MultilingualV3.identifier() }
+        if english { PARAKEET_UNIFIED_ENGLISH } else { ParakeetModel::MultilingualV3.identifier() }
     }
 
     fn selected_model_downloaded(&self) -> bool {
@@ -163,7 +167,7 @@ impl AppState {
         self.models.download = SpeechDownload::Downloading { model: model.clone(), progress: 0.0 };
         self.sound.play(Cue::Loading);
         let (progress_tx, mut progress_rx) = futures::channel::mpsc::unbounded::<f64>();
-        let download = native::speech::download(&model, move |fraction| {
+        let download = speech::download(&model, move |fraction| {
             let _ = progress_tx.unbounded_send(fraction);
         });
         self.models.cancel = Some(download.cancel_handle());
@@ -200,7 +204,7 @@ impl AppState {
                         state.models.ready = state.selected_model_downloaded();
                         state.sound.play(Cue::Success);
                     }
-                    Err(native::NativeError::Cancelled) => {
+                    Err(speech::NativeError::Cancelled) => {
                         state.models.error = Some("Download cancelled".into());
                     }
                     Err(error) => {
@@ -230,7 +234,7 @@ impl AppState {
         self.models.ready = false;
         let model = self.settings.selected_model.clone();
         cx.spawn(async move |this, cx| {
-            let result = native::speech::delete(&model).await;
+            let result = speech::delete(&model).await;
             let _ = this.update(cx, |state, cx| {
                 if let Err(error) = result {
                     state.models.error = Some(error.to_string());
@@ -257,7 +261,7 @@ impl AppState {
         let model = self.settings.selected_model.clone();
         let ai = (self.settings.ai_post_processing_mode == AiPostProcessingMode::On).then_some(self.settings.selected_ai_model);
         cx.spawn(async move |_, _| {
-            if let Err(error) = native::speech::warm(&model).await {
+            if let Err(error) = speech::warm(&model).await {
                 tracing::error!(target: "transcription", "speech model warm-up failed: {error}");
             }
             if let Some(model) = ai.filter(|m| intelligence::is_model_downloaded(*m)) {

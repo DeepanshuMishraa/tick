@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+### Minor Changes
+
+- Parakeet Unified English transcribes while you hold the hotkey, so the text is ready when you let go. If the stream fails, comes back empty, or takes more than 1.5 seconds, Tick transcribes the whole clip instead. It is the recommended English model.
+
 ## 1.1.0
 
 ### Minor Changes

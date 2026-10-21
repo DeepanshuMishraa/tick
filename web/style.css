@@ -138,8 +138,8 @@ kbd {
 }
 
 .table { overflow-x: auto; }
-.models { min-width: 560px; }
-.models .row { grid-template-columns: 168px 128px 96px 96px 1fr; padding: 10px 0; line-height: 22px; }
+.models { min-width: 600px; }
+.models .row { grid-template-columns: 176px 128px 96px 96px 1fr; padding: 10px 0; line-height: 22px; }
 .models .row span:first-child { font-weight: 600; }
 .models .head { font-size: 13px; color: var(--mute); }
 .models em { font-style: normal; font-size: 13px; text-align: right; color: var(--accent); }

@@ -11,7 +11,7 @@ Or install with Homebrew:
 brew install --cask deepanshumishraa/tap/tick
 ```
 
-Tick is a native Rust app built with [GPUI](https://www.gpui.rs). Transcription runs on-device with [Parakeet TDT v3](https://github.com/FluidInference/FluidAudio) (the default: fast and multilingual) or [WhisperKit](https://github.com/argmaxinc/WhisperKit).
+Tick is a native Rust app built with [GPUI](https://www.gpui.rs). English dictation uses [Parakeet Unified](https://github.com/handy-computer/parakeet-unified-en-0.6b-gguf), which transcribes while you speak. Other languages use [Parakeet TDT v3](https://github.com/FluidInference/FluidAudio). [WhisperKit](https://github.com/argmaxinc/WhisperKit) models are there too.
 
 ## Instructions
 

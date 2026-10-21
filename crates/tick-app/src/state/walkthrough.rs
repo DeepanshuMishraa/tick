@@ -19,7 +19,6 @@ use super::dictation::{apply_text_rules, remove_file, sleeper, stop_recorder};
 use super::{AppState, Feedback, PasteFailure, Phase};
 use crate::audio::capture::SAMPLE_RATE;
 use crate::hotkeys::{WalkthroughInput, WalkthroughTap};
-use crate::native;
 use crate::platform::paste::{self, PasteResult};
 use crate::platform::screen::{self, Display};
 use crate::platform::system::{self, ScreenGeometry};
@@ -462,7 +461,7 @@ async fn compile(
             tracing::error!(target: "walkthrough", "could not write a speech clip: {error}");
             continue;
         }
-        match native::speech::transcribe(&clip, &settings.selected_model, settings.output_language.as_deref()).await {
+        match crate::speech::transcribe(&clip, &settings.selected_model, settings.output_language.as_deref()).await {
             Ok(text) => {
                 let text = apply_text_rules(text.trim(), settings);
                 if !text.is_empty() {

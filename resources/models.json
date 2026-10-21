@@ -1,5 +1,14 @@
 [
   {
+    "displayName": "Parakeet Unified",
+    "internalName": "parakeet-unified-en-0.6b",
+    "size": "English",
+    "accuracyStars": 5,
+    "speedStars": 5,
+    "storageSize": "730MB",
+    "streams": true
+  },
+  {
     "displayName": "Parakeet TDT v2",
     "internalName": "parakeet-tdt-0.6b-v2-coreml",
     "size": "English",
